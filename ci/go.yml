@@ -1,0 +1,67 @@
+# ─── Go CI jobs ──────────────────────────────────────────────────────────────
+#
+# Include this file from .gitlab-ci.yml:
+#   include:
+#     - local: ci/go.yml
+#
+# Customize:
+#   - GO_DIR: directory containing go.mod (default: ".")
+#   - COVERAGE_THRESHOLD: minimum coverage percentage (default: 80)
+
+variables:
+  GO_DIR: "."
+  COVERAGE_THRESHOLD: "80"
+
+.go-cache:
+  variables:
+    GOPATH: "$CI_PROJECT_DIR/.go"
+  cache:
+    key:
+      prefix: "go"
+      files: [$GO_DIR/go.sum]
+    paths: [.go/pkg/mod/]
+    policy: pull
+
+go-lint:
+  extends: .go-cache
+  stage: lint
+  image: golangci/golangci-lint:v1.61
+  rules:
+    - changes:
+        - "**/*.go"
+        - go.mod
+        - go.sum
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+  script:
+    - cd $GO_DIR
+    - golangci-lint run ./...
+
+go-test:
+  extends: .go-cache
+  stage: test
+  needs: []
+  image: golang:1.23-alpine
+  rules:
+    - changes:
+        - "**/*.go"
+        - go.mod
+        - go.sum
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+  script:
+    - cd $GO_DIR
+    - go test ./... -v -coverprofile=coverage.out -covermode=atomic
+    - go tool cover -func=coverage.out | tail -1
+  coverage: '/total:\s+\(statements\)\s+(\d+\.\d+)%/'
+  artifacts:
+    paths:
+      - $GO_DIR/coverage.out
+    when: always
+
+go-vuln-check:
+  extends: [.go-cache, .on-mr]
+  stage: security
+  image: golang:1.23-alpine
+  script:
+    - go install golang.org/x/vuln/cmd/govulncheck@latest
+    - cd $GO_DIR
+    - govulncheck ./...

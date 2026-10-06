@@ -1,0 +1,133 @@
+# [PROJECT NAME] — Frontend UI Conventions
+
+<!--
+This is a design system skeleton. Fill in your project's specific values.
+The ux-review agent reads this file to validate implementation against your design system.
+Rename this file to CLAUDE.md once customized.
+-->
+
+---
+
+## Color tokens
+
+<!-- Define your color palette as CSS custom properties or Tailwind config values -->
+
+| Token | Value | Usage |
+|---|---|---|
+| `--color-primary` | `[FILL IN]` | Primary actions, links, active states |
+| `--color-primary-hover` | `[FILL IN]` | Hover state for primary elements |
+| `--color-surface` | `[FILL IN]` | Card backgrounds, modal backgrounds |
+| `--color-surface-raised` | `[FILL IN]` | Elevated surfaces (dropdowns, popovers) |
+| `--color-border` | `[FILL IN]` | Default borders |
+| `--color-text` | `[FILL IN]` | Primary text |
+| `--color-text-muted` | `[FILL IN]` | Secondary/helper text |
+| `--color-danger` | `[FILL IN]` | Destructive actions, error states |
+| `--color-success` | `[FILL IN]` | Success states, confirmations |
+| `--color-warning` | `[FILL IN]` | Warning states, caution indicators |
+
+---
+
+## Typography
+
+| Element | Font | Size | Weight |
+|---|---|---|---|
+| Headings | `[FILL IN]` | `[FILL IN]` | `[FILL IN]` |
+| Body | `[FILL IN]` | `[FILL IN]` | `[FILL IN]` |
+| Labels/captions | `[FILL IN]` | `[FILL IN]` | `[FILL IN]` |
+| Code/mono | `[FILL IN]` | `[FILL IN]` | `[FILL IN]` |
+
+---
+
+## Spacing scale
+
+<!-- Define your spacing scale (e.g. Tailwind default, custom rem scale) -->
+
+Use `[FILL IN: e.g. Tailwind spacing utilities]` for all spacing. Key values:
+- Component padding: `[FILL IN]`
+- Section gaps: `[FILL IN]`
+- Form field spacing: `[FILL IN]`
+
+---
+
+## Buttons
+
+| Variant | Background | Text | Border | Usage |
+|---|---|---|---|---|
+| Primary | `[FILL IN]` | `[FILL IN]` | none | Main actions (Save, Create, Confirm) |
+| Secondary | `[FILL IN]` | `[FILL IN]` | `[FILL IN]` | Secondary actions (Cancel, Back) |
+| Danger | `[FILL IN]` | `[FILL IN]` | none | Destructive actions (Delete, Remove) |
+| Ghost | transparent | `[FILL IN]` | none | Tertiary actions, icon buttons |
+
+All buttons: `rounded-[FILL IN]`, `px-[FILL IN] py-[FILL IN]`, `text-sm font-medium`
+
+---
+
+## Inputs and forms
+
+- Border: `[FILL IN]`, radius: `[FILL IN]`
+- Focus ring: `[FILL IN]`
+- Error state: `[FILL IN]` border + error message below in `[FILL IN]` color
+- Labels: above the input, `text-sm font-medium`
+- Helper text: below the input, `text-xs text-muted`
+
+---
+
+## Modals
+
+- Overlay: `[FILL IN: e.g. bg-black/50]`
+- Container: `[FILL IN: e.g. max-w-md rounded-lg bg-white p-6]`
+- Header: title + optional close button
+- Footer: action buttons right-aligned, Cancel on left, primary action on right
+- Close on Escape and overlay click
+
+---
+
+## Component patterns
+
+<!-- Add your project-specific component conventions here -->
+
+### Cards
+- `[FILL IN]`
+
+### Navigation
+- `[FILL IN]`
+
+### Tables / lists
+- `[FILL IN]`
+
+### Badges / tags
+- `[FILL IN]`
+
+### Toasts / notifications
+- `[FILL IN]`
+
+---
+
+## Responsive breakpoints
+
+| Name | Min width | Usage |
+|---|---|---|
+| `sm` | `[FILL IN]` | Mobile landscape |
+| `md` | `[FILL IN]` | Tablet |
+| `lg` | `[FILL IN]` | Desktop |
+| `xl` | `[FILL IN]` | Wide desktop |
+
+---
+
+## Accessibility
+
+- All interactive elements must be keyboard navigable
+- Focus indicators must be visible (never `outline: none` without a replacement)
+- Color contrast must meet WCAG 2.1 AA (4.5:1 for text, 3:1 for large text)
+- Images and icons used as actions must have `aria-label` or `alt` text
+- Form inputs must have associated `<label>` elements
+
+---
+
+## Working conventions
+
+- No `dangerouslySetInnerHTML` unless content is sanitized server-side; document the reason inline
+- TypeScript interfaces that mirror backend serializer fields must be updated in the same commit when a field is added or removed
+- Never remove a field from a shared interface without confirming it is unreferenced across the entire frontend
+- After changing component behavior (placeholder text, button labels, API surface), run the affected test file locally before committing
+- Grep for changed string literals across test files when renaming UI copy: `grep -r 'old text' [test dir]/`

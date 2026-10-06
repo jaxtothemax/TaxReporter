@@ -1,0 +1,47 @@
+# ─── Environment ──────────────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ─── Claude Code (personal overrides — commit .claude/settings.json, not this) ──
+.claude/settings.local.json
+
+# ─── Dependencies ─────────────────────────────────────────────────────────────
+node_modules
+.venv
+__pycache__/
+*.pyc
+.go/
+
+# ─── Build artifacts ─────────────────────────────────────────────────────────
+dist/
+build/
+bin/
+*.egg-info/
+
+# ─── Coverage ─────────────────────────────────────────────────────────────────
+coverage/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# ─── IDE ──────────────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ─── OS ───────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ─── Cache ────────────────────────────────────────────────────────────────────
+.npm/
+.cache/
+.astro/
+
+# scripts/wt per-worktree files (direnv env, ownership marker)
+.envrc
+.wt-owner

@@ -1,0 +1,438 @@
+# ─── Python CI jobs ───────────────────────────────────────────────────────────
+#
+# Include this file from .gitlab-ci.yml:
+#   include:
+#     - local: ci/python.yml
+#
+# Prerequisites:
+#   - requirements.txt (or pyproject.toml) in the repo root or backend/
+#   - Adjust paths below if your Python code lives in a subdirectory
+#
+# Customize:
+#   - PYTHON_DIR: directory containing your Python code (default: ".")
+#   - COVERAGE_THRESHOLD: minimum coverage percentage (default: 80)
+#
+# Two of the jobs below (python-schema-fuzz, python-nightly-load-test) need a
+# LIVE, booted API, not just source files — a requirement none of the other
+# jobs in this file have. See each job's own header comment for exactly what
+# to provide; both are inert (no-op, not even listed in the pipeline) until
+# you do, via the same `exists:` gating ci/helm.yml uses for "this clone
+# hasn't set this up yet" (see ci/CLAUDE.md).
+
+variables:
+  PYTHON_DIR: "."
+  COVERAGE_THRESHOLD: "80"
+
+.pip-cache:
+  variables:
+    PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  cache:
+    key:
+      prefix: "pip"
+      files: [requirements.txt]
+    paths: [.cache/pip/]
+    policy: pull
+
+python-lint:
+  extends: .pip-cache
+  stage: lint
+  image: python:3.12-slim
+  rules:
+    - changes:
+        - "**/*.py"
+        - requirements*.txt
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+  before_script:
+    - pip install --quiet ruff
+  script:
+    - ruff check $PYTHON_DIR
+  allow_failure: true
+
+python-test:
+  extends: .pip-cache
+  stage: test
+  needs: []
+  image: python:3.12-slim
+  rules:
+    - changes:
+        - "**/*.py"
+        - requirements*.txt
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+  # Uncomment and configure services if your tests need them:
+  # services:
+  #   - name: postgres:17-alpine
+  #     alias: postgres
+  #   - name: redis:7-alpine
+  #     alias: redis
+  # variables:
+  #   POSTGRES_DB: test_db
+  #   POSTGRES_USER: test_user
+  #   POSTGRES_PASSWORD: test_password
+  #   DATABASE_URL: "postgres://test_user:test_password@postgres:5432/test_db"
+  before_script:
+    - pip install --quiet -r requirements.txt
+    - pip install --quiet coverage pytest
+  script:
+    - cd $PYTHON_DIR
+    - coverage run -m pytest --junitxml=test-results/junit.xml -q
+    - coverage report --fail-under=$COVERAGE_THRESHOLD
+    - coverage xml -o coverage.xml
+  coverage: '/^TOTAL\s+\d+\s+\d+\s+(\d+)%/'
+  artifacts:
+    reports:
+      junit: $PYTHON_DIR/test-results/junit.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: $PYTHON_DIR/coverage.xml
+    when: always
+
+python-license-check:
+  extends: [.pip-cache, .on-mr]
+  stage: security
+  image: python:3.12-slim
+  before_script:
+    - pip install --quiet pip-licenses
+    - pip install --quiet -r requirements.txt
+  script:
+    - pip-licenses --fail-on="GPL-2.0;GPL-3.0;AGPL-3.0"
+
+# ─── Schema fuzz (Schemathesis) ───────────────────────────────────────────────
+#
+# Property-based testing of the live API against its own declared OpenAPI
+# schema (issue #40) — ported and genericized from Visiban's
+# `backend-schema-fuzz` job (#1080, flipped to blocking in #1120). Every other
+# schema check in a typical pipeline (a spectacular/drf-yasg `--validate`, a
+# committed openapi.json diff check) only proves the SCHEMA is well-formed; it
+# has no way to catch a handler that bypasses its own serializer and returns a
+# body the schema never described. This is the only gate that drives real
+# requests at the real server and checks the RESPONSE against what was
+# promised.
+#
+# Prerequisites (this job is otherwise a no-op — see `exists:` below):
+#   1. SCHEMA_FUZZ_API_BOOT_SCRIPT: a script YOU provide that migrates/seeds a
+#      minimal fixture, starts your API, and does not return until the API is
+#      actually serving requests (or exits non-zero on failure to start). This
+#      job does not poll for readiness itself — a boot script that backgrounds
+#      the server and returns immediately will make schemathesis fail on the
+#      first request instead of failing with a clear "did not start" error.
+#   2. Your API must expose its OpenAPI schema at SCHEMA_FUZZ_SCHEMA_URL
+#      (drf-spectacular's default is /api/schema/; many frameworks default to
+#      /openapi.json — check yours).
+#   3. If your API needs auth, the boot script must write a raw token (no
+#      scheme prefix) to SCHEMA_FUZZ_AUTH_TOKEN_FILE. Use a token scoped to an
+#      ordinary, non-admin account — fuzzing as an admin/superuser only proves
+#      the admin surface behaves, and the file this job writes must never be
+#      admin-capable by accident.
+#
+# Customize:
+#   - SCHEMA_FUZZ_BASELINE_FILE: schemathesis's own "accepted known failures"
+#     mechanism (matched by operation + check + failure class, not by the
+#     random value generated) — only passed if the file exists. Start with
+#     none; add scoped, justified entries here as real findings are triaged,
+#     the same way Visiban's own schemathesis-baseline.json does, rather than
+#     leaving this job non-blocking while a backlog is worked off.
+#   - SCHEMA_FUZZ_HOOKS_FILE: optional. If present, loaded via schemathesis's
+#     own SCHEMATHESIS_HOOKS mechanism to substitute real ids into path
+#     parameters instead of random ones — see
+#     scripts/schemathesis_hooks.py.example for the pattern and why it
+#     matters (a nested detail route otherwise mostly 404s under fuzzing).
+#   - SCHEMA_FUZZ_EXCLUDE_PATH_REGEX: exclude an operation entirely (Visiban's
+#     own baseline excludes a redirect-only email-confirm endpoint this way —
+#     see that job's comment in its own .gitlab-ci.yml for the exact case).
+#   - SCHEMATHESIS_MAX_EXAMPLES / _MAX_TIME / _WORKERS: fuzzing budget per run.
+#
+# NOT allow_failure: a response that silently drifted from its own documented
+# schema is exactly the class of bug an API consumer (a generated client, an
+# MCP/agent tool, a frontend built from the schema) discovers in production.
+# Stage a real backlog via SCHEMA_FUZZ_BASELINE_FILE, as above, rather than
+# shipping this non-blocking indefinitely.
+python-schema-fuzz:
+  extends: .pip-cache
+  stage: test
+  needs: []
+  image: python:3.12-slim
+  allow_failure: false
+  variables:
+    SCHEMA_FUZZ_API_BOOT_SCRIPT: "scripts/ci-boot-api-for-schema-fuzz.sh"
+    SCHEMA_FUZZ_BASE_URL: "http://localhost:8000"
+    SCHEMA_FUZZ_SCHEMA_URL: "http://localhost:8000/openapi.json"
+    SCHEMA_FUZZ_BASELINE_FILE: "schemathesis-baseline.json"
+    SCHEMA_FUZZ_HOOKS_FILE: "scripts/schemathesis_hooks.py"
+    SCHEMA_FUZZ_AUTH_TOKEN_FILE: "/tmp/schema-fuzz-token"
+    SCHEMA_FUZZ_AUTH_HEADER: "Authorization"
+    SCHEMA_FUZZ_AUTH_SCHEME: "Bearer"
+    SCHEMA_FUZZ_EXCLUDE_PATH_REGEX: ""
+    SCHEMATHESIS_VERSION: "4.27.1"
+    SCHEMATHESIS_MAX_EXAMPLES: "10"
+    SCHEMATHESIS_MAX_TIME: "600"
+    SCHEMATHESIS_WORKERS: "4"
+  # Uncomment and configure services if your boot script needs them (same
+  # shape as python-test above):
+  # services:
+  #   - name: postgres:17-alpine
+  #     alias: postgres
+  #   - name: redis:7-alpine
+  #     alias: redis
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      exists:
+        - $SCHEMA_FUZZ_API_BOOT_SCRIPT
+      changes:
+        - "**/*.py"
+        - requirements*.txt
+        - $SCHEMA_FUZZ_API_BOOT_SCRIPT
+        - ci/python.yml
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      exists:
+        - $SCHEMA_FUZZ_API_BOOT_SCRIPT
+  before_script:
+    - pip install --quiet "schemathesis==${SCHEMATHESIS_VERSION}"
+    - bash "$SCHEMA_FUZZ_API_BOOT_SCRIPT"
+  script:
+    # Argument list built with `set --` (POSIX positional params), not a bash
+    # array — this script: block has no self-test to prove itself (schemathesis
+    # is the gate here, not a repo script; see scripts/CLAUDE.md's "a gate must
+    # be able to fail" — its ability to fail is proven by this job being
+    # allow_failure: false against a real assertion, not a synthetic fixture).
+    - |
+      set -- "$SCHEMA_FUZZ_SCHEMA_URL" \
+        --checks response_schema_conformance,status_code_conformance,content_type_conformance \
+        --phases examples,fuzzing \
+        --max-examples "$SCHEMATHESIS_MAX_EXAMPLES" \
+        --max-time "$SCHEMATHESIS_MAX_TIME" \
+        --workers "$SCHEMATHESIS_WORKERS" \
+        --report junit \
+        --report-junit-path schemathesis-junit.xml \
+        --no-color
+      if [ -f "$SCHEMA_FUZZ_AUTH_TOKEN_FILE" ]; then
+        TOKEN="$(cat "$SCHEMA_FUZZ_AUTH_TOKEN_FILE")"
+        if [ -n "$SCHEMA_FUZZ_AUTH_SCHEME" ]; then
+          set -- "$@" -H "${SCHEMA_FUZZ_AUTH_HEADER}: ${SCHEMA_FUZZ_AUTH_SCHEME} ${TOKEN}"
+        else
+          set -- "$@" -H "${SCHEMA_FUZZ_AUTH_HEADER}: ${TOKEN}"
+        fi
+      fi
+      if [ -f "$SCHEMA_FUZZ_BASELINE_FILE" ]; then
+        set -- "$@" --baseline "$SCHEMA_FUZZ_BASELINE_FILE"
+      fi
+      if [ -n "$SCHEMA_FUZZ_EXCLUDE_PATH_REGEX" ]; then
+        set -- "$@" --exclude-path-regex "$SCHEMA_FUZZ_EXCLUDE_PATH_REGEX"
+      fi
+      if [ -f "$SCHEMA_FUZZ_HOOKS_FILE" ]; then
+        export SCHEMATHESIS_HOOKS="$SCHEMA_FUZZ_HOOKS_FILE"
+      fi
+      st run "$@"
+  artifacts:
+    reports:
+      junit: schemathesis-junit.xml
+    when: always
+    expire_in: 1 week
+
+# ─── Nightly load test ─────────────────────────────────────────────────────────
+#
+# Measures p50/p95/p99 latency for a configurable list of read endpoints and
+# fails when any exceeds its committed p95 budget (issue #40) — ported and
+# genericized from Visiban's `nightly-load-test` job (#1082). Static N+1
+# review and on-demand query counting both measure query COUNT, which is
+# correlated with but not equivalent to latency: a regression from a missing
+# index or data-volume growth can leave the query count and query text
+# identical while making the same queries slower. This job measures
+# wall-clock latency directly, against whatever fixture your boot script
+# seeds, so that class of regression has somewhere to show up before a user
+# notices it. See scripts/nightly_load_test.py's own module docstring and
+# nightly-load-test-budgets.json's `_readme` for the full contract, and this
+# file's own header above for why the budget defaults to 500ms with no
+# targets configured.
+#
+# Prerequisites (this job is otherwise a no-op — see `exists:` below):
+#   1. LOAD_TEST_API_BOOT_SCRIPT: a script YOU provide that migrates, seeds a
+#      LARGE fixture (this should be a bigger/more realistic dataset than
+#      python-schema-fuzz's minimal one — the whole point is to catch a
+#      regression that only shows up under real data volume), starts your
+#      API, and does not return until it is serving (same contract as
+#      SCHEMA_FUZZ_API_BOOT_SCRIPT above — a separate script because the two
+#      jobs' seed sizes are usually very different).
+#   2. Add at least one entry to nightly-load-test-budgets.json's "targets"
+#      list once you have a real endpoint to measure — see that file's
+#      "_readme" and scripts/nightly_load_test.py's --measure-only mode for
+#      deriving a real budget_p95_ms instead of relying on the generic
+#      LOAD_TEST_DEFAULT_BUDGET_MS fallback indefinitely.
+#
+# Scheduled, NOT on every MR (issue #40's own acceptance criterion) — a
+# performance regression that no single MR introduces visibly is exactly what
+# this catches, and running it on every MR would pay a large-fixture seed cost
+# on every push for a signal that does not change MR-to-MR. To turn the
+# schedule on: CI/CD -> Schedules -> New schedule -> target branch (your
+# default), cron e.g. "0 3 * * *", variable LOAD_TEST_SCHEDULE=true. Can also
+# be triggered manually at any time (advisory — allow_failure: true) via "Run
+# pipeline" or the pipeline's manual job button, once the boot script exists.
+python-nightly-load-test:
+  extends: .pip-cache
+  stage: test
+  needs: []
+  image: python:3.12-slim
+  variables:
+    LOAD_TEST_API_BOOT_SCRIPT: "scripts/ci-boot-api-for-load-test.sh"
+    LOAD_TEST_BASE_URL: "http://localhost:8000"
+    LOAD_TEST_TARGETS_FILE: "nightly-load-test-budgets.json"
+    LOAD_TEST_AUTH_TOKEN_FILE: "/tmp/load-test-token"
+    LOAD_TEST_AUTH_HEADER: "Authorization"
+    LOAD_TEST_AUTH_SCHEME: "Bearer"
+    LOAD_TEST_ITERATIONS: "40"
+    LOAD_TEST_WARMUP: "5"
+    # Rationale for 500 lives in nightly-load-test-budgets.json's own
+    # "default_budget_rationale" field, next to the value it explains — see
+    # this file's own top-of-file comment for why it is not derived from a
+    # measurement (Blueprint ships no application to measure).
+    LOAD_TEST_DEFAULT_BUDGET_MS: "500"
+    LOAD_TEST_SCHEDULE: "true"
+  # Uncomment and configure services if your boot script needs them (same
+  # shape as python-test above):
+  # services:
+  #   - name: postgres:17-alpine
+  #     alias: postgres
+  #   - name: redis:7-alpine
+  #     alias: redis
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $LOAD_TEST_SCHEDULE == "true"'
+      exists:
+        - $LOAD_TEST_API_BOOT_SCRIPT
+    - exists:
+        - $LOAD_TEST_API_BOOT_SCRIPT
+      when: manual
+      allow_failure: true
+  before_script:
+    - pip install --quiet requests==2.34.2
+    - bash "$LOAD_TEST_API_BOOT_SCRIPT"
+  script:
+    # Self-test FIRST, in this SAME job — check-gate-selftest-parity.sh's rule
+    # (same job proves "same image") applies here in spirit even though this
+    # script's name doesn't match its check-*/*-check naming heuristic (see
+    # website/src/content/docs/reference/harness-gates.md's note on
+    # osv-severity-gate.sh for the same exemption). Proves the
+    # percentile/budget-comparison/budget-resolution logic this job's verdict
+    # depends on can still fire, before trusting this run's result.
+    - python3 scripts/nightly_load_test.py --self-test
+    - |
+      set -- \
+        --base-url "$LOAD_TEST_BASE_URL" \
+        --targets-file "$LOAD_TEST_TARGETS_FILE" \
+        --default-budget-ms "$LOAD_TEST_DEFAULT_BUDGET_MS" \
+        --iterations "$LOAD_TEST_ITERATIONS" \
+        --warmup "$LOAD_TEST_WARMUP" \
+        --auth-header "$LOAD_TEST_AUTH_HEADER" \
+        --auth-scheme "$LOAD_TEST_AUTH_SCHEME" \
+        --output nightly-load-test-results.json
+      if [ -f "$LOAD_TEST_AUTH_TOKEN_FILE" ]; then
+        set -- "$@" --token-file "$LOAD_TEST_AUTH_TOKEN_FILE"
+      fi
+      python3 scripts/nightly_load_test.py "$@"
+  artifacts:
+    when: always
+    expire_in: 90 days
+    paths:
+      - nightly-load-test-results.json
+
+# ─── Migration-number collision gate (#44) ───────────────────────────────────
+#
+# Two branches cut from the same point on main can each generate a migration
+# at the same next sequential number — each is green in isolation, and the
+# collision exists only on the tree that results from both merging. Runs on
+# every MR pipeline (i.e. on every push, including after a rebase that just
+# picked up a sibling branch's migration), not only at merge time. See
+# scripts/check-migration-numbering.sh's own header for the full rationale
+# and scripts/CLAUDE.md.
+#
+# Gated on `exists:` for a numbered migration file anywhere in the tree —
+# framework-agnostic (matches Django's <app>/migrations/NNNN_*.py and any
+# other framework using the same numbered-file-per-migration convention). A
+# clone with no such directory gets no job at all, the same "not a skipped
+# job, no job" shape ci/docs.yml uses for "no docs site".
+migration-numbering:
+  stage: test
+  image: alpine:3.19
+  needs: []
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      exists:
+        - "**/migrations/[0-9]*.py"
+  before_script:
+    - apk add --no-cache bash git
+  script:
+    # Self-test FIRST, in this same job — check-gate-selftest-parity.sh
+    # requires it: a self-test proven in a DIFFERENT job only proves the
+    # gate works on a different image (scripts/CLAUDE.md).
+    - bash scripts/check-migration-numbering.sh --self-test
+    - bash scripts/check-migration-numbering.sh
+
+# ─── WebSocket event reachability gate (#44) ─────────────────────────────────
+#
+# A published real-time event taxonomy can advertise an event no client can
+# actually subscribe to — the route/consumer that would let a client join its
+# channel does not exist yet, so an integrator who builds against it gets a
+# connection refusal no amount of debugging on their side fixes. Built
+# independently, in different languages, by two prior projects this gate is
+# ported from — the strongest signal the check belongs in the template
+# rather than being reinvented a third time. See
+# scripts/check-ws-event-reachability.py's own header for the configurable
+# broadcast/reachability pattern pair.
+#
+# The defaults below are inert placeholders (WS_UNREACHABLE_CLASS_PATTERN /
+# WS_ROUTE_EXISTS_PATTERN match nothing by construction) so an unconfigured
+# clone never invents a restricted event class on its own — a project wires
+# its own two patterns once it has a real-time stack, the same "empty and
+# safe until configured" shape HELM_CHART_DIR/CHART_REPO use in ci/helm.yml.
+# Gated on the taxonomy doc existing; the script itself skips cleanly if the
+# source directory is also absent.
+variables:
+  WS_SOURCE_DIR: "backend"
+  WS_ROUTING_FILE: "backend/routing.py"
+  WS_DOC_FILE: "docs/websockets.md"
+  WS_UNREACHABLE_CLASS_PATTERN: "(?!)"
+  WS_ROUTE_EXISTS_PATTERN: "(?!)"
+
+ws-event-reachability:
+  stage: test
+  image: python:3.12-slim
+  needs: []
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      exists:
+        - $WS_DOC_FILE
+  script:
+    - python3 scripts/check-ws-event-reachability.py --self-test
+    - >
+      python3 scripts/check-ws-event-reachability.py
+      --source-dir "$WS_SOURCE_DIR" --routing-file "$WS_ROUTING_FILE" --doc-file "$WS_DOC_FILE"
+      --unreachable-class-pattern "$WS_UNREACHABLE_CLASS_PATTERN" --route-exists-pattern "$WS_ROUTE_EXISTS_PATTERN"
+
+# ─── Serializer <-> TypeScript parity gate (#44) ─────────────────────────────
+#
+# Hand-maintained shared frontend types drift from what the backend API
+# actually returns, silently: a field added to a serializer but not to
+# TypeScript is data the frontend cannot see, with no error anywhere; a
+# field's type drifting is worse, because both sides keep type-checking
+# cleanly against their own private idea of the contract. See
+# scripts/check-serializer-ts-parity.py's own header for what is compared
+# (an OpenAPI document against TypeScript `export interface` declarations)
+# and how the (schema component, TS interface) mapping is configured.
+#
+# Gated on the schema existing; the script itself skips cleanly, exit 0, if
+# the TS side is also missing. TS_PARITY_SCHEMA/TS_PARITY_TYPES point at the
+# defaults this template's docs/api guidance recommends — override both if
+# your project's OpenAPI document or shared types file live elsewhere.
+variables:
+  TS_PARITY_SCHEMA: "docs/api/openapi.json"
+  TS_PARITY_TYPES: "frontend/src/types/index.ts"
+
+serializer-ts-parity:
+  stage: test
+  image: python:3.12-slim
+  needs: []
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      exists:
+        - $TS_PARITY_SCHEMA
+  script:
+    - python3 scripts/check-serializer-ts-parity.py --self-test
+    - python3 scripts/check-serializer-ts-parity.py --schema "$TS_PARITY_SCHEMA" --types "$TS_PARITY_TYPES"

@@ -1,0 +1,127 @@
+"""schemathesis path-parameter seeding — OPTIONAL companion to the
+python-schema-fuzz CI job (ci/python.yml, issue #40).
+
+Move (do not copy) this file to the path SCHEMA_FUZZ_HOOKS_FILE names (default:
+scripts/schemathesis_hooks.py) and rename it, dropping the .example suffix, once
+you have real seeded fixture data to point it at. Until that file exists, the
+job runs schemathesis with no hooks at all — schemathesis still fuzzes every
+operation, it just cannot substitute a real id for a random one, so a
+resource-scoped detail route mostly exercises its "not found" branch instead
+of its real 200-path logic.
+
+## Why this exists
+
+`st run` generates every operation's path parameters independently and at
+random. For a nested, ownership-scoped route (``/api/v1/projects/{id}/tasks/{task_id}/``,
+say) a random id essentially never matches a row your CI job's boot script
+actually seeded — schemathesis then spends its whole budget fuzzing the "no
+such object" branch of a detail/write endpoint and never reaches the real
+response-schema-conformance logic that same endpoint is supposed to have.
+
+This module maps a fixed set of *known* path parameter names, keyed by the
+exact OpenAPI path template, to real ids fetched from your own API at
+hook-load time (once per `st run` process, not once per request — see
+`_load_real_ids` below). Hypothesis still owns every value this module does
+not override (query params, request bodies, and any path parameter with no
+entry in `_PATH_PARAM_OVERRIDES`), so this only narrows reachability for the
+specific resource families you choose to map — it does not disable negative
+testing generally.
+
+## Why a hook instead of a stateful/generation-database mode
+
+`--generation-database` is hypothesis's own example-replay cache — it speeds
+up repeat runs against the *same* schema and seed by reusing previously
+discovered inputs, but has no notion of "a real row" and cannot be pointed at
+application data. `--phases stateful` chains operations using OpenAPI `links`
+or an inferred `Location` response header; if your schema declares neither
+(most hand-rolled or drf-spectacular-generated schemas without explicit
+`links` do not), this hook is the mechanism schemathesis actually supports for
+"give this fuzz run something real to look at".
+
+## Adapting this file
+
+1. Replace `_query_real_ids` with real calls into your own app — an ORM query
+   if this hook runs in-process (Django: mirror the pattern below, guarding
+   `connection.in_atomic_block` the way your test suite does), or a plain
+   HTTP GET against the same API this job just booted (framework-agnostic,
+   and the only option if your boot script starts the API as a separate
+   process this hook cannot import).
+2. Fill in `_PATH_PARAM_OVERRIDES`, keyed by the LITERAL OpenAPI path template
+   (not a regex) — so a new operation added to the schema simply is not
+   seeded until you opt it in, with no risk of an overly broad pattern
+   silently overriding a parameter it was never meant to.
+3. Point `SCHEMA_FUZZ_HOOKS_FILE` at this file's path (ci/python.yml) — `st
+   run` loads it automatically via the `SCHEMATHESIS_HOOKS` environment
+   variable the job already sets when the file exists.
+"""
+
+import os
+
+import requests
+import schemathesis
+
+# ─── Configure this ──────────────────────────────────────────────────────────
+#
+# The base URL this hook queries for real ids. Must match the same API the
+# python-schema-fuzz job just booted — SCHEMA_FUZZ_BASE_URL is set by that job
+# specifically so this file and the job agree without hard-coding it twice.
+_BASE_URL = os.environ.get("SCHEMA_FUZZ_BASE_URL", "http://localhost:8000")
+
+
+def _query_real_ids():
+    """Fetch real resource ids from the just-booted API, once.
+
+    EXAMPLE ONLY — replace the endpoint below with one your own boot script's
+    seed step actually populates. Any id left as None here means the
+    corresponding path parameter is left to schemathesis's own random
+    generation (see map_path_parameters below), which degrades gracefully
+    rather than crashing the whole fuzz run over one missing fixture.
+    """
+    ids = {"example_resource_id": None}
+
+    try:
+        r = requests.get(f"{_BASE_URL.rstrip('/')}/api/v1/example-resources/", timeout=10)
+        r.raise_for_status()
+        body = r.json()
+        rows = body.get("results", body) if isinstance(body, dict) else body
+        if rows:
+            ids["example_resource_id"] = rows[0]["id"]
+    except (requests.exceptions.RequestException, KeyError, ValueError, TypeError):
+        # A missing or malformed fixture degrades to "no substitution" rather
+        # than failing the whole run — see the module docstring.
+        pass
+
+    return ids
+
+
+_IDS = _query_real_ids()
+
+# Exact OpenAPI path template -> {path parameter name: key into _IDS}.
+_PATH_PARAM_OVERRIDES = {
+    "/api/v1/example-resources/{id}/": {"id": "example_resource_id"},
+}
+
+
+@schemathesis.hook
+def map_path_parameters(context, path_parameters):
+    """Replace known path parameters with real seeded ids.
+
+    Only touches parameters this module has both a mapping for *and* a
+    non-None real value for — anything else (including every path this
+    module has no entry for at all) passes through untouched, so ordinary
+    fuzzing/negative testing of path parameters this module doesn't know
+    about is unaffected.
+    """
+    if context.operation is None or not path_parameters:
+        return path_parameters
+
+    overrides = _PATH_PARAM_OVERRIDES.get(context.operation.path)
+    if not overrides:
+        return path_parameters
+
+    result = dict(path_parameters)
+    for param_name, ids_key in overrides.items():
+        real_value = _IDS.get(ids_key)
+        if param_name in result and real_value is not None:
+            result[param_name] = real_value
+    return result

@@ -1,0 +1,18 @@
+# Backend conventions
+
+<!--
+This is a portable set of backend security/hygiene rules — nothing here is
+stack-specific. Move (do not copy) this file to your actual backend tree's
+root (e.g. `backend/`, `api/`, `server/`) and rename it to `CLAUDE.md`, so it
+loads automatically whenever Claude reads or edits a file under there.
+Blueprint itself ships no application code, so this stays a `.example` file
+at the repository root until a downstream project creates a backend tree.
+-->
+
+- No raw SQL — always use the ORM or parameterized queries
+- Validate and sanitize inputs at the API/serializer layer, not in views or models
+- Never log passwords, tokens, emails, or PII
+- Use `secrets` not `random` for token or nonce generation
+- Flag any `subprocess` call with `shell=True` with an inline comment explaining why it is safe
+- No hardcoded credentials — secrets come from env vars only
+- When fetching a resource by PK, always confirm the requesting user has access (IDOR prevention)

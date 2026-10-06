@@ -1,0 +1,27 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":separateMajorReleases",
+    ":combinePatchMinorReleases",
+    ":enableVulnerabilityAlerts"
+  ],
+  "labels": ["dependencies"],
+  "automerge": false,
+  "reviewersFromCodeowners": true,
+  "schedule": ["before 8am on Monday"],
+  "packageRules": [
+    {
+      "description": "Group minor and patch updates for reduced MR noise",
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "minor-and-patch"
+    },
+    {
+      "description": "Security updates — create immediately, do not batch",
+      "matchUpdateTypes": ["pin", "digest"],
+      "isVulnerabilityAlert": true,
+      "schedule": ["at any time"],
+      "automerge": false
+    }
+  ]
+}

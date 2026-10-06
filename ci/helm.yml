@@ -1,0 +1,175 @@
+# ─── Helm chart CI jobs ──────────────────────────────────────────────────────
+#
+# Include this file from .gitlab-ci.yml:
+#   include:
+#     - local: ci/helm.yml
+#
+# Most template clones have NO Helm chart and never will — every job below is
+# gated so that including this file is a safe no-op until a chart actually
+# exists at HELM_CHART_DIR. Nothing here fails or even runs for a clone that
+# hasn't set one up.
+#
+# Prerequisites (once you DO have a chart):
+#   - A Helm chart at HELM_CHART_DIR (default: helm/), i.e. helm/Chart.yaml
+#   - A `docker:dind` (or equivalent privileged) runner for the drill jobs —
+#     they boot a real kind cluster
+#
+# Customize:
+#   - HELM_CHART_DIR: directory containing Chart.yaml                (helm)
+#   - HELM_RELEASE_NAME / HELM_NAMESPACE: `helm install` release/namespace
+#   - CHART_REPO / GHCR_HOST: where the chart is PUBLISHED — leave CHART_REPO
+#     empty until you actually publish a chart; the registry-drift job
+#     degrades to a no-op with it unset (see scripts/check-chart-registry.sh)
+#   - CHART_DEFAULT_IMAGES: space-separated image repo paths (under
+#     IMAGE_REGISTRY_HOST) whose default tag the registry-drift job checks
+#   - HELM_PRELOAD_IMAGES / HELM_SET_ARGS: see scripts/helm-install-drill.sh
+#
+# See ci/CLAUDE.md and scripts/CLAUDE.md for the gate rules this follows —
+# in particular why the registry-drift job's real scan runs ONLY on a
+# schedule (its oracle is outside the repo; see check-chart-registry.sh's
+# own header) while its --self-test runs on every MR that touches it.
+
+variables:
+  HELM_CHART_DIR: "helm"
+  HELM_RELEASE_NAME: "app"
+  HELM_NAMESPACE: "default"
+  # Where the chart is published, for the registry-drift job (below) and the
+  # drill's upgrade leg. Empty CHART_REPO is the template default and means
+  # "not configured" — both consumers degrade gracefully rather than failing.
+  CHART_REPO: ""
+  GHCR_HOST: "ghcr.io"
+  IMAGE_REGISTRY_HOST: "registry.gitlab.com"
+  CHART_DEFAULT_IMAGES: ""
+  KIND_VERSION: "0.24.0"
+  KUBECTL_VERSION: "1.31.2"
+  HELM_VERSION: "3.16.3"
+
+# ─── Registry drift (scheduled — see check-chart-registry.sh's own header) ───
+#
+# A plain `X.Y.Z` OCI chart outranks every `X.Y.Z-beta.N` forever — no commit
+# fixes this, so no MR pipeline can catch it going wrong. The self-test runs
+# in every job invocation (proves the gate can still fail, per
+# scripts/CLAUDE.md); the LIVE registry read runs only on schedule, so an
+# unrelated MR is never redded by external registry state it does not
+# control.
+#
+# NOT allow_failure: once CHART_REPO is actually configured, a self-hoster
+# who follows the install docs and lands on a chart that cannot pull has no
+# install — this should page someone, not blink yellow and get ignored.
+helm-registry-drift:
+  stage: security
+  image: alpine:3.19
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - scripts/check-chart-registry.sh
+        - ci/helm.yml
+  before_script:
+    - apk add --no-cache bash curl grep
+  script:
+    - bash scripts/check-chart-registry.sh --self-test
+    - |
+      if [ "$CI_PIPELINE_SOURCE" = "schedule" ]; then
+        bash scripts/check-chart-registry.sh
+      else
+        echo "Merge request: self-test only; the live registry check runs on schedule."
+      fi
+
+# ─── Helm install drill (MR + default branch) ────────────────────────────────
+#
+# Runtime deploy smoke test on a real kind cluster: `helm lint`/`helm
+# template` prove the chart renders, this proves it actually BOOTS. Gated on
+# `exists: [$HELM_CHART_DIR/Chart.yaml]` so a clone with no chart yet never
+# runs it, even if this file is included.
+#
+# kind-in-dind needs a privileged docker:dind service — same requirement as
+# any Docker-build-in-CI job. `interruptible: false` so a rebased push
+# doesn't abort a cluster mid-provision and leak it.
+helm-install:
+  stage: test
+  interruptible: false
+  timeout: 25m
+  image: docker:27
+  services:
+    - docker:27-dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_HOST: "tcp://docker:2376"
+    DOCKER_TLS_VERIFY: "1"
+    DOCKER_CERT_PATH: "/certs/client"
+    APISERVER_HOST: "docker"
+    DRILL_LEG: "install"
+    CHART_DIR: "$HELM_CHART_DIR"
+    RELEASE: "$HELM_RELEASE_NAME"
+    NAMESPACE: "$HELM_NAMESPACE"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      exists:
+        - $HELM_CHART_DIR/Chart.yaml
+      changes:
+        - $HELM_CHART_DIR/**/*
+        - scripts/helm-install-drill.sh
+        - ci/helm.yml
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      exists:
+        - $HELM_CHART_DIR/Chart.yaml
+  before_script:
+    - apk add --no-cache bash curl
+    - curl -sSLo /usr/local/bin/kind "https://kind.sigs.k8s.io/dl/v${KIND_VERSION}/kind-linux-amd64" && chmod +x /usr/local/bin/kind
+    - curl -sSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl" && chmod +x /usr/local/bin/kubectl
+    - curl -sSL "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz" | tar -xz -C /tmp linux-amd64/helm && mv /tmp/linux-amd64/helm /usr/local/bin/helm
+    - until docker info >/dev/null 2>&1; do echo "waiting for dind..."; sleep 2; done
+  script:
+    - bash scripts/helm-install-drill.sh
+
+# ─── Helm upgrade drill (default branch + schedule only) ─────────────────────
+#
+# `helm-install` above only ever installs onto an EMPTY cluster. Every real
+# operator upgrade instead walks release N -> N+1 on a live cluster, and that
+# path has its own failure modes (migration/upgrade-hook ordering, a values
+# shape that changed between releases, subchart field immutability) that a
+# from-empty install can never exercise. `helm-install-drill.sh`
+# DRILL_LEG=upgrade installs the PREVIOUS released chart from the OCI
+# registry (resolved dynamically — see resolve_previous_chart_version() and
+# scripts/tests/helm-upgrade-leg-version.test.sh) and upgrades it to HEAD.
+#
+# NOT on merge_request_event: it pays for two kind clusters and two full
+# `--wait` rollouts (roughly double helm-install's runtime), which is worth
+# paying on every push to main and on schedule, not on every MR iteration.
+# Exits cleanly (0) via resolve_previous_chart_version's own "nothing to
+# upgrade FROM yet" branch until a first chart has actually been published.
+helm-upgrade:
+  stage: test
+  interruptible: false
+  timeout: 40m
+  image: docker:27
+  services:
+    - docker:27-dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_HOST: "tcp://docker:2376"
+    DOCKER_TLS_VERIFY: "1"
+    DOCKER_CERT_PATH: "/certs/client"
+    APISERVER_HOST: "docker"
+    DRILL_LEG: "upgrade"
+    CHART_DIR: "$HELM_CHART_DIR"
+    RELEASE: "$HELM_RELEASE_NAME"
+    NAMESPACE: "$HELM_NAMESPACE"
+    CHART_GHCR_HOST: "$GHCR_HOST"
+    CHART_OCI_REPO: "$CHART_REPO"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      exists:
+        - $HELM_CHART_DIR/Chart.yaml
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+      exists:
+        - $HELM_CHART_DIR/Chart.yaml
+  before_script:
+    - apk add --no-cache bash curl
+    - curl -sSLo /usr/local/bin/kind "https://kind.sigs.k8s.io/dl/v${KIND_VERSION}/kind-linux-amd64" && chmod +x /usr/local/bin/kind
+    - curl -sSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl" && chmod +x /usr/local/bin/kubectl
+    - curl -sSL "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz" | tar -xz -C /tmp linux-amd64/helm && mv /tmp/linux-amd64/helm /usr/local/bin/helm
+    - until docker info >/dev/null 2>&1; do echo "waiting for dind..."; sleep 2; done
+  script:
+    - bash scripts/helm-install-drill.sh

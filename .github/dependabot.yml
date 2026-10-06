@@ -1,0 +1,52 @@
+# Dependabot configuration for GitHub-hosted projects.
+# Delete this file if using GitLab (use renovate.json instead).
+#
+# CUSTOMIZE: Uncomment the ecosystems that match your stack.
+
+version: 2
+updates:
+  # # Python (pip)
+  # - package-ecosystem: "pip"
+  #   directory: "/"
+  #   schedule:
+  #     interval: "weekly"
+  #     day: "monday"
+  #   labels:
+  #     - "dependencies"
+  #   open-pull-requests-limit: 10
+
+  # # Node.js (npm)
+  # - package-ecosystem: "npm"
+  #   directory: "/"
+  #   schedule:
+  #     interval: "weekly"
+  #     day: "monday"
+  #   labels:
+  #     - "dependencies"
+  #   open-pull-requests-limit: 10
+
+  # # Go modules
+  # - package-ecosystem: "gomod"
+  #   directory: "/"
+  #   schedule:
+  #     interval: "weekly"
+  #     day: "monday"
+  #   labels:
+  #     - "dependencies"
+
+  # # Docker
+  # - package-ecosystem: "docker"
+  #   directory: "/"
+  #   schedule:
+  #     interval: "weekly"
+  #   labels:
+  #     - "dependencies"
+
+  # GitHub Actions (always enabled — keeps CI actions up to date)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "ci"

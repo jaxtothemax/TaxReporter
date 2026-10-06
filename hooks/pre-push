@@ -1,0 +1,18 @@
+#!/bin/sh
+# Pre-push hook: run only checks that require full codebase state and are NOT
+# covered by the commit-time hook (lint, format, typecheck run there).
+# Examples: missing migrations, stale API schema, contract test drift.
+# Delegates to `make pre-push-checks` — no-op if the target is not defined.
+# Skip with: git push --no-verify
+
+cd "$(git rev-parse --show-toplevel)" || exit 0
+
+if make -n pre-push-checks >/dev/null 2>&1; then
+    echo "Running pre-push checks..."
+    if ! make pre-push-checks 2>&1; then
+        echo ""
+        echo "Pre-push checks failed — fix before pushing."
+        echo "To skip: git push --no-verify"
+        exit 1
+    fi
+fi

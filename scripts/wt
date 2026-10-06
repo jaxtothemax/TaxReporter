@@ -1,0 +1,1122 @@
+#!/usr/bin/env bash
+# scripts/wt — git worktree helper for parallel multi-issue work.
+#
+# Usage:
+#   scripts/wt new <issue|branch-name> [--force]
+#                                        Create a worktree + branch off origin/<default>.
+#                                        Checks out the issue (status::wip label +
+#                                        comment) so a parallel session or /batch wave
+#                                        does not grab it; refuses an issue that is
+#                                        already checked out unless --force takes it over.
+#   scripts/wt claim <issue> [--force]   Check out an issue WITHOUT creating a worktree
+#                                        yet (picked up, not started). Same lock as `new`.
+#   scripts/wt release <issue>           Release an issue check-out (clear the label).
+#   scripts/wt list                      List active worktrees and WIP count.
+#   scripts/wt remove <issue|name>       Remove a worktree by issue # or name; if the
+#                                        issue is closed, clears its status::wip label
+#                                        too (left in place while the issue is open).
+#   scripts/wt prune                     Remove worktrees whose branches were merged to
+#                                        the default branch and deleted on origin —
+#                                        including a tip rewritten after its last push,
+#                                        or a squash merge. Refuses to remove worktrees
+#                                        with uncommitted work. Nothing runs this after
+#                                        a forge merge: run it yourself. Releases each
+#                                        pruned worktree's issue check-out.
+#   scripts/wt stash [push|pop|apply|list|show|drop]
+#                                        Worktree-PRIVATE stash. Use this, never
+#                                        `git stash` — refs/stash is shared by every
+#                                        worktree of the repo, so a plain pop can
+#                                        silently apply another session's work into
+#                                        your tree and drop it from the stack.
+#   scripts/wt doctor                    Verify symlinks and shared docker-stack reuse.
+#   scripts/wt help                      Show this help.
+#
+# Worktrees live at $WT_BASE (default: ../<repo>-wt, a sibling of the main checkout).
+# Each worktree symlinks heavy dev-dep dirs (.venv, node_modules, …) back to the
+# main checkout so installs aren't duplicated. A running Docker Compose stack is
+# shared via COMPOSE_PROJECT_NAME, exported in the generated .envrc for direnv users.
+#
+# WIP discipline: warns at WT_WARN (default 8), errors at WT_CAP (default 10).
+# The cap is a WIP guard, not a resource limit — raise it for a deliberate burst
+# (`WT_CAP=16 scripts/wt new 1234`), not to avoid finishing things.
+#
+# Parallel-safety — three structural guards make it safe for several sessions or
+# agents to run `wt new` / `wt prune` concurrently, without any coordination:
+#   1. `wt new` creates branches with --no-track, so a fresh, never-pushed
+#      worktree can never be misread as merged-and-deleted by a concurrent prune.
+#      (Without it, all three of prune's conditions line up and the worktree is
+#      reaped out from under whoever is using it.)
+#   2. Each worktree carries a .wt-owner marker, and `wt prune` honors a
+#      freshness grace window (WT_GRACE_MIN, default 30 min) — younger worktrees
+#      are skipped unless --force.
+#   3. Each worktree's .envrc exports a unique WT_TEST_DB, so parallel test runs
+#      get isolated databases and no external lock is needed.
+# Issue check-out lock: every agent shares one forge identity, so an assignee or a
+# comment does not stop a parallel session from taking the same issue. `wt new` /
+# `wt claim` apply a `status::wip` scoped label plus a check-out comment and refuse
+# an issue that already carries it; `wt remove` / `wt prune` / `wt release` clear it.
+# It is advisory and best-effort — with no forge CLI, or on an API error, the
+# worktree is still created (with a warning); the local guards above carry the
+# correctness, the label is the shared signal. `/batch` reads it when selecting.
+#
+# The `wt list` output shows branch, age, and pushed-state so it is obvious at a
+# glance whose worktree is whose.
+#
+# This script is layout-agnostic: it auto-detects which dev-dep dirs exist
+# (.venv, node_modules, backend/.venv, frontend/node_modules,
+# packages/api/.venv, packages/web/node_modules) and symlinks only those, and
+# picks glab or gh for issue-title lookup based on origin's host. Override any
+# default via env:
+#   WT_BASE             where worktrees are created       (default ../<repo>-wt)
+#   WT_CAP / WT_WARN    WIP error / warn thresholds       (default 10 / 8)
+#   WT_COMPOSE_PROJECT  shared compose project name       (default repo dir name)
+#   WT_SYMLINK_DIRS     space-separated dev-dep dirs to symlink (default: auto-detect)
+#   WT_LOCK_LABEL       issue check-out label             (default status::wip)
+#   WT_GRACE_MIN        minutes a fresh worktree is prune-protected (default 30)
+#   WT_FORGE            glab | gh — forge CLI for lookups (default: from origin's host)
+#   WT_PREVIEW_PORT_BASE / WT_DEV_PORT_BASE / WT_PORT_SPAN
+#                       per-worktree E2E port band        (default 43100 / 44100 / 800)
+
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
+CURRENT_TOPLEVEL="$(git rev-parse --show-toplevel 2>/dev/null || { echo "wt: not in a git repo" >&2; exit 1; })"
+# REPO_ROOT must always point at the main checkout, even when invoked from
+# inside a secondary worktree. git-common-dir's parent is the main checkout:
+# ".git" → "." in main; "<main>/.git" → "<main>" in a worktree.
+GIT_COMMON_DIR="$(git rev-parse --git-common-dir)"
+case "$GIT_COMMON_DIR" in
+  /*) REPO_ROOT="$(dirname "$GIT_COMMON_DIR")" ;;
+  *)  REPO_ROOT="$(cd "$CURRENT_TOPLEVEL" && cd "$(dirname "$GIT_COMMON_DIR")" && pwd)" ;;
+esac
+REPO_NAME="$(basename "$REPO_ROOT")"
+WT_BASE="${WT_BASE:-${REPO_ROOT%/*}/${REPO_NAME}-wt}"
+WT_CAP="${WT_CAP:-10}"
+WT_WARN="${WT_WARN:-8}"
+# Freshness grace window: `wt prune` never reaps a worktree younger than this,
+# even if it otherwise looks merged-and-deleted. Protects a worktree another
+# agent or terminal created moments ago and has not pushed yet. --force overrides.
+WT_GRACE_MIN="${WT_GRACE_MIN:-30}"
+WT_OWNER_FILE=".wt-owner"
+# Scoped label used as the issue check-out lock (see header). Scoped (`status::`)
+# so it is mutually exclusive with any other `status::*` label on GitLab.
+WT_LOCK_LABEL="${WT_LOCK_LABEL:-status::wip}"
+WT_STASH_NS="refs/wt-stash"
+# Per-worktree E2E port band (see "Per-worktree E2E ports" below). One shared
+# offset, so a worktree's two ports carry the same index. The defaults sit below
+# macOS's ephemeral range (49152+, so nothing outbound can transiently claim one)
+# and above the crowded 3000-9000 development band.
+WT_PORT_SPAN="${WT_PORT_SPAN:-800}"
+WT_PREVIEW_PORT_BASE="${WT_PREVIEW_PORT_BASE:-43100}"
+WT_DEV_PORT_BASE="${WT_DEV_PORT_BASE:-44100}"
+COMPOSE_PROJECT_NAME_DEFAULT="${WT_COMPOSE_PROJECT:-${COMPOSE_PROJECT_NAME:-$REPO_NAME}}"
+
+# Default branch = origin/HEAD target, falling back to main.
+# `|| true` matters: under `set -euo pipefail` the symbolic-ref failure of a repo
+# with no origin/HEAD kills the script here, and the `:-main` fallback on the next
+# line never runs — so wt would die on any clone that has not fetched origin yet.
+DEFAULT_BRANCH="$(git -C "$REPO_ROOT" symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || true)"
+DEFAULT_BRANCH="${DEFAULT_BRANCH:-main}"
+
+# Dev-dep dirs to symlink from each new worktree back to the main checkout.
+# Auto-detected from this candidate list (only those present in main are linked)
+# unless WT_SYMLINK_DIRS overrides it.
+WT_SYMLINK_CANDIDATES=(.venv node_modules backend/.venv frontend/node_modules packages/api/.venv packages/web/node_modules)
+if [[ -n "${WT_SYMLINK_DIRS:-}" ]]; then
+  read -r -a WT_SYMLINK_CANDIDATES <<< "$WT_SYMLINK_DIRS"
+fi
+
+# ---------------------------------------------------------------------------
+# Output helpers
+# ---------------------------------------------------------------------------
+
+if [[ -t 1 ]]; then
+  C_RED='\033[31m'; C_YELLOW='\033[33m'; C_GREEN='\033[32m'; C_DIM='\033[2m'; C_OFF='\033[0m'
+else
+  C_RED=''; C_YELLOW=''; C_GREEN=''; C_DIM=''; C_OFF=''
+fi
+
+err()  { printf "${C_RED}wt: %s${C_OFF}\n" "$*" >&2; }
+warn() { printf "${C_YELLOW}wt: %s${C_OFF}\n" "$*" >&2; }
+ok()   { printf "${C_GREEN}wt: %s${C_OFF}\n" "$*"; }
+say()  { printf "%s\n" "$*"; }
+dim()  { printf "${C_DIM}%s${C_OFF}\n" "$*"; }
+die()  { err "$*"; exit 1; }
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+# Detect the forge CLI for issue-title lookup based on origin's host.
+forge_cli() {
+  if [[ -n "${WT_FORGE:-}" ]]; then printf '%s\n' "$WT_FORGE"; return; fi
+  local url; url="$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || true)"
+  case "$url" in
+    *github.com*) echo gh ;;
+    *gitlab*)     echo glab ;;
+    *)            echo "" ;;
+  esac
+}
+
+# Slugify text: strip conventional-commit prefix, lowercase, drop non-alnum,
+# collapse hyphens, cap length. The prefix strip keeps issue titles like
+# "feat(web): foo bar" from doubling the prefix once `feat/` is prepended.
+slugify() {
+  printf "%s" "$1" \
+    | sed -E 's/^(feat|fix|chore|docs|test|refactor|perf|ci|build)(\([^)]*\))?:[[:space:]]*//' \
+    | tr '[:upper:]' '[:lower:]' \
+    | sed -E 's/[^a-z0-9]+/-/g' \
+    | sed -E 's/^-+|-+$//g' \
+    | cut -c1-40
+}
+
+# Derive a branch name from an arg. Slash → full branch name as-is. Numeric →
+# issue number, look up its title via the detected forge CLI and build
+# feat/<issue>-<slug>. Anything else → treat as a slug under feat/.
+derive_branch_name() {
+  local input="$1"
+  if [[ "$input" == */* ]]; then
+    printf "%s" "$input"; return
+  fi
+  if [[ "$input" =~ ^[0-9]+$ ]]; then
+    local cli title=""
+    cli="$(forge_cli)"
+    case "$cli" in
+      glab) command -v glab >/dev/null 2>&1 && title="$(glab issue view "$input" --output json 2>/dev/null \
+              | python3 -c 'import json,sys; print(json.load(sys.stdin).get("title",""))' || true)" ;;
+      gh)   command -v gh >/dev/null 2>&1 && title="$(gh issue view "$input" --json title -q .title 2>/dev/null || true)" ;;
+    esac
+    if [[ -z "$title" ]]; then
+      die "couldn't look up issue #$input (need ${cli:-glab/gh} installed + authed); pass a full branch name like 'feat/$input-something'"
+    fi
+    printf "feat/%s-%s" "$input" "$(slugify "$title")"; return
+  fi
+  printf "feat/%s" "$(slugify "$input")"
+}
+
+# Count active worktrees (excludes the main checkout).
+wt_count() {
+  # `|| true` is required: with zero secondary worktrees grep filters every line
+  # and exits 1, which under `set -o pipefail` fails the whole substitution and
+  # (under `set -e`) kills the caller. `wt list` on a clean repo exited 1 for
+  # exactly this reason.
+  git -C "$REPO_ROOT" worktree list --porcelain \
+    | awk '/^worktree /{print $2}' \
+    | { grep -v "^${REPO_ROOT}$" || true; } \
+    | wc -l | tr -d ' '
+}
+
+# Find a worktree path by issue number or name fragment.
+find_worktree() {
+  local needle="$1"
+  # `|| true`: "no worktree matches" is a normal answer, but grep reports it as
+  # exit 1 and `set -o pipefail` promotes that to the pipeline's status. The
+  # caller's `path="$(find_worktree …)"` is then a failing plain assignment, so
+  # `set -e` kills the script BEFORE its own `die` can name the needle — the user
+  # gets exit 1 and not one byte of output. Return empty and let the caller
+  # diagnose.
+  git -C "$REPO_ROOT" worktree list --porcelain \
+    | awk '/^worktree /{print $2}' \
+    | grep -v "^${REPO_ROOT}$" \
+    | grep -E "/${needle}(-|$)" \
+    | sed -n 1p || true
+}
+
+# ERE matching the files wt itself creates in a worktree (.envrc + the symlinks)
+# so the dirty-check can tell them apart from the user's work-in-progress.
+auto_created_regex() {
+  # .wt-owner and .envrc are written by `wt new`; they must not be mistaken for
+  # the user's own untracked work when deciding whether a worktree is safe to remove.
+  local parts=('\.envrc' '\.wt-owner') d esc
+  for d in "${WT_SYMLINK_CANDIDATES[@]}"; do
+    esc="$(printf '%s' "$d" | sed 's/\./\\./g')"
+    parts+=("$esc")
+  done
+  local IFS='|'
+  printf '^(%s)/?$' "${parts[*]}"
+}
+
+# Age of a worktree in whole minutes, from its .wt-owner marker (falls back to
+# the directory mtime for worktrees created before the marker existed). Prints
+# nothing if neither is readable, which callers treat as "unknown — do not skip".
+wt_age_minutes() {
+  local path="$1" created now
+  if [[ -r "$path/$WT_OWNER_FILE" ]]; then
+    created="$(sed -n 's/^created=//p' "$path/$WT_OWNER_FILE" 2>/dev/null | sed -n 1p)"
+  fi
+  if [[ -z "${created:-}" && -d "$path" ]]; then
+    # BSD stat (macOS) and GNU stat (Linux) disagree on flags; try both.
+    created="$(stat -f %B "$path" 2>/dev/null || stat -c %W "$path" 2>/dev/null || true)"
+    [[ "${created:-0}" == "0" ]] && created="$(stat -f %m "$path" 2>/dev/null || stat -c %Y "$path" 2>/dev/null || true)"
+  fi
+  [[ -n "${created:-}" && "$created" =~ ^[0-9]+$ ]] || return 0
+  now="$(date +%s)"
+  echo $(( (now - created) / 60 ))
+}
+
+# Human-friendly age string ("12m", "3h", "2d") for `wt list`.
+wt_age_label() {
+  local m; m="$(wt_age_minutes "$1")"
+  [[ -n "$m" ]] || { echo "?"; return; }
+  if   (( m < 60 ));   then echo "${m}m"
+  elif (( m < 1440 )); then echo "$(( m / 60 ))h"
+  else                      echo "$(( m / 1440 ))d"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Per-worktree E2E ports
+# ---------------------------------------------------------------------------
+#
+# Playwright's `reuseExistingServer` identifies "an existing server" by PORT ALONE.
+# With a hardcoded port every worktree on the machine shares one preview server,
+# and a local E2E run silently asserts against whichever checkout started it. The
+# dangerous direction is the PASSING one: a green run against a sibling's bundle
+# proves nothing and looks exactly like a trustworthy result. Upstream, three of
+# six branches in one parallel batch hit it.
+#
+# Each worktree therefore gets its own pair, exported into `.envrc` as WT_E2E_PORT
+# (preview server) and WT_E2E_DEV_PORT (dev server). Unset — the main checkout, and
+# CI — the project's own defaults apply unchanged.
+
+# The preview port a worktree was given, read back from its `.envrc`. awk reads the
+# file directly: no early-exiting reader on a pipe to SIGPIPE under pipefail.
+worktree_e2e_port() {
+  local path="$1"
+  [[ -f "$path/.envrc" ]] || return 0
+  awk -F= '/^export WT_E2E_PORT=/ { print $2; exit }' "$path/.envrc"
+}
+
+# Deterministic offset in [0, WT_PORT_SPAN) derived from the worktree slug, so a
+# branch lands on the same ports every time its worktree is recreated. cksum is
+# POSIX (CRC-32) and gives the same number on macOS and Linux; $RANDOM would not.
+port_offset_for_slug() {
+  local sum
+  sum="$(printf '%s' "$1" | cksum | awk '{print $1}')"
+  printf '%s' "$(( sum % WT_PORT_SPAN ))"
+}
+
+# True when nothing is listening on 127.0.0.1:$1. bash's /dev/tcp is a builtin, so
+# there is no lsof/nc dependency to be missing and no BSD-vs-GNU flag divergence.
+port_is_free() {
+  ( exec 3<>"/dev/tcp/127.0.0.1/$1" ) >/dev/null 2>&1 && return 1
+  return 0
+}
+
+# Every preview port a live worktree has claimed, one per line.
+#
+# The `if` and the explicit `return 0` are load-bearing: a loop body ending in
+# `[[ -n "$port" ]] && printf …` yields 1 whenever the LAST worktree has no port,
+# the function inherits it, and the caller's `claimed="$(claimed_e2e_ports)"` dies
+# under `set -e` with no output — but only when that worktree happens to sort last.
+claimed_e2e_ports() {
+  local path port
+  while IFS= read -r path; do
+    [[ -z "$path" || "$path" == "$REPO_ROOT" ]] && continue
+    port="$(worktree_e2e_port "$path")"
+    if [[ -n "$port" ]]; then printf '%s\n' "$port"; fi
+  done < <(git -C "$REPO_ROOT" worktree list --porcelain | awk '/^worktree /{print $2}')
+  return 0
+}
+
+# The offset a new worktree will use: its slug's own, probed forward until BOTH
+# derived ports are unclaimed by a sibling worktree and unbound by any process.
+#
+# The probe is what makes an overlap impossible rather than merely unlikely. A bare
+# hash over 800 slots is a birthday problem — about a 26% chance of some collision
+# at 25 concurrent worktrees. Probing against the authoritative claim (the
+# siblings' own `.envrc` files) rules out an overlap between live worktrees by
+# construction; the /dev/tcp check also steps over an unrelated process holding
+# one. Falls back to the slug's own offset if every slot is taken.
+resolve_port_offset() {
+  local start offset i preview dev claimed
+  start="$(port_offset_for_slug "$1")"
+  claimed="$(claimed_e2e_ports)"
+  for (( i = 0; i < WT_PORT_SPAN; i++ )); do
+    offset=$(( (start + i) % WT_PORT_SPAN ))
+    preview=$(( WT_PREVIEW_PORT_BASE + offset ))
+    dev=$(( WT_DEV_PORT_BASE + offset ))
+    # A here-string, not `printf | grep -qx`: grep -q exits at its first match and
+    # would SIGPIPE the writer under pipefail (scripts/CLAUDE.md).
+    if grep -qxF "$preview" <<< "$claimed"; then continue; fi
+    if port_is_free "$preview" && port_is_free "$dev"; then
+      printf '%s' "$offset"
+      return 0
+    fi
+  done
+  printf '%s' "$start"
+}
+
+# ---------------------------------------------------------------------------
+# Merge detection for prune
+# ---------------------------------------------------------------------------
+
+# True (0) if the forge has a MERGED MR/PR from branch $1 whose head SHA is exactly
+# $2. Every failure — no CLI, unauthenticated, offline, unparseable output — is a 1,
+# so a lookup that cannot answer keeps the worktree rather than reaping it.
+merged_mr_has_sha() {
+  local branch="$1" tip="$2" out enc
+  case "$(forge_cli)" in
+    glab)
+      command -v glab >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1 || return 1
+      enc="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$branch" 2>/dev/null)" || return 1
+      out="$(cd "$REPO_ROOT" && glab api "projects/:id/merge_requests?state=merged&source_branch=${enc}" 2>/dev/null)" || return 1
+      python3 -c '
+import json, sys
+try:
+    mrs = json.loads(sys.stdin.read())
+except Exception:
+    sys.exit(1)
+sys.exit(0 if any(isinstance(m, dict) and m.get("sha") == sys.argv[1] for m in mrs) else 1)
+' "$tip" <<< "$out" 2>/dev/null
+      ;;
+    gh)
+      command -v gh >/dev/null 2>&1 || return 1
+      out="$(cd "$REPO_ROOT" && gh pr list --state merged --head "$branch" --json headRefOid --jq '.[].headRefOid' 2>/dev/null)" || return 1
+      grep -qxF "$tip" <<< "$out"
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+# How branch $1's work reached origin/<default>, or empty if that cannot be shown.
+# Always returns 0: callers read it through a command substitution under `set -e`.
+#
+#   ancestor — the tip is in the default branch's history (merge commit, fast-forward).
+#   patch    — the tip was rewritten after its last push (an amend, a local rebase, a
+#              forge-side rebase), so that SHA never reached the default branch, but
+#              `git cherry` finds every one of the branch's patches already there.
+#   mr       — a merged MR/PR from this branch has exactly this head SHA. Covers a
+#              squash merge, whose one combined commit matches no single patch.
+#
+# The ancestor test alone kept every rewritten or squashed tip forever with a false
+# "commits NOT in origin/<default>" — which is how merged worktrees pile up past the
+# WIP cap.
+branch_merged_how() {
+  local branch="$1" cherry tip
+  if git -C "$REPO_ROOT" merge-base --is-ancestor "$branch" "origin/$DEFAULT_BRANCH" 2>/dev/null; then
+    printf 'ancestor'; return 0
+  fi
+  # `+` marks a commit whose patch is NOT upstream. Matched with a pattern rather
+  # than `printf | grep -q '^+'`: under pipefail grep's early exit can SIGPIPE the
+  # writer, and a failing pipeline read as "no + lines" would be a false prune.
+  cherry="$(git -C "$REPO_ROOT" cherry "origin/$DEFAULT_BRANCH" "$branch" 2>/dev/null || true)"
+  if [[ -n "$cherry" && $'\n'"$cherry" != *$'\n+'* ]]; then
+    printf 'patch'; return 0
+  fi
+  tip="$(git -C "$REPO_ROOT" rev-parse --verify --quiet "$branch" 2>/dev/null || true)"
+  if [[ -n "$tip" ]] && merged_mr_has_sha "$branch" "$tip"; then
+    printf 'mr'
+  fi
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# Issue check-out lock
+# ---------------------------------------------------------------------------
+#
+# See the header. Every helper degrades to a warning or a no-op when the forge CLI
+# is missing or the call fails — worktree management must never break on a
+# network blip. Each is written for glab and gh, matching forge_cli.
+
+lock_available() {
+  case "$(forge_cli)" in
+    glab) command -v glab >/dev/null 2>&1 ;;
+    gh)   command -v gh >/dev/null 2>&1 ;;
+    *)    return 1 ;;
+  esac
+}
+
+# Extract the issue number from a branch name (`feat/1462-foo` -> 1462), or empty
+# for a branch with no leading issue number (`chore/some-slug`). The single source
+# for "which issue does this worktree lock", used by new/remove/prune.
+issue_from_branch() {
+  local branch="$1"
+  if [[ "$branch" =~ ^[a-z]+/([0-9]+)- ]]; then printf "%s" "${BASH_REMATCH[1]}"; fi
+}
+
+# Print one JSON document for issue $1: {"labels": [...], "state": "open|closed",
+# "notes": [...]}. Empty on any failure. Normalizes glab and gh so the readers
+# below parse one shape.
+issue_info() {
+  local issue="$1" raw
+  case "$(forge_cli)" in
+    glab)
+      raw="$(cd "$REPO_ROOT" && glab issue view "$issue" --comments --output json 2>/dev/null)" || return 0
+      python3 -c '
+import json, sys
+d = json.loads(sys.stdin.read())
+notes = d.get("Notes") or d.get("notes") or []
+print(json.dumps({"labels": d.get("labels") or [],
+                  "state": (d.get("state") or "").lower(),
+                  "notes": [(n.get("body") or "") for n in notes]}))
+' <<< "$raw" 2>/dev/null || true ;;
+    gh)
+      raw="$(cd "$REPO_ROOT" && gh issue view "$issue" --json labels,state,comments 2>/dev/null)" || return 0
+      python3 -c '
+import json, sys
+d = json.loads(sys.stdin.read())
+print(json.dumps({"labels": [l.get("name", "") for l in d.get("labels") or []],
+                  "state": (d.get("state") or "").lower(),
+                  "notes": [(c.get("body") or "") for c in d.get("comments") or []]}))
+' <<< "$raw" 2>/dev/null || true ;;
+  esac
+}
+
+# Print "locked" if issue $1 carries the lock label, else "" (also "" on lookup failure).
+issue_is_locked() {
+  local info; info="$(issue_info "$1")"
+  [[ -n "$info" ]] || return 0
+  python3 -c '
+import json, sys
+print("locked" if sys.argv[1] in json.loads(sys.stdin.read())["labels"] else "")
+' "$WT_LOCK_LABEL" <<< "$info" 2>/dev/null || true
+}
+
+# Print "closed" if issue $1 is closed, else "" (also "" on lookup failure). `wt
+# remove` only strips the label from a closed issue: closed means the work is done,
+# still-open means a worktree was torn down without merging and the label is the
+# only signal left that the issue is spoken for.
+issue_is_closed() {
+  local info; info="$(issue_info "$1")"
+  [[ -n "$info" ]] || return 0
+  python3 -c '
+import json, sys
+print("closed" if json.loads(sys.stdin.read())["state"] == "closed" else "")
+' <<< "$info" 2>/dev/null || true
+}
+
+# Print the most recent check-out comment on issue $1 (empty if none).
+last_checkout_note() {
+  local info; info="$(issue_info "$1")"
+  [[ -n "$info" ]] || return 0
+  python3 -c '
+import json, sys
+hits = [n for n in json.loads(sys.stdin.read())["notes"] if "\U0001F512 checked out" in n]
+print(hits[-1] if hits else "")
+' <<< "$info" 2>/dev/null || true
+}
+
+# Create the lock label if the project does not have it yet (idempotent).
+ensure_lock_label() {
+  case "$(forge_cli)" in
+    glab)
+      grep -qF "$WT_LOCK_LABEL" <<<"$(cd "$REPO_ROOT" && glab label list 2>/dev/null)" && return 0
+      (cd "$REPO_ROOT" && glab label create -n "$WT_LOCK_LABEL" -c "#ec9a29" \
+        -d "Checked out by an agent/worktree (scripts/wt) - do not grab in parallel" \
+        >/dev/null 2>&1) || true ;;
+    gh)
+      (cd "$REPO_ROOT" && gh label create "$WT_LOCK_LABEL" --color ec9a29 --force \
+        --description "Checked out by an agent/worktree (scripts/wt) - do not grab in parallel" \
+        >/dev/null 2>&1) || true ;;
+  esac
+}
+
+# Post comment $2 on issue $1 (best effort; returns non-zero on failure).
+issue_note() {
+  case "$(forge_cli)" in
+    glab) (cd "$REPO_ROOT" && glab issue note "$1" -m "$2" >/dev/null 2>&1) ;;
+    gh)   (cd "$REPO_ROOT" && gh issue comment "$1" --body "$2" >/dev/null 2>&1) ;;
+  esac
+}
+
+# Apply the lock to issue $1: label + a check-out comment recording branch/worktree.
+apply_lock() {
+  local issue="$1" branch="$2" path="$3" ts
+  ensure_lock_label
+  case "$(forge_cli)" in
+    glab) (cd "$REPO_ROOT" && glab issue update "$issue" --label "$WT_LOCK_LABEL" >/dev/null 2>&1) \
+            || warn "could not apply '$WT_LOCK_LABEL' to #$issue (check glab auth)" ;;
+    gh)   (cd "$REPO_ROOT" && gh issue edit "$issue" --add-label "$WT_LOCK_LABEL" >/dev/null 2>&1) \
+            || warn "could not apply '$WT_LOCK_LABEL' to #$issue (check gh auth)" ;;
+  esac
+  ts="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  issue_note "$issue" "🔒 checked out ${ts} · branch \`${branch}\` · worktree \`${path}\`" \
+    || warn "could not post check-out comment to #$issue"
+}
+
+# Release the lock on issue $1: remove the label and post a release comment.
+clear_lock() {
+  local issue="$1" branch="$2" ts
+  case "$(forge_cli)" in
+    glab) (cd "$REPO_ROOT" && glab issue update "$issue" --unlabel "$WT_LOCK_LABEL" >/dev/null 2>&1) || true ;;
+    gh)   (cd "$REPO_ROOT" && gh issue edit "$issue" --remove-label "$WT_LOCK_LABEL" >/dev/null 2>&1) || true ;;
+  esac
+  ts="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  issue_note "$issue" "🔓 released ${ts} · branch \`${branch}\`" || true
+}
+
+# Guard for new/claim: die if issue $1 is already checked out and force ($2) is
+# empty. No-op (with a warning) when no forge CLI is available.
+assert_claimable() {
+  local issue="$1" force="$2" note
+  lock_available || { warn "no forge CLI — the #$issue '$WT_LOCK_LABEL' label won't be set; the local worktree dir and prune grace window still protect this work"; return 0; }
+  if [[ "$(issue_is_locked "$issue")" == "locked" && -z "$force" ]]; then
+    err "issue #$issue is already checked out (label '$WT_LOCK_LABEL')."
+    note="$(last_checkout_note "$issue")"
+    [[ -n "$note" ]] && dim "  $note"
+    die "another agent/worktree is likely on it. Re-run with --force to take it over."
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Subcommands
+# ---------------------------------------------------------------------------
+
+cmd_new() {
+  local input="" force=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --force) force="1"; shift ;;
+      *)       [[ -z "$input" ]] && input="$1"; shift ;;
+    esac
+  done
+  [[ -n "$input" ]] || die "usage: wt new <issue|branch-name> [--force]"
+  local branch; branch="$(derive_branch_name "$input")"
+  local short_name="${branch##*/}"
+  local target_path="${WT_BASE}/${short_name}"
+  local issue; issue="$(issue_from_branch "$branch")"
+
+  local count; count="$(wt_count)"
+  if (( count >= WT_CAP )); then
+    die "WIP cap reached (${count}/${WT_CAP}). Run 'scripts/wt prune' to reap worktrees whose MRs already merged, or finish/remove one first. Override with WT_CAP if you must."
+  fi
+  if (( count >= WT_WARN )); then
+    warn "${count}/${WT_CAP} active worktrees — approaching the WIP cap"
+  fi
+
+  # Refuse fast, before touching the filesystem, if a parallel session already
+  # holds this issue.
+  [[ -n "$issue" ]] && assert_claimable "$issue" "$force"
+
+  git -C "$REPO_ROOT" fetch origin "$DEFAULT_BRANCH" --quiet
+
+  mkdir -p "$WT_BASE"
+  [[ -e "$target_path" ]] && die "path already exists: $target_path"
+  if git -C "$REPO_ROOT" rev-parse --verify "$branch" >/dev/null 2>&1; then
+    git -C "$REPO_ROOT" worktree add "$target_path" "$branch"
+  else
+    # --no-track is load-bearing, not stylistic (guard 1 of 3; see header).
+    # Without it the new branch inherits origin/<default> as its upstream, and a
+    # concurrent `wt prune` then reads a fresh, never-pushed worktree as
+    # merged-and-deleted: the "never pushed" check passes (an upstream IS
+    # configured), origin/<branch> is absent, and `merge-base --is-ancestor` is
+    # trivially true because the branch still points at origin/<default>. All
+    # three prune conditions line up and the worktree is reaped out from under
+    # whoever is working in it. --no-track leaves no upstream, so the
+    # "never pushed" check correctly skips it until it is actually pushed.
+    git -C "$REPO_ROOT" worktree add "$target_path" -b "$branch" --no-track "origin/$DEFAULT_BRANCH"
+  fi
+
+  # Symlink shared dev deps — only candidates present in the main checkout.
+  local linked=0 rel
+  for rel in "${WT_SYMLINK_CANDIDATES[@]}"; do
+    if [[ -e "$REPO_ROOT/$rel" && ! -e "$target_path/$rel" ]]; then
+      mkdir -p "$target_path/$(dirname "$rel")"
+      ln -s "$REPO_ROOT/$rel" "$target_path/$rel"
+      ok "symlinked $rel → main checkout"
+      linked=$((linked + 1))
+    fi
+  done
+  if (( linked == 0 )); then
+    warn "no dev-dep dirs found in main checkout to symlink (checked: ${WT_SYMLINK_CANDIDATES[*]})"
+  fi
+
+  # Ownership marker (guard 2 of 3; see header). Records when this worktree was
+  # created so `wt prune` can honor a freshness grace window and refuse to reap
+  # a worktree another session may still be setting up.
+  printf '%s\n' "created=$(date +%s)" "branch=$branch" "host=$(hostname -s 2>/dev/null || echo unknown)" \
+    > "$target_path/$WT_OWNER_FILE"
+
+  # Per-worktree E2E ports, derived from the slug (see "Per-worktree E2E ports").
+  local port_offset preview_port dev_port
+  port_offset="$(resolve_port_offset "$short_name")"
+  preview_port=$(( WT_PREVIEW_PORT_BASE + port_offset ))
+  dev_port=$(( WT_DEV_PORT_BASE + port_offset ))
+
+  # .envrc for direnv users. Reuses the running Docker stack via the shared
+  # compose project name; no-op if direnv/docker aren't in use.
+  #
+  # WT_TEST_DB (guard 3 of 3) gives each worktree its own test database name, so
+  # parallel test runs across worktrees cannot collide on a shared default. Have
+  # the project's test settings read it — e.g. in Django:
+  #   DATABASES["default"]["TEST"]["NAME"] = os.environ.get("WT_TEST_DB")
+  # With per-worktree databases there is no need for an external lock file.
+  cat > "$target_path/.envrc" <<EOF
+# Auto-generated by scripts/wt. Reuses the running Docker stack from the main
+# checkout via the shared compose project name.
+export COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME_DEFAULT}
+# Isolated test database for this worktree — prevents parallel pytest/jest runs
+# in sibling worktrees from clobbering each other. Source this file before
+# running the test suite so it takes effect.
+export WT_TEST_DB=test_${REPO_NAME//[^a-zA-Z0-9]/_}_wt_${short_name//[^a-zA-Z0-9]/_}
+# Per-worktree E2E server ports. Playwright's reuseExistingServer identifies a
+# running server by PORT ALONE, so without these every worktree shares one preview
+# server and a local E2E run can pass against another branch's bundle. Read them in
+# the E2E config; unset (main checkout, CI), the project's defaults apply.
+export WT_E2E_PORT=${preview_port}
+export WT_E2E_DEV_PORT=${dev_port}
+EOF
+
+  ok "created worktree at $target_path on branch $branch"
+  ok "e2e ports: preview :$preview_port, dev :$dev_port (exported in .envrc)"
+
+  # Check out the issue now that the worktree exists (best-effort forge lock).
+  if [[ -n "$issue" ]] && lock_available; then
+    apply_lock "$issue" "$branch" "$target_path"
+    if [[ -n "$force" ]]; then
+      ok "took over check-out of #$issue (forced; '$WT_LOCK_LABEL' applied)"
+    else
+      ok "checked out #$issue ('$WT_LOCK_LABEL' applied)"
+    fi
+  fi
+  say ""
+  dim "  cd $target_path"
+  if command -v direnv >/dev/null 2>&1; then
+    dim "  direnv allow                           # picks up COMPOSE_PROJECT_NAME"
+  else
+    dim "  source .envrc                          # or set COMPOSE_PROJECT_NAME manually"
+  fi
+}
+
+cmd_list() {
+  local count; count="$(wt_count)"
+  printf "Active worktrees (%s/%s):\n\n" "$count" "$WT_CAP"
+  # Age and pushed-state make it obvious at a glance whose worktree is whose
+  # when several sessions or agents are working in parallel.
+  printf "  %-50s  %-5s  %-6s  %s\n" "BRANCH" "AGE" "PUSHED" "PATH"
+  local path branch age pushed
+  while IFS= read -r path; do
+    [[ -z "$path" || "$path" == "$REPO_ROOT" ]] && continue
+    branch="$(git -C "$path" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')"
+    age="$(wt_age_label "$path")"
+    if git -C "$REPO_ROOT" rev-parse --verify --quiet "origin/${branch}" >/dev/null 2>&1; then
+      pushed="yes"
+    else
+      pushed="no"
+    fi
+    printf "  %-50s  %-5s  %-6s  %s\n" "$branch" "$age" "$pushed" "$path"
+  done < <(git -C "$REPO_ROOT" worktree list --porcelain | awk '/^worktree /{print $2}')
+  say ""
+  if (( count == 0 )); then
+    dim "  (none — use 'wt new <issue>' to create one)"
+  elif (( count >= WT_WARN )); then
+    warn "approaching WIP cap (${count}/${WT_CAP}); finish or remove some before starting more"
+  fi
+}
+
+cmd_remove() {
+  [[ $# -ge 1 ]] || die "usage: wt remove <issue|name>"
+  local needle="$1"
+  local path; path="$(find_worktree "$needle")"
+  [[ -n "$path" ]] || die "no worktree matches '$needle'"
+
+  local force="${2:-}"
+  if [[ -d "$path" ]]; then
+    local tracked_dirty
+    tracked_dirty="$(git -C "$path" status --porcelain --untracked-files=no 2>/dev/null | wc -l | tr -d ' ')"
+    if (( tracked_dirty > 0 )) && [[ "$force" != "--force" ]]; then
+      die "$path has $tracked_dirty uncommitted change(s) to tracked files. Commit/push first, or re-run with --force."
+    fi
+    local re; re="$(auto_created_regex)"
+    local unexpected_untracked
+    unexpected_untracked="$( ( git -C "$path" status --porcelain 2>/dev/null \
+      | awk '/^\?\? /{print $2}' \
+      | grep -Ev "$re" || true ) | wc -l | tr -d ' ')"
+    if (( unexpected_untracked > 0 )) && [[ "$force" != "--force" ]]; then
+      die "$path has $unexpected_untracked untracked file(s) beyond the auto-created set. Stash/commit them, or re-run with --force."
+    fi
+  fi
+
+  # Read the branch before removal; it names the issue whose lock to release.
+  local rm_branch rm_issue=""
+  rm_branch="$(git -C "$path" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  [[ -n "$rm_branch" && "$rm_branch" != "HEAD" ]] && rm_issue="$(issue_from_branch "$rm_branch")"
+
+  # Force git's own remove — the symlinks + .envrc are "untracked" and would block it.
+  git -C "$REPO_ROOT" worktree remove --force "$path"
+  ok "removed worktree $path"
+
+  # Release the issue check-out, but only when the issue is closed. Gating on
+  # closed state keeps the inverse case honest: removing abandoned, unmerged work
+  # leaves the issue open, and the label is then the only signal that it is
+  # spoken for. clear_lock is idempotent, so a label already gone is harmless.
+  if [[ -n "$rm_issue" ]] && lock_available; then
+    if [[ "$(issue_is_closed "$rm_issue")" == "closed" ]]; then
+      clear_lock "$rm_issue" "$rm_branch"
+      ok "released check-out of #$rm_issue (issue closed)"
+    else
+      dim "  #$rm_issue still open — leaving '$WT_LOCK_LABEL' in place"
+    fi
+  fi
+}
+
+# Check out an issue without creating a worktree — "picked it up, not started" —
+# so a parallel session sees the claim immediately.
+cmd_claim() {
+  local issue="" force=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --force) force="1"; shift ;;
+      *)       [[ -z "$issue" ]] && issue="$1"; shift ;;
+    esac
+  done
+  [[ "$issue" =~ ^[0-9]+$ ]] || die "usage: wt claim <issue-number> [--force]"
+  lock_available || die "no forge CLI (glab/gh) available — cannot claim #$issue"
+  assert_claimable "$issue" "$force"
+  apply_lock "$issue" "(not started)" "(claim only — no worktree yet)"
+  if [[ -n "$force" ]]; then
+    ok "took over check-out of #$issue (forced; no worktree yet)"
+  else
+    ok "checked out #$issue ('$WT_LOCK_LABEL' applied; no worktree yet)"
+  fi
+}
+
+# Manually release an issue check-out (a `claim` never turned into a worktree, or
+# a stale lock from a crashed session).
+cmd_release() {
+  [[ $# -ge 1 ]] || die "usage: wt release <issue-number>"
+  local issue="$1"
+  [[ "$issue" =~ ^[0-9]+$ ]] || die "release needs a numeric issue number"
+  lock_available || die "no forge CLI (glab/gh) available — cannot release #$issue"
+  clear_lock "$issue" "(manual release)"
+  ok "released check-out of #$issue"
+}
+
+cmd_prune() {
+  local force="${1:-}"
+  say "Fetching origin with --prune to discover deleted remote branches…"
+  git -C "$REPO_ROOT" fetch --prune --quiet origin
+
+  local pruned=0 skipped=0 kept=0 re
+  re="$(auto_created_regex)"
+
+  while IFS= read -r path; do
+    [[ -z "$path" || "$path" == "$REPO_ROOT" ]] && continue
+
+    local branch
+    branch="$(git -C "$path" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+    if [[ -z "$branch" || "$branch" == "HEAD" ]]; then
+      dim "  $path: detached HEAD — skipped"; kept=$((kept + 1)); continue
+    fi
+
+    # Freshness grace window (guard 2 of 3). A worktree created in the last
+    # WT_GRACE_MIN minutes may belong to a session that is still setting it up
+    # and has not pushed yet — never reap it without --force.
+    local age_min; age_min="$(wt_age_minutes "$path")"
+    if [[ "$force" != "--force" && -n "$age_min" ]] && (( age_min < WT_GRACE_MIN )); then
+      dim "  $branch: created ${age_min}m ago (< ${WT_GRACE_MIN}m grace) — skipped (fresh, may be in use)"
+      kept=$((kept + 1)); continue
+    fi
+    if ! git -C "$REPO_ROOT" config --get "branch.${branch}.remote" >/dev/null 2>&1; then
+      dim "  $branch: never pushed — skipped"; kept=$((kept + 1)); continue
+    fi
+    if git -C "$REPO_ROOT" rev-parse --verify --quiet "origin/${branch}" >/dev/null; then
+      dim "  $branch: still on origin — skipped"; kept=$((kept + 1)); continue
+    fi
+    # Remote gone. Did the branch's work reach the default branch? If that cannot
+    # be shown, the branch may have been deleted WITHOUT merging — refuse to drop it.
+    local merged_how merged_note=""
+    merged_how="$(branch_merged_how "$branch")"
+    if [[ -z "$merged_how" ]]; then
+      warn "  $branch: remote gone but commits NOT in origin/$DEFAULT_BRANCH — skipped (inspect with 'git cherry origin/$DEFAULT_BRANCH $branch'; 'wt remove <name> --force' if intentional)"
+      kept=$((kept + 1)); continue
+    fi
+    case "$merged_how" in
+      patch) merged_note="; local tip rewritten after push, every patch already in $DEFAULT_BRANCH" ;;
+      mr)    merged_note="; merged MR head matches the local tip" ;;
+    esac
+
+    # Same dirty-check as cmd_remove, except that a TRACKED .envrc / .wt-owner
+    # (committed by a stray `git add -A`) is still a file wt rewrites per worktree,
+    # not work — otherwise such a worktree is never reaped.
+    local tracked_dirty unexpected_untracked
+    tracked_dirty="$( ( git -C "$path" status --porcelain --untracked-files=no 2>/dev/null \
+      | awk '{print $NF}' \
+      | grep -Ev '^(\.envrc|\.wt-owner)$' || true ) | wc -l | tr -d ' ')"
+    unexpected_untracked="$( ( git -C "$path" status --porcelain 2>/dev/null \
+      | awk '/^\?\? /{print $2}' \
+      | grep -Ev "$re" || true ) | wc -l | tr -d ' ')"
+    if [[ "$force" != "--force" ]] && (( tracked_dirty > 0 || unexpected_untracked > 0 )); then
+      warn "  $branch: merged but has local work (tracked=$tracked_dirty, untracked=$unexpected_untracked) — skipped (use --force to drop)"
+      skipped=$((skipped + 1)); continue
+    fi
+
+    git -C "$REPO_ROOT" worktree remove --force "$path"
+    ok "  $branch: removed (merged to $DEFAULT_BRANCH, remote gone${merged_note})"
+    # Release the issue check-out for the pruned branch (best effort).
+    local prune_issue; prune_issue="$(issue_from_branch "$branch")"
+    [[ -n "$prune_issue" ]] && lock_available && clear_lock "$prune_issue" "$branch"
+    pruned=$((pruned + 1))
+  done < <(git -C "$REPO_ROOT" worktree list --porcelain | awk '/^worktree /{print $2}')
+
+  say ""
+  say "Pruned: $pruned. Skipped (had local work): $skipped. Kept: $kept."
+}
+
+cmd_doctor() {
+  say "Worktree health — $REPO_NAME"
+  say "============================"
+  say ""
+
+  local here="$CURRENT_TOPLEVEL"
+  if [[ "$here" == "$REPO_ROOT" ]]; then
+    dim "  not currently in a worktree (in main checkout)"
+  else
+    say "  current worktree: $here"
+    local link
+    for link in "${WT_SYMLINK_CANDIDATES[@]}"; do
+      [[ -e "$REPO_ROOT/$link" ]] || continue   # candidate doesn't apply to this repo
+      if [[ -L "$here/$link" ]]; then
+        local target; target="$(readlink "$here/$link")"
+        if [[ -e "$target" ]]; then ok "  $link → $target"; else err "  $link → $target (broken)"; fi
+      elif [[ -e "$here/$link" ]]; then
+        warn "  $link exists but is NOT a symlink (re-created locally; wastes disk)"
+      else
+        warn "  $link missing (run 'wt new' to recreate, or symlink manually)"
+      fi
+    done
+    if [[ "${COMPOSE_PROJECT_NAME:-}" == "$COMPOSE_PROJECT_NAME_DEFAULT" ]]; then
+      ok "  COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME_DEFAULT}"
+    else
+      warn "  COMPOSE_PROJECT_NAME not set to '${COMPOSE_PROJECT_NAME_DEFAULT}'; run: source .envrc"
+    fi
+  fi
+
+  if command -v docker >/dev/null 2>&1; then
+    local up
+    up="$(docker ps --filter "name=^${COMPOSE_PROJECT_NAME_DEFAULT}-" --format '{{.Names}}' 2>/dev/null | sed -n '1,3p' | tr '\n' ' ' || true)"
+    if [[ -n "$up" ]]; then
+      ok "  docker stack '${COMPOSE_PROJECT_NAME_DEFAULT}' up: ${up}"
+    else
+      warn "  no running '${COMPOSE_PROJECT_NAME_DEFAULT}-*' containers; start your stack (e.g. docker compose up -d)"
+    fi
+  else
+    warn "  docker not installed; can't verify stack"
+  fi
+
+  # refs/stash is shared across every worktree of the repo. With more than one
+  # worktree active, a non-empty shared stash is a live hazard: `git stash pop`
+  # in one worktree can apply — and then drop — another's work.
+  if [[ "$(wt_count)" -ge 1 ]] && git -C "$REPO_ROOT" rev-parse --verify --quiet refs/stash >/dev/null 2>&1; then
+    warn "  refs/stash is non-empty while worktrees are active — it is SHARED."
+    dim  "    A pop here can apply and drop another worktree's work. Use: scripts/wt stash"
+  fi
+
+  say ""
+  say "wip $(wt_count)/$WT_CAP active worktrees"
+}
+
+# ---------------------------------------------------------------------------
+# Worktree-private stash
+# ---------------------------------------------------------------------------
+#
+# `git stash` is NOT worktree-scoped. It stores to `refs/stash`, which lives in
+# the git COMMON dir, so every worktree of a repo shares ONE stack: worktree A
+# pushes, worktree B pushes, and A's `pop` now applies B's work into A's tree.
+# When that pop applies cleanly git also DROPS the entry, so B's uncommitted
+# work is gone from the stash and sitting in an unrelated tree, with nothing in
+# either session's output naming what happened. (A CONFLICTING apply keeps the
+# entry — that is the lucky branch of the same bug.) There is no pre-stash hook,
+# so this cannot be caught where it occurs; it has to be replaced.
+#
+# The primitive that makes a private stash possible is `git stash create`: it
+# builds the same stash commit `push` would, but writes NO ref. We store that
+# commit under `refs/wt-stash/<slug>` ourselves. `git stash apply` accepts any
+# stash-shaped commit, so restoring needs nothing special. `refs/stash` is never
+# read or written by any of this.
+#
+# Limitation, stated rather than discovered: untracked files are not captured,
+# because `git stash create` cannot capture them. For a one-file detour, copying
+# the file aside and back is still simplest.
+
+# A stable, filesystem-derived key for the current worktree. The PATH is what
+# distinguishes worktrees (two can sit on the same branch, and a branch can be
+# renamed under a live worktree), so key on its basename plus a short hash of
+# the full path — readable in ref listings, still unique.
+wt_stash_slug() {
+  local base hash
+  base="$(basename "$CURRENT_TOPLEVEL" | tr '[:upper:]' '[:lower:]' \
+          | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g' | cut -c1-40)"
+  hash="$(printf '%s' "$CURRENT_TOPLEVEL" | git hash-object --stdin | cut -c1-8)"
+  printf '%s-%s' "${base:-worktree}" "$hash"
+}
+
+wt_stash_ref() { printf '%s/%s' "$WT_STASH_NS" "$(wt_stash_slug)"; }
+
+# Every entry for THIS worktree, newest first. Entries are a chain: each new one
+# records the previous as its second parent, exactly as refs/stash does, so the
+# reflog of our ref IS the stack.
+wt_stash_entries() {
+  git -C "$CURRENT_TOPLEVEL" reflog show "$(wt_stash_ref)" --format='%gd %gs' 2>/dev/null || true
+}
+
+wt_stash_has_entries() { [[ -n "$(wt_stash_entries)" ]]; }
+
+cmd_stash() {
+  local sub="${1:-push}"
+  case "$sub" in push|pop|apply|list|drop|show) shift || true ;; *) sub="push" ;; esac
+
+  local ref slug
+  ref="$(wt_stash_ref)"; slug="$(wt_stash_slug)"
+
+  case "$sub" in
+    push)
+      local msg="${1:-}" commit
+      [[ -n "$msg" ]] || msg="wt-stash on $(git -C "$CURRENT_TOPLEVEL" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '-')"
+      # `create` builds the stash commit and prints its sha WITHOUT writing any
+      # ref — the whole reason a private stash is possible. Empty output means a
+      # clean tree; not an error, but it must not be reported as a save.
+      commit="$(git -C "$CURRENT_TOPLEVEL" stash create "$msg" 2>/dev/null || true)"
+      if [[ -z "$commit" ]]; then
+        say "wt: nothing to stash — the worktree is clean"
+        return 0
+      fi
+      # `--create-reflog` is REQUIRED: git only auto-logs refs under refs/heads,
+      # refs/remotes, refs/notes and HEAD unless core.logAllRefUpdates=always,
+      # and a custom namespace is none of those. Without it the ref still moves,
+      # but every earlier entry becomes unreachable — `list` comes back empty and
+      # `pop` cannot find the previous entry, so the stack silently collapses to
+      # a single slot.
+      git -C "$CURRENT_TOPLEVEL" update-ref --create-reflog -m "$msg" "$ref" "$commit"
+      # Match `git stash push`: the working tree goes back to HEAD.
+      git -C "$CURRENT_TOPLEVEL" reset --hard -q HEAD
+      ok "stashed to ${ref} — restore with: scripts/wt stash pop"
+      if [[ -n "$(git -C "$CURRENT_TOPLEVEL" ls-files --others --exclude-standard 2>/dev/null | sed -n 1p)" ]]; then
+        warn "untracked files were NOT stashed (git stash create does not capture them)"
+      fi
+      ;;
+
+    pop|apply)
+      wt_stash_has_entries || die "no wt stash entries for this worktree ($slug)"
+      local target="${1:-$ref}"
+      git -C "$CURRENT_TOPLEVEL" stash apply "$target" \
+        || die "apply failed — nothing was dropped; resolve, then: scripts/wt stash drop"
+      if [[ "$sub" == "pop" ]]; then
+        # Only reached when apply succeeded, so a conflicted restore never loses
+        # the entry.
+        local prev
+        prev="$(git -C "$CURRENT_TOPLEVEL" rev-parse --verify --quiet "${ref}@{1}" 2>/dev/null || true)"
+        if [[ -n "$prev" ]]; then
+          git -C "$CURRENT_TOPLEVEL" update-ref --create-reflog -m "wt-stash pop" "$ref" "$prev"
+        else
+          git -C "$CURRENT_TOPLEVEL" update-ref -d "$ref"
+        fi
+        ok "popped ${ref}"
+      else
+        ok "applied ${ref} (entry kept)"
+      fi
+      ;;
+
+    list)
+      if ! wt_stash_has_entries; then
+        say "no wt stash entries for this worktree ($slug)"
+      else
+        say "wt stash entries for $slug:"
+        wt_stash_entries | sed 's/^/  /'
+      fi
+      ;;
+
+    show)
+      wt_stash_has_entries || die "no wt stash entries for this worktree ($slug)"
+      git -C "$CURRENT_TOPLEVEL" stash show -p "${1:-$ref}"
+      ;;
+
+    drop)
+      wt_stash_has_entries || die "no wt stash entries for this worktree ($slug)"
+      local prev
+      prev="$(git -C "$CURRENT_TOPLEVEL" rev-parse --verify --quiet "${ref}@{1}" 2>/dev/null || true)"
+      if [[ -n "$prev" ]]; then
+        git -C "$CURRENT_TOPLEVEL" update-ref --create-reflog -m "wt-stash drop" "$ref" "$prev"
+      else
+        git -C "$CURRENT_TOPLEVEL" update-ref -d "$ref"
+      fi
+      ok "dropped the newest entry on ${ref}"
+      ;;
+  esac
+}
+
+cmd_help() { sed -n '2,/^$/p' "$0" | sed -E 's/^# ?//'; }
+
+# ---------------------------------------------------------------------------
+# Argument guard
+# ---------------------------------------------------------------------------
+
+# The one-line usage for a single subcommand. `cmd_help` prints the whole header
+# block; this is what `wt <sub> --help` and a rejected flag show.
+subcmd_usage() {
+  case "$1" in
+    new)      echo "usage: wt new <issue|branch-name> [--force]" ;;
+    claim)    echo "usage: wt claim <issue-number> [--force]" ;;
+    release)  echo "usage: wt release <issue-number>" ;;
+    list)     echo "usage: wt list" ;;
+    remove)   echo "usage: wt remove <issue|name> [--force]" ;;
+    prune)    echo "usage: wt prune [--force]" ;;
+    stash)    echo "usage: wt stash [push [message] | pop | apply | list | drop | show]" ;;
+    doctor)   echo "usage: wt doctor" ;;
+    *)        echo "usage: wt <subcommand> — run 'wt help' for the full list" ;;
+  esac
+}
+
+# Flags a given subcommand actually understands. Anything else beginning with a
+# dash is a typo, not an argument.
+#
+# Read this off each cmd_* function's own parser, not off the header comment —
+# `remove` takes --force as its SECOND positional and `prune` as its first, and
+# a flag missing from this table is rejected before the subcommand ever runs.
+subcmd_flags() {
+  case "$1" in
+    new|claim|remove|prune) echo "--force" ;;
+    *)            echo "" ;;
+  esac
+}
+
+# Guard a subcommand's arguments BEFORE its own parser sees them.
+#
+# Every parser below ends by taking an unrecognised token as the branch name /
+# issue / needle. That is what makes `wt new --help` create a branch called
+# `feat/help`, plus a worktree — the top-level dispatcher does handle `--help`,
+# but only as the FIRST argument.
+#
+# Two rules, and the second matters more than the one that prompts this: `--help`
+# and `-h` print usage and exit 0, and **any other leading-dash token the
+# subcommand does not declare is rejected**. A mistyped `--forse` silently
+# becoming a branch name is the same bug wearing a worse name, and special-casing
+# help alone would not have caught it.
+wt_arg_guard() {
+  local sub="$1"; shift
+  local known; known=" $(subcmd_flags "$sub") "
+  local a
+  for a in "$@"; do
+    case "$a" in
+      -h|--help) subcmd_usage "$sub"; exit 0 ;;
+      --)        return 0 ;;
+      -*)
+        [[ "$known" == *" $a "* ]] && continue
+        err "unknown option: $a"
+        subcmd_usage "$sub" >&2
+        exit 2
+        ;;
+    esac
+  done
+}
+
+# ---------------------------------------------------------------------------
+# Dispatcher
+# ---------------------------------------------------------------------------
+
+case "${1:-help}" in
+  new)        shift; wt_arg_guard new "$@";    cmd_new "$@" ;;
+  claim)      shift; wt_arg_guard claim "$@";   cmd_claim "$@" ;;
+  release)    shift; wt_arg_guard release "$@"; cmd_release "$@" ;;
+  list|ls)    shift; wt_arg_guard list "$@";   cmd_list ;;
+  remove|rm)  shift; wt_arg_guard remove "$@"; cmd_remove "$@" ;;
+  prune)      shift; wt_arg_guard prune "$@";  cmd_prune "$@" ;;
+  stash)      shift; wt_arg_guard stash "$@";  cmd_stash "$@" ;;
+  doctor)     shift; wt_arg_guard doctor "$@"; cmd_doctor ;;
+  help|--help|-h) cmd_help ;;
+  *)          err "unknown subcommand: $1"; cmd_help; exit 2 ;;
+esac

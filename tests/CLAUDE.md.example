@@ -1,0 +1,186 @@
+# Test conventions
+
+<!--
+This is a portable set of test-discipline rules — nothing here is stack-specific.
+Move (do not copy) this file to your actual test tree's root once one exists
+(e.g. `frontend/tests/CLAUDE.md`, `e2e/CLAUDE.md`) and rename it to `CLAUDE.md`,
+so it loads automatically whenever Claude reads or edits a file under there.
+Blueprint itself ships no application test tree, so this stays a `.example`
+file at the repository root until a downstream project creates one.
+-->
+
+## Always
+
+- Tests are part of the feature commit — never defer them to a follow-up
+- Stale mocks fail silently: if a module's exported API changes, every test that mocks it must be updated in the same commit
+- Run the affected test file locally before every `git commit` — CI is a safety net, not the first line of defense
+- Integration tests should hit real implementations, not mocks of internal modules
+- Cover rollback/failure paths and empty states, not just the happy path
+
+## A green suite is not the same as a working suite
+
+The failure mode that costs the most is not a failing test — it is a test that
+silently never runs, or runs and asserts nothing. Guard against all three:
+
+- **A test file that is never collected.** A path filter, a renamed directory, or
+  a config `exclude` can drop whole directories from the CI run with nothing
+  failing. Assert that every test file on disk is collected by the exact command
+  CI invokes, and run that check early, independent of the slow shards.
+- **A new file that never enters the coverage report.** If coverage
+  instrumentation is scoped to imported modules, a brand-new untested file is
+  invisible to both diff-coverage and the package floor — it is not uncovered, it
+  is *absent*. Fail when a file added in the change is missing from the coverage
+  report entirely.
+- **A test that executes a line without checking it.** Coverage answers "did this
+  run?", not "would this fail if it were wrong?". Use property-based tests for
+  invariants, and mutation testing on core logic to find the assertions you are
+  missing.
+
+## Watch the test fail first — a test that cannot fail is not coverage
+
+The most expensive test is not one that fails; it is one that **passes on the
+unfixed build**. It ships as evidence, it is counted in coverage, and it will
+never object again. Every one of these was written in good faith and reviewed:
+
+- **An absence assertion that samples too early.** Polling a counter for `0` to
+  prove a write was refused matches on the *first* sample — before the action
+  could have fired — and passes identically with the guard deleted. Assert on a
+  request that must be *rejected*, or on a synchronous observable, not on the
+  continued absence of something slow.
+- **A key sequence that cancels itself.** A guard test pressing `↓ ↓ ↑` passes
+  with the guard removed: two fixture rows clamp the second `↓`, and the `↑`
+  undoes the first. Drive **one** action from a known starting state, and assert
+  the fixture is large enough for the movement to be observable.
+- **A selector that binds to the wrong node.** Accessible-name matching is a
+  *substring* match by default, so a query for one region silently binds to an
+  empty-state region whose label merely starts the same — and the "reproduction"
+  then passes against the broken build. Use exact matching for names that share
+  a prefix.
+- **A parameterized guard whose parameters do not vary.** A query-count check at
+  two page sizes is vacuous when the framework ignores the page-size parameter:
+  it issues two identical requests and compares them. Assert an absolute budget
+  and prove it fails when the optimization is removed.
+
+The rule that catches all four costs one command:
+
+> **Revert the fix, run the new test, and require it to FAIL. Then reapply.**
+> If you cannot revert cleanly, break the production code deliberately — comment
+> out the guard, return the wrong value — and watch it go red.
+
+Record it in the MR: "verified failing without the fix". A test whose red state
+nobody has ever seen is an assertion about the author's intent, not about the code.
+
+## Never truncate a mandatory sweep
+
+Piping a required audit through `head` — the E2E grep sweep, a coverage
+enumeration, a rename check — makes an **incomplete** answer look complete.
+Running the rule and then discarding most of its output feels like having
+checked. Use `grep -rl` plus per-file counts when the raw output is large, and
+report the total.
+
+Related: shells differ on word splitting. In `zsh`, an unquoted `$SUITES`
+variable does **not** split into arguments, so a batched `pytest $SUITES` gets
+one bogus argument, collects nothing, and the empty result reads as
+**0 failures = pass**. Before believing any zero, confirm the run reported a
+non-zero *total*.
+
+## Hermeticity — a test that reaches the network is not a test
+
+- Ban outbound sockets in the test suite by default. Derive the allowlist from
+  configuration (database host, cache host) rather than hardcoding it, so it is
+  identical in CI and locally, and resolve each host to its IP addresses — socket
+  guards match the address actually passed to `connect()`, not the hostname.
+- A test that genuinely needs the network opts out with an explicit, reviewable
+  marker. Everything else fails instantly instead of hanging on a connect timeout
+  and flaking by test order.
+
+## A flake is a bug until proven otherwise
+
+Treat an intermittent failure as a defect report, not as noise to be retried
+away. In practice most "flaky" tests are real bugs in the product or the harness
+— a race a user can also hit, a listener attached to an element that does not
+exist yet, a component that crashes on a malformed response.
+
+- Allow **at most one** retry in CI and **zero** locally. One retry absorbs a
+  genuine runner blip; two lets a test that fails two of three attempts report
+  success.
+- Fail a dedicated job on any test that passed *only* on retry, so a retry can
+  never mask a defect silently.
+- Emulate reduced motion suite-wide for browser tests. A looping loading skeleton
+  keeps layout permanently in motion and defeats the runner's element-stability
+  check, surfacing as an inexplicable timeout on an unrelated control.
+- Test the **cold** path deliberately. If every endpoint resolves instantly,
+  whether a component renders its loading state first is left to chance — so the
+  path real users get is only covered by accident. Add a helper that delays a
+  route and assert the surface still works when its container mounts after first
+  paint.
+
+## Browser/E2E mocks
+
+- **Register a catch-all route first.** Any endpoint the spec forgot to mock
+  otherwise escapes to whatever is listening — nothing in CI, a real backend on a
+  developer machine — so the same spec behaves differently per environment. Make
+  the catch-all answer with a typed error plus a console warning naming the URL,
+  so a missing mock becomes a deterministic warning rather than a race.
+- **A catch-all does not mean the page is mocked.** A generic list-shaped stub
+  returned for an object-shaped endpoint produces a truthy but malformed value,
+  the component throws, and an error boundary replaces the app — which surfaces
+  later as an unrelated timeout, not as "missing mock". Mock every endpoint the
+  page actually reads, with its real response shape.
+- **Gate on a "page rendered" signal** before interacting with a data-driven
+  route — a heading or content node that only appears once those reads resolve —
+  not just the control's own visibility.
+- **Validate every mock payload against the API schema, at test time.** A
+  hand-written fixture drifts from the server silently, and the spec keeps
+  passing against a shape production never sends. Install one guard in the shared
+  catch-all setup that checks each fulfilled response against the schema the API
+  declares for that method, path, and status, and throw inside the route handler
+  so the spec fails by name. Upstream a single install line reached ~290 specs
+  whose payloads were inlined in the spec body; a lint rule stops that line being
+  quietly deleted. Enforce an unknown property, a wrong type, an impossible enum,
+  and a null on a non-nullable field. Do **not** enforce missing-required: a
+  fixture sending `{id, name}` is an intentional minimal stand-in. When the guard
+  fires, decide which artifact is wrong before "fixing" the mock — upstream, five
+  flagged endpoints returned a bare array while the *schema* wrongly declared
+  pagination. An operation whose body is declared free-form `{type: object}` is a
+  hole in the schema, not coverage; count those out loud.
+- **A spec that asserts after a write needs a stateful mock.** The app patches its
+  cache optimistically, then invalidates and refetches on success. A stateless
+  list mock re-serves the original rows, so the refetch **erases the committed
+  value**, which then exists only for the milliseconds between the optimistic
+  render and the refetch landing. On a loaded CI runner the assertion misses that
+  window: green on the branch, red on the default branch. **Raising the timeout or
+  the retry count fixes nothing** — after the refetch the state is gone for good,
+  so a 5 s and a 60 s wait fail identically. Serve reads from a live row array the
+  write handler mutates. Reproduce this class with
+  `--repeat-each=15 --workers=<2–3× cores>`; a default local run will not show it.
+- **Each worktree needs its own E2E server port.** Playwright's
+  `reuseExistingServer` identifies "an existing server" by **port alone**, so with
+  a hardcoded port every worktree on the machine shares one preview server, and a
+  local run asserts against whichever checkout started it. The dangerous direction
+  is the one that **passes**: green against a sibling's bundle looks exactly like a
+  trustworthy result. `scripts/wt new` exports `WT_E2E_PORT` / `WT_E2E_DEV_PORT`
+  into each `.envrc`. Read them in one place, feed a single `PORT` constant to
+  `baseURL`, `webServer.url`, **and** the server's `--port` flag so the three
+  cannot disagree, pass `--strictPort` so a bind mismatch fails loudly, and throw
+  on a present-but-invalid value rather than falling back to the default — a typo
+  that silently reverts to the shared port reintroduces the collision while
+  looking configured. Unset (main checkout, CI) the defaults apply unchanged.
+
+## Before committing a user-visible change, grep the E2E specs
+
+E2E specs live in a separate tree from the source and assert on text, ARIA roles,
+menu items, section counts, and key bindings. Unit tests sit next to the
+component and are obvious to update; E2E specs are not, which is why they are the
+most common CI failure. Before committing any UI surface change:
+
+```bash
+grep -rn "<old text or label>"        <e2e dir>/   # string assertions
+grep -rn "<menu / dialog / aria-label>" <e2e dir>/   # role + accessible name
+grep -rn "press('<old key>')"          <e2e dir>/   # keyboard rebinds
+```
+
+Update every match in the **same commit**, and run the affected spec locally.
+Added or removed a list item, section, or menu option? Search for the count and
+the sibling names too — an assertion like "all five sections" fails the moment
+you add a sixth.

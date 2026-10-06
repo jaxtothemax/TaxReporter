@@ -1,0 +1,58 @@
+# ─── Docs CI jobs — internal link/anchor/asset checker ───────────────────────
+#
+# Unlike ci/python.yml, ci/node.yml, ci/docker.yml, and ci/go.yml — which stay
+# commented out in .gitlab-ci.yml until you pick a stack — this file is
+# included BY DEFAULT. Whether its job actually runs on a given pipeline is
+# decided by the `exists:` rule below, not by the include line: a clone with
+# no docs site never sees the job appear at all, so leaving the include
+# uncommented does not make this gate fire on a project that has not added
+# one. This is deliberate — see the acceptance criteria on issue #32 ("does
+# not run in clones with no docs site") and scripts/CLAUDE.md's "a new
+# detector opens with a backlog" section on why it ships blocking, not
+# allow_failure.
+#
+# What it checks: scripts/check-docs-internal-links.py — a broken internal
+# link, cross-page/same-page anchor, relative asset, or cross-repository
+# "source of record" link under DOCS_ROOT fails this job. Ported from
+# TruePPM (#32); see that script's module docstring for exactly what is
+# configurable here versus hard-coded to the Astro Starlight shape
+# website/src/content/docs/guides/adding-a-docs-site.md recommends.
+#
+# Customize (only needed if your docs site does not use that recommended
+# shape — website/src/content/docs, built with Astro Starlight):
+#   - DOCS_ROOT:   content root, repo-relative
+#   - DOCS_CONFIG: framework config read for `redirects:` + the site's own
+#                  base URL; also doubles as the `exists:` marker below, so
+#                  update BOTH if your docs site does not carry an
+#                  astro.config.mjs — see the script's --docs-root/--config
+#                  flags for a framework with a different config file name
+#                  entirely.
+
+variables:
+  DOCS_ROOT: "website/src/content/docs"
+  DOCS_CONFIG: "website/astro.config.mjs"
+
+docs-internal-links:
+  stage: test
+  image: alpine:3.19
+  rules:
+    # exists: is the "does this clone even have a docs site" gate. A project
+    # that never added one gets no job at all — not a skipped job, not a
+    # green no-op, nothing in the pipeline UI, exactly like a stack template
+    # nobody included. Checked against DOCS_CONFIG specifically (not DOCS_ROOT)
+    # because a content directory can exist mid-migration with no working
+    # config; the config file is what says "this docs site is wired up."
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      exists:
+        - $DOCS_CONFIG
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      exists:
+        - $DOCS_CONFIG
+  before_script:
+    - apk add --no-cache python3 git
+  script:
+    # Self-test FIRST, in this same job — check-gate-selftest-parity.sh
+    # requires it, and scripts/CLAUDE.md explains why "ran in a different
+    # job" is worth nothing: it proves the check works on a different image.
+    - python3 scripts/check-docs-internal-links.py --self-test
+    - python3 scripts/check-docs-internal-links.py --docs-root "$DOCS_ROOT" --config "$DOCS_CONFIG"

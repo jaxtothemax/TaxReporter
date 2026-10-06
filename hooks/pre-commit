@@ -1,0 +1,54 @@
+#!/bin/sh
+# Pre-commit hook: run fast per-diff checks before every commit.
+# Delegates to make targets so the actual commands are stack-specific.
+# Skip with: git commit --no-verify
+
+cd "$(git rev-parse --show-toplevel)" || exit 0
+
+# Secret scan — the merge-blocking gitleaks-scan CI job is the hard gate;
+# this is the earliest point a staged secret can be caught, before it ever
+# leaves your machine. Runs first: a leaked credential outranks a lint error.
+if make -n gitleaks-check >/dev/null 2>&1; then
+    echo "Running secret scan (gitleaks)..."
+    if ! make gitleaks-check 2>&1; then
+        echo ""
+        echo "Secret scan failed — gitleaks found a likely secret in the staged changes."
+        echo "Remove it, or add a documented allowlist entry to .gitleaks.toml if it is a"
+        echo "false positive."
+        echo "To skip: git commit --no-verify"
+        exit 1
+    fi
+fi
+
+# Format check — auto-fixable style violations
+if make -n format-check >/dev/null 2>&1; then
+    echo "Running format check..."
+    if ! make format-check 2>&1; then
+        echo ""
+        echo "Format check failed — run 'make format' to fix."
+        echo "To skip: git commit --no-verify"
+        exit 1
+    fi
+fi
+
+# Lint — catch errors on the changed diff
+if make -n lint >/dev/null 2>&1; then
+    echo "Running lint..."
+    if ! make lint 2>&1; then
+        echo ""
+        echo "Lint failed — fix errors before committing."
+        echo "To skip: git commit --no-verify"
+        exit 1
+    fi
+fi
+
+# Type check — static type errors
+if make -n typecheck >/dev/null 2>&1; then
+    echo "Running type check..."
+    if ! make typecheck 2>&1; then
+        echo ""
+        echo "Type check failed — fix type errors before committing."
+        echo "To skip: git commit --no-verify"
+        exit 1
+    fi
+fi

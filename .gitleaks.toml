@@ -1,0 +1,36 @@
+# gitleaks configuration for this project.
+#
+# Extends the upstream default ruleset (the maintained set of provider/key
+# patterns). Read by both the gitleaks-scan CI job and the local pre-commit
+# hook (scripts/gitleaks-precommit.sh) — auto-discovered at the repo root by
+# `gitleaks git`/`gitleaks dir`, so a false positive is fixed once here, not
+# twice.
+#
+# Run locally:  gitleaks dir . --no-banner
+#           or: gitleaks git --staged --no-banner   (what the pre-commit hook runs)
+title = "gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Documented false-positive allowlist — never a real secret. Each entry below names the finding it exists for."
+
+# scripts/gitleaks-precommit.sh's own --self-test stages a synthetic,
+# obviously-fake AWS access key ID (AKIAABCDEFGHIJKLMNOP) to prove the
+# detector still rejects a real-shaped secret. That literal string, sitting
+# in the script's own source, is itself a match for gitleaks' default
+# aws-access-token rule — the same "a gate that hunts for a marker matches
+# the prose describing it" shape scripts/CLAUDE.md documents for stale
+# references, applied to a detector instead of a marker. Path-scoped so a
+# REAL secret added anywhere else in this file is still caught.
+paths = [
+  '''(^|/)scripts/gitleaks-precommit\.sh$''',
+]
+
+# Add project-specific entries below as real false positives are found —
+# never speculatively. Give each one the finding it was written for, and a
+# SUPPRESSED-UNTIL(#N) marker in the comment (see
+# scripts/check-stale-references.sh) if the exemption is temporary and
+# should not outlive a tracked cleanup issue. A permanent, reasoned exclusion
+# (a lockfile integrity hash, a documentation example) needs no marker.
