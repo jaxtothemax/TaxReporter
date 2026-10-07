@@ -125,6 +125,25 @@ describe("App", () => {
     expect(text(render(initialWizardState))).not.toContain(en.demoBanner.body);
   });
 
+  it("previews the XML header from the details as they are typed", () => {
+    const state = stateAfter(
+      { type: "startOwn" },
+      { type: "addFiles", files: [{ name: "a.csv", size: 1 }] },
+      { type: "next" },
+      { type: "setDetail", field: "taxNumber", value: "1234 5678" },
+      { type: "setDetail", field: "name", value: "Ana <&> Novak" },
+    );
+    const html = render(state);
+    // Spaces typed in the tax number are dropped, as the file will have it.
+    expect(html).toContain('<span class="xml-value">12345678</span>');
+    // Text is escaped, and empty optional fields are left out.
+    expect(html).toContain("Ana &lt;&amp;&gt; Novak");
+    expect(html).not.toContain("&lt;edp:address1&gt;");
+    expect(html).toMatch(
+      /<aside class="details-aside" aria-labelledby="details-aside-title">/,
+    );
+  });
+
   it("marks the current step for assistive technology", () => {
     const html = render(stateAfter({ type: "startDemo" }, { type: "next" }));
     expect(html).toMatch(/aria-current="step"[^>]*>.*?Details/);

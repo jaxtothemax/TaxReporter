@@ -31,7 +31,7 @@ import {
   DataTable,
   DeltaPill,
   Note,
-  Ticker,
+  SecurityMark,
 } from "../../ui/kit";
 
 function InventoryTable({ security }: { readonly security: SecurityResult }) {
@@ -177,7 +177,7 @@ function SecurityItem({ security }: { readonly security: SecurityResult }) {
           {t.review.showDetails(security.symbol)}
         </span>
         <span className="security-id">
-          <Ticker symbol={security.symbol} />
+          <SecurityMark isin={security.isin} symbol={security.symbol} />
           <span className="security-names">
             <span className="security-symbol">{security.symbol}</span>
             <span className="security-name">{security.name}</span>

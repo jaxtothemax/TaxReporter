@@ -115,6 +115,7 @@ export function AppFooter() {
             <span className="visually-hidden"> {t.app.opensInNewTab}</span>
           </a>
           <p>{t.app.footerRates}</p>
+          <p>{t.app.footerLogos}</p>
         </div>
       </div>
     </footer>

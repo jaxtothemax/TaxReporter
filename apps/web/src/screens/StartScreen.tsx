@@ -20,7 +20,14 @@ import { useI18n } from "../i18n/i18n";
 import { BROKERS, HOLDING_BUCKETS } from "../model/preview";
 import { bucketLabel, RateChip } from "../ui/bits";
 import { StackBar } from "../ui/charts";
-import { Amount, Button, Chip, DeltaPill, Ticker } from "../ui/kit";
+import {
+  Amount,
+  Button,
+  Chip,
+  DeltaPill,
+  SecurityMark,
+  Ticker,
+} from "../ui/kit";
 
 /**
  * Keeps form names such as "Doh-KDVP" on one line: a line break at their
@@ -60,7 +67,7 @@ function HeroVisual() {
     <figure className="hero-visual">
       <div className="glass-card hero-card">
         <div className="hero-card-head">
-          <Ticker symbol={apple.symbol} labelled />
+          <SecurityMark isin={apple.isin} symbol={apple.symbol} labelled />
           <div className="hero-card-id">
             <p className="strong">{apple.name}</p>
             <p className="muted small">

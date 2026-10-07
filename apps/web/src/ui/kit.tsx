@@ -20,6 +20,7 @@ import {
 
 import { formatEur, formatEurParts, isNegative } from "../i18n/format";
 import { useI18n } from "../i18n/i18n";
+import { LOGOS } from "./logos";
 
 /** Joins class names, skipping the ones a condition turned off. */
 export function cx(...names: (string | false | null | undefined)[]): string {
@@ -161,6 +162,39 @@ export function Ticker({
     </>
   ) : (
     tile
+  );
+}
+
+/**
+ * The mark beside a security or payer: the company's logo when the app ships
+ * one for its ISIN (ui/logos.ts), otherwise its ticker tile. Decorative like
+ * the tile; `labelled` gives screen readers the symbol where it is not
+ * written out next to the mark.
+ */
+export function SecurityMark({
+  isin,
+  symbol,
+  labelled = false,
+}: {
+  readonly isin: string;
+  readonly symbol: string;
+  readonly labelled?: boolean;
+}) {
+  const logo = LOGOS[isin];
+  if (logo === undefined) return <Ticker symbol={symbol} labelled={labelled} />;
+  return (
+    <>
+      <span
+        className={cx("logo", logo.darkGlyph && "logo-dark-glyph")}
+        aria-hidden
+        style={{ "--logo-color": logo.color } as CSSProperties}
+      >
+        <svg viewBox="0 0 24 24" focusable="false">
+          <path d={logo.path} />
+        </svg>
+      </span>
+      {labelled ? <span className="visually-hidden">{symbol}</span> : null}
+    </>
   );
 }
 

@@ -23,6 +23,7 @@ export interface Messages {
     readonly footerNotAdvice: string;
     readonly footerSource: string;
     readonly footerRates: string;
+    readonly footerLogos: string;
     readonly opensInNewTab: string;
     readonly themeLight: string;
   };
@@ -106,6 +107,10 @@ export interface Messages {
     readonly requiredSuffix: string;
     readonly demoNote: string;
     readonly next: string;
+    readonly asideTitle: string;
+    readonly asidePoints: readonly string[];
+    readonly previewTitle: string;
+    readonly previewBody: string;
   };
   readonly review: {
     readonly title: (year: string) => string;
@@ -247,6 +252,7 @@ export const en: Messages = {
       "TaxReporter prepares a return for you to review. It is not tax advice and is not affiliated with FURS.",
     footerSource: "Source code (AGPL-3.0)",
     footerRates: "Exchange rates: Banka Slovenije, CC BY 4.0",
+    footerLogos: "Company logos are trademarks of their owners.",
     opensInNewTab: "(opens in a new tab)",
     themeLight: "Light theme",
   },
@@ -363,6 +369,15 @@ export const en: Messages = {
     requiredSuffix: "(required)",
     demoNote: "Not required in the demo.",
     next: "Review results",
+    asideTitle: "What happens to your details",
+    asidePoints: [
+      "They go into the XML header and nowhere else.",
+      "They are not sent anywhere: the file is made in this tab.",
+      "Closing the tab clears them. Nothing is saved.",
+    ],
+    previewTitle: "In the XML file",
+    previewBody:
+      "The header of each return, as you type. Empty fields are left out.",
   },
   review: {
     title: (year) => `Review tax year ${year}`,
@@ -507,6 +522,7 @@ export const sl: Messages = {
       "TaxReporter pripravi napoved, ki jo pregledate sami. Ni davčni nasvet in ni povezan s FURS.",
     footerSource: "Izvorna koda (AGPL-3.0)",
     footerRates: "Tečaji: Banka Slovenije, CC BY 4.0",
+    footerLogos: "Logotipi podjetij so blagovne znamke njihovih lastnikov.",
     opensInNewTab: "(odpre se v novem zavihku)",
     themeLight: "Svetla tema",
   },
@@ -637,6 +653,15 @@ export const sl: Messages = {
     requiredSuffix: "(obvezno)",
     demoNote: "V demu podatki niso obvezni.",
     next: "Na pregled",
+    asideTitle: "Kaj se zgodi z vašimi podatki",
+    asidePoints: [
+      "Gredo v glavo datoteke XML in nikamor drugam.",
+      "Nikamor se ne pošljejo: datoteka nastane v tem zavihku.",
+      "Ko zaprete zavihek, se izbrišejo. Nič se ne shrani.",
+    ],
+    previewTitle: "V datoteki XML",
+    previewBody:
+      "Glava vsake napovedi, sproti med vnosom. Prazna polja so izpuščena.",
   },
   review: {
     title: (year) => `Pregled za davčno leto ${year}`,

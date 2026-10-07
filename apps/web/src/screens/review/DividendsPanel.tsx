@@ -12,7 +12,7 @@ import {
 import { useI18n } from "../../i18n/i18n";
 import type { DividendRow, DividendsEstimate } from "../../model/preview";
 import { BrokerName, Eur, RateText, SourceText } from "../../ui/bits";
-import { DataTable, Note, Ticker } from "../../ui/kit";
+import { DataTable, Note, SecurityMark } from "../../ui/kit";
 
 function isCapped(row: DividendRow): boolean {
   return row.creditEur !== row.foreignTaxEur;
@@ -60,7 +60,7 @@ export function DividendsPanel({
             </th>
             <td>
               <span className="payer">
-                <Ticker symbol={row.symbol} labelled />
+                <SecurityMark isin={row.isin} symbol={row.symbol} labelled />
                 <span className="stack-tight">
                   <span className="strong">{row.payer}</span>
                   <span className="muted small">

@@ -18,9 +18,12 @@ import {
   DeltaPill,
   hueOf,
   Note,
+  SecurityMark,
   Tabs,
+  TICKER_HUES,
   tabTarget,
 } from "./kit";
+import { LOGOS } from "./logos";
 
 function render(node: ReactNode, locale: Locale = "en"): string {
   return renderToStaticMarkup(
@@ -74,13 +77,66 @@ describe("DeltaPill", () => {
 });
 
 describe("hueOf", () => {
-  it("gives a symbol the same hue every time, within the color wheel", () => {
+  it("gives a symbol the same hue every time, inside the band with no status meaning", () => {
     expect(hueOf("AAPL")).toBe(hueOf("AAPL"));
     expect(hueOf("AAPL")).not.toBe(hueOf("NVDA"));
-    for (const symbol of ["A", "O", "T", "ULVR", "VWCE", "€uro"]) {
-      expect(hueOf(symbol)).toBeGreaterThanOrEqual(0);
-      expect(hueOf(symbol)).toBeLessThan(360);
+    // Cyan to violet: clear of amber warnings, emerald gains and rose losses.
+    expect(TICKER_HUES.from).toBeGreaterThanOrEqual(180);
+    expect(TICKER_HUES.from + TICKER_HUES.span).toBeLessThanOrEqual(310);
+    for (const symbol of ["A", "O", "T", "ULVR", "VWCE", "ASML", "€uro", ""]) {
+      expect(hueOf(symbol)).toBeGreaterThanOrEqual(TICKER_HUES.from);
+      expect(hueOf(symbol)).toBeLessThan(TICKER_HUES.from + TICKER_HUES.span);
     }
+  });
+});
+
+/** ISO 6166 check digit. */
+function isIsin(value: string): boolean {
+  if (!/^[A-Z]{2}[A-Z0-9]{9}\d$/.test(value)) return false;
+  let digits = "";
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    digits += code >= 65 ? String(code - 55) : value.charAt(i);
+  }
+  let sum = 0;
+  let double = false;
+  for (let i = digits.length - 1; i >= 0; i -= 1) {
+    let digit = Number(digits.charAt(i));
+    if (double) digit = digit * 2 > 9 ? digit * 2 - 9 : digit * 2;
+    sum += digit;
+    double = !double;
+  }
+  return sum % 10 === 0;
+}
+
+describe("logos", () => {
+  it("are keyed by valid ISINs and hold only path data and a color", () => {
+    const entries = Object.entries(LOGOS);
+    expect(entries.length).toBeGreaterThan(20);
+    for (const [isin, logo] of entries) {
+      expect(isIsin(isin), isin).toBe(true);
+      expect(logo.color).toMatch(/^#[0-9A-F]{6}$/);
+      expect(logo.path).toMatch(/^[MmLlHhVvCcSsQqTtAaZz0-9.,\s-]+$/);
+    }
+  });
+
+  it("show a company's logo where one ships, and the ticker tile otherwise", () => {
+    const apple = render(<SecurityMark isin="US0378331005" symbol="AAPL" />);
+    expect(apple).toContain('class="logo"');
+    expect(apple).toContain("<path d=");
+    expect(apple).toContain('aria-hidden="true"');
+    const fund = render(<SecurityMark isin="IE00BK5BQT80" symbol="VWCE" />);
+    expect(fund).toContain('class="ticker"');
+    expect(fund).toContain(">VWCE<");
+  });
+
+  it("name the symbol for screen readers only when asked", () => {
+    expect(
+      render(<SecurityMark isin="US0378331005" symbol="AAPL" labelled />),
+    ).toContain('<span class="visually-hidden">AAPL</span>');
+    expect(
+      render(<SecurityMark isin="US0378331005" symbol="AAPL" />),
+    ).not.toContain("visually-hidden");
   });
 });
 
