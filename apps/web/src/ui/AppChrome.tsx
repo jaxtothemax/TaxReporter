@@ -1,7 +1,6 @@
 /** Header, footer and skip link: the frame around every screen. */
 import {
   ArrowUpRightIcon,
-  MoonIcon,
   ShieldCheckIcon,
   SunIcon,
 } from "@phosphor-icons/react";
@@ -9,7 +8,7 @@ import type { ReactNode } from "react";
 
 import { LOCALES } from "../i18n/format";
 import { useI18n } from "../i18n/i18n";
-import { IconButton } from "./kit";
+import { Chip, IconButton } from "./kit";
 
 /**
  * Where "Source code" points. The repository is not public yet, so the build
@@ -30,7 +29,7 @@ export type Theme = "dark" | "light";
 function LanguageSwitch() {
   const { locale, setLocale, t } = useI18n();
   return (
-    <fieldset className="segmented segmented-sm">
+    <fieldset className="segmented">
       <legend className="visually-hidden">{t.app.languageLabel}</legend>
       {LOCALES.map((code) => (
         <label key={code} className="segment">
@@ -79,21 +78,23 @@ export function AppHeader({
           <span className="brand-name">{t.app.name}</span>
         </button>
         <div className="header-tools">
-          <span className="privacy-pill">
-            <ShieldCheckIcon size={15} weight="bold" aria-hidden />
+          <Chip size="md" className="privacy-pill">
+            <ShieldCheckIcon size={16} weight="bold" aria-hidden />
             {t.app.privacyBadge}
-          </span>
+          </Chip>
           <LanguageSwitch />
+          {/* A toggle with a fixed label: the sun is filled while the light
+              theme is on, as aria-pressed says. */}
           <IconButton
             label={t.app.themeLight}
             aria-pressed={theme === "light"}
             onClick={onToggleTheme}
           >
-            {theme === "light" ? (
-              <MoonIcon size={18} weight="bold" aria-hidden />
-            ) : (
-              <SunIcon size={18} weight="bold" aria-hidden />
-            )}
+            <SunIcon
+              size={18}
+              weight={theme === "light" ? "fill" : "bold"}
+              aria-hidden
+            />
           </IconButton>
         </div>
       </div>

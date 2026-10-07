@@ -89,7 +89,7 @@ export function MonthBars({
   const { locale, t } = useI18n();
   const fractions = barFractions(months.map((m) => m.grossEur));
   return (
-    <div className="months">
+    <div>
       <div className="month-bars" aria-hidden>
         {months.map((month, i) => {
           const fraction = fractions[i] ?? 0;

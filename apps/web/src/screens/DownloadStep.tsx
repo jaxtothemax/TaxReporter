@@ -48,8 +48,14 @@ function FormCard({
       </div>
       <h2 className="form-file-title">{form}</h2>
       <p className="muted">{body}</p>
-      <p className="file-chip mono">{fileName}</p>
-      <Button variant="primary" disabled aria-describedby="download-not-built">
+      <p>
+        <code className="code-badge">{fileName}</code>
+      </p>
+      <Button
+        variant="primary"
+        aria-disabled
+        aria-describedby="download-not-built"
+      >
         <DownloadSimpleIcon size={18} weight="bold" aria-hidden />
         {t.download.downloadButton(form)}
       </Button>
@@ -69,55 +75,66 @@ export function DownloadStep({
   const { locale, t } = useI18n();
   const deadline = formatDate(filingDeadline(preview.taxYear), locale);
   const year = String(preview.taxYear);
+  const forms = [
+    preview.securities.length === 0 ? null : (
+      <FormCard
+        key="kdvp"
+        form={t.download.kdvpTitle}
+        body={plural(preview.securities.length, locale, t.download.kdvpBody)}
+        fileName={`Doh-KDVP-${year}.xml`}
+      />
+    ),
+    preview.dividends.length === 0 ? null : (
+      <FormCard
+        key="div"
+        form={t.download.divTitle}
+        body={plural(preview.dividends.length, locale, t.download.divBody)}
+        fileName={`Doh-Div-${year}.xml`}
+      />
+    ),
+  ].filter((card) => card !== null);
   return (
     <div className="screen">
       <header className="screen-head">
         <h1 tabIndex={-1}>{t.download.title}</h1>
-        <p className="lead">{t.download.intro(deadline)}</p>
-        <p className="due-chip">
-          <CalendarBlankIcon size={16} weight="bold" aria-hidden />
-          {t.download.due(deadline)}
-        </p>
+        {forms.length === 0 ? null : (
+          <>
+            <p className="lead">{t.download.intro(deadline)}</p>
+            <p>
+              <Chip tone="accent" size="md">
+                <CalendarBlankIcon size={16} weight="bold" aria-hidden />
+                {t.download.due(deadline)}
+              </Chip>
+            </p>
+          </>
+        )}
       </header>
 
-      <div className="form-cards">
-        {preview.securities.length === 0 ? null : (
-          <FormCard
-            form={t.download.kdvpTitle}
-            body={plural(
-              preview.securities.length,
-              locale,
-              t.download.kdvpBody,
-            )}
-            fileName={`Doh-KDVP-${year}.xml`}
-          />
-        )}
-        {preview.dividends.length === 0 ? null : (
-          <FormCard
-            form={t.download.divTitle}
-            body={plural(preview.dividends.length, locale, t.download.divBody)}
-            fileName={`Doh-Div-${year}.xml`}
-          />
-        )}
-      </div>
+      {forms.length === 0 ? (
+        <Note tone="neutral">{t.download.nothingToFile}</Note>
+      ) : (
+        <>
+          <div className="form-cards">{forms}</div>
 
-      <Note tone="neutral" id="download-not-built">
-        {t.download.notBuilt}
-      </Note>
+          <Note tone="neutral" id="download-not-built">
+            {t.download.notBuilt}
+          </Note>
 
-      <div className="card import-card">
-        <h2>{t.download.importTitle}</h2>
-        <ol className="timeline" role="list">
-          {t.download.importSteps(deadline).map((step, i) => (
-            <li key={step}>
-              <span className="timeline-dot num" aria-hidden>
-                {formatNumber(String(i + 1), locale)}
-              </span>
-              <p>{step}</p>
-            </li>
-          ))}
-        </ol>
-      </div>
+          <div className="card import-card">
+            <h2>{t.download.importTitle}</h2>
+            <ol className="timeline" role="list">
+              {t.download.importSteps(deadline, forms.length).map((step, i) => (
+                <li key={step}>
+                  <span className="timeline-dot num" aria-hidden>
+                    {formatNumber(String(i + 1), locale)}
+                  </span>
+                  <p>{step}</p>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </>
+      )}
 
       <div className="actions-row">
         <Button size="lg" onClick={onBack}>

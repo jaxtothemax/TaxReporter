@@ -2,7 +2,7 @@
  * Diagnostics, grouped by severity. The core emits codes and raw parameters;
  * this is the one place that turns them into sentences in the UI language.
  */
-import { CheckCircleIcon } from "@phosphor-icons/react";
+import { CheckIcon } from "@phosphor-icons/react";
 
 import {
   formatCountry,
@@ -15,7 +15,7 @@ import {
 import { useI18n } from "../../i18n/i18n";
 import type { Messages } from "../../i18n/messages";
 import type { Diagnostic, DiagnosticSeverity } from "../../model/preview";
-import { Note } from "../../ui/kit";
+import { Chip, Note } from "../../ui/kit";
 
 export function diagnosticText(
   d: Diagnostic,
@@ -79,9 +79,11 @@ export function NotesPanel({
   return (
     <div className="panel-stack">
       {hasBlocking ? null : (
-        <p className="all-clear">
-          <CheckCircleIcon size={18} weight="fill" aria-hidden />
-          {t.review.noneBlocking}
+        <p>
+          <Chip tone="accent" size="md">
+            <CheckIcon size={14} weight="bold" aria-hidden />
+            {t.review.noneBlocking}
+          </Chip>
         </p>
       )}
       {ORDER.map((severity) => {

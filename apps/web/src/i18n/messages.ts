@@ -71,7 +71,6 @@ export interface Messages {
     readonly listTitle: string;
     readonly emptyList: string;
     readonly remove: (name: string) => string;
-    readonly notReadYet: string;
     readonly ownFileDetail: (size: string) => string;
     readonly unsupported: string;
     readonly unsupportedBlocked: string;
@@ -79,6 +78,7 @@ export interface Messages {
     readonly announceRemoved: (name: string) => string;
     readonly announceTotal: PluralForms;
     readonly announceDemo: string;
+    readonly announceUnsupported: PluralForms;
     readonly rows: PluralForms;
     readonly coverage: (
       broker: string,
@@ -120,7 +120,7 @@ export interface Messages {
     readonly byMonthTitle: string;
     readonly monthAmount: (month: string, amount: string) => string;
     readonly creditLabel: string;
-    readonly dividendSplitTitle: string;
+    readonly dividendSplitTitle: (rate: string) => string;
     readonly stillDue: string;
     readonly showNotes: string;
     readonly tabsLabel: string;
@@ -130,7 +130,6 @@ export interface Messages {
     readonly tabDividendsShort: string;
     readonly tabNotes: (count: string) => string;
     readonly tabNotesShort: string;
-    readonly colSecurity: string;
     readonly colSold: string;
     readonly colProceeds: string;
     readonly colCost: string;
@@ -227,7 +226,11 @@ export interface Messages {
     readonly downloadButton: (form: string) => string;
     readonly notBuilt: string;
     readonly importTitle: string;
-    readonly importSteps: (deadline: string) => readonly string[];
+    readonly nothingToFile: string;
+    readonly importSteps: (
+      deadline: string,
+      forms: number,
+    ) => readonly string[];
     readonly startOver: string;
   };
 }
@@ -252,7 +255,7 @@ export const en: Messages = {
     eyebrow: "Preview with demo data",
     title: "Doh-KDVP and Doh-Div from your broker's exports",
     subtitle:
-      "Converted at Banka Slovenije rates, matched first in, first out across brokers, and prepared on your own computer.",
+      "Every amount at the Banka Slovenije rate, lots matched first in, first out across brokers, and all of it prepared on your own computer.",
     primaryCta: "Explore the demo",
     secondaryCta: "Use my files",
     highlights: [
@@ -284,13 +287,13 @@ export const en: Messages = {
     ],
     privacyTitle: "What happens to your files",
     privacyBody:
-      "They are read in this browser tab and never uploaded. There is no account and no tracking. Closing the tab clears everything.",
+      "They will be read in this browser tab and never uploaded. There is no account and no tracking. Closing the tab clears everything.",
     privacyLlm:
       "An optional AI check is planned. It will only run with your own API key, after you have seen exactly what it sends.",
     brokersTitle: "Brokers",
     brokersNowLabel: "Being built for v0.1",
-    brokersNextLabel: "Planned next",
-    brokersNextNames: ["eToro", "Robinhood", "Revolut", "DEGIRO"],
+    brokersNextLabel: "Planned after v0.1",
+    brokersNextNames: ["eToro", "Revolut", "Robinhood", "DEGIRO"],
     brokersOthers: "and others",
   },
   stepper: {
@@ -319,7 +322,6 @@ export const en: Messages = {
     listTitle: "Added files",
     emptyList: "No files added yet.",
     remove: (name) => `Remove ${name}`,
-    notReadYet: "Not read yet",
     ownFileDetail: (size) => `${size}, not read yet`,
     unsupported: "Not a CSV or XML export. Remove it to continue.",
     unsupportedBlocked: "Remove the files TaxReporter cannot read to continue.",
@@ -330,6 +332,10 @@ export const en: Messages = {
       other: "{n} files in the list.",
     },
     announceDemo: "The two demo exports were added.",
+    announceUnsupported: {
+      one: "{n} of them is not a CSV or XML export.",
+      other: "{n} of them are not CSV or XML exports.",
+    },
     rows: { one: "{n} row", other: "{n} rows" },
     coverage: (broker, from, to, rows) =>
       `${broker}, ${from} to ${to}, ${rows}`,
@@ -373,7 +379,7 @@ export const en: Messages = {
     byMonthTitle: "Dividends by month",
     monthAmount: (month, amount) => `${month}: ${amount}`,
     creditLabel: "Foreign tax credit",
-    dividendSplitTitle: "Slovenian tax at 25%",
+    dividendSplitTitle: (rate) => `Slovenian tax at ${rate}`,
     stillDue: "Still due",
     showNotes: "Show notes",
     tabsLabel: "Forms and notes",
@@ -383,7 +389,6 @@ export const en: Messages = {
     tabDividendsShort: "Dividends",
     tabNotes: (count) => `Notes (${count})`,
     tabNotesShort: "Notes",
-    colSecurity: "Security",
     colSold: "Sold",
     colProceeds: "Proceeds",
     colCost: "Cost",
@@ -476,11 +481,15 @@ export const en: Messages = {
     notBuilt:
       "The XML writer is not built yet, so this preview has nothing to download.",
     importTitle: "Importing into eDavki",
-    importSteps: (deadline) => [
+    nothingToFile:
+      "No securities were sold and no dividends were paid in this tax year, so there is nothing to file.",
+    importSteps: (deadline, forms) => [
       "Log in to eDavki.",
       "Open Dokumenti, then Uvoz, and choose the file.",
       "Open the imported form and compare it with this review.",
-      `Submit it by ${deadline}, then repeat for the second file.`,
+      forms > 1
+        ? `Submit it by ${deadline}, then repeat for the second file.`
+        : `Submit it by ${deadline}.`,
     ],
     startOver: "Start over",
   },
@@ -506,7 +515,7 @@ export const sl: Messages = {
     eyebrow: "Predogled z demo podatki",
     title: "Doh-KDVP in Doh-Div iz izvozov vašega borznega posrednika",
     subtitle:
-      "Preračunano po tečaju Banke Slovenije, po metodi FIFO prek vseh posrednikov in pripravljeno na vašem računalniku.",
+      "Vsak znesek po tečaju Banke Slovenije, nakupi povezani po metodi FIFO prek vseh posrednikov, vse pripravljeno na vašem računalniku.",
     primaryCta: "Preizkusi demo",
     secondaryCta: "Uporabi svoje datoteke",
     highlights: [
@@ -538,13 +547,13 @@ export const sl: Messages = {
     ],
     privacyTitle: "Kaj se zgodi z datotekami",
     privacyBody:
-      "Prebrane so v tem zavihku brskalnika in se nikamor ne naložijo. Ni računa in ni sledenja. Ko zaprete zavihek, se vse izbriše.",
+      "Prebrane bodo v tem zavihku brskalnika in se nikamor ne bodo naložile. Ni računa in ni sledenja. Ko zaprete zavihek, se vse izbriše.",
     privacyLlm:
       "Načrtujemo izbirno preverjanje z umetno inteligenco. Delovalo bo le z vašim ključem API in šele, ko boste videli, kaj točno pošlje.",
     brokersTitle: "Borzni posredniki",
     brokersNowLabel: "V izdelavi za v0.1",
-    brokersNextLabel: "Sledijo",
-    brokersNextNames: ["eToro", "Robinhood", "Revolut", "DEGIRO"],
+    brokersNextLabel: "Načrtovano po v0.1",
+    brokersNextNames: ["eToro", "Revolut", "Robinhood", "DEGIRO"],
     brokersOthers: "in drugi",
   },
   stepper: {
@@ -573,7 +582,6 @@ export const sl: Messages = {
     listTitle: "Dodane datoteke",
     emptyList: "Dodali še niste nobene datoteke.",
     remove: (name) => `Odstrani ${name}`,
-    notReadYet: "Še ni prebrana",
     ownFileDetail: (size) => `${size}, še ni prebrana`,
     unsupported: "To ni izvoz CSV ali XML. Za nadaljevanje ga odstranite.",
     unsupportedBlocked:
@@ -592,6 +600,12 @@ export const sl: Messages = {
       other: "Na seznamu je {n} datotek.",
     },
     announceDemo: "Dodana sta oba demo izvoza.",
+    announceUnsupported: {
+      one: "{n} izmed njih ni izvoz CSV ali XML.",
+      two: "{n} izmed njih nista izvoza CSV ali XML.",
+      few: "{n} izmed njih niso izvozi CSV ali XML.",
+      other: "{n} izmed njih ni izvozov CSV ali XML.",
+    },
     rows: {
       one: "{n} vrstica",
       two: "{n} vrstici",
@@ -638,7 +652,7 @@ export const sl: Messages = {
     byMonthTitle: "Dividende po mesecih",
     monthAmount: (month, amount) => `${month}: ${amount}`,
     creditLabel: "Odbitek tujega davka",
-    dividendSplitTitle: "Slovenski davek po stopnji 25 %",
+    dividendSplitTitle: (rate) => `Slovenski davek po stopnji ${rate}`,
     stillDue: "Za doplačilo",
     showNotes: "Pokaži opombe",
     tabsLabel: "Obrazca in opombe",
@@ -648,7 +662,6 @@ export const sl: Messages = {
     tabDividendsShort: "Dividende",
     tabNotes: (count) => `Opombe (${count})`,
     tabNotesShort: "Opombe",
-    colSecurity: "Vrednostni papir",
     colSold: "Prodano",
     colProceeds: "Vrednost ob odsvojitvi",
     colCost: "Nabavna vrednost",
@@ -753,11 +766,15 @@ export const sl: Messages = {
     notBuilt:
       "Pisanje datotek XML še ni izdelano, zato v tem predogledu ni česa prenesti.",
     importTitle: "Uvoz v eDavke",
-    importSteps: (deadline) => [
+    nothingToFile:
+      "V tem davčnem letu niste prodali vrednostnih papirjev in niste prejeli dividend, zato ni česa oddati.",
+    importSteps: (deadline, forms) => [
       "Prijavite se v eDavke.",
       "Odprite Dokumenti, nato Uvoz, in izberite datoteko.",
       "Odprite uvoženi obrazec in ga primerjajte s tem pregledom.",
-      `Oddajte ga do ${deadline} in postopek ponovite za drugo datoteko.`,
+      forms > 1
+        ? `Oddajte ga do ${deadline} in postopek ponovite za drugo datoteko.`
+        : `Oddajte ga do ${deadline}.`,
     ],
     startOver: "Začni znova",
   },

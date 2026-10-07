@@ -194,6 +194,11 @@ export interface GainsEstimate {
 }
 
 export interface DividendsEstimate {
+  /**
+   * The Slovenian tax on dividends as a fraction, "0.25": a final tax under
+   * ZDoh-2 Art. 132(1) (docs/research/04-si-tax-rules.md §2.2).
+   */
+  readonly taxRate: DecimalString;
   readonly grossEur: DecimalString;
   readonly foreignTaxEur: DecimalString;
   readonly creditEur: DecimalString;

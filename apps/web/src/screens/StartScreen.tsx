@@ -60,7 +60,7 @@ function HeroVisual() {
     <figure className="hero-visual">
       <div className="glass-card hero-card">
         <div className="hero-card-head">
-          <Ticker symbol={apple.symbol} />
+          <Ticker symbol={apple.symbol} labelled />
           <div className="hero-card-id">
             <p className="strong">{apple.name}</p>
             <p className="muted small">
@@ -135,9 +135,11 @@ export function StartScreen({
         <div className="hero-bg" aria-hidden />
         <div className="container hero-grid">
           <div className="hero-copy">
-            <p className="eyebrow">
-              <span className="eyebrow-dot" aria-hidden />
-              {t.start.eyebrow}
+            <p>
+              <Chip tone="accent" size="md">
+                <span className="eyebrow-dot" aria-hidden />
+                {t.start.eyebrow}
+              </Chip>
             </p>
             <h1 tabIndex={-1} className="hero-title">
               {keepFormNamesWhole(t.start.title)}

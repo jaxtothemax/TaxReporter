@@ -16,7 +16,7 @@ import type {
   RateProvenance,
   SourceRef,
 } from "../model/preview";
-import { cx } from "./kit";
+import { cx, Note } from "./kit";
 
 /** A holding-period bucket as a rate: "25" is "25 %" in Slovenian, "25%" in English. */
 export function bucketLabel(bucket: HoldingBucket, locale: Locale): string {
@@ -101,11 +101,8 @@ export function BrokerName({ broker }: { readonly broker: BrokerId }) {
 export function DemoBanner() {
   const { t } = useI18n();
   return (
-    <div role="note" className="demo-banner">
-      <span className="demo-dot" aria-hidden />
-      <p>
-        <strong>{t.demoBanner.title}</strong> {t.demoBanner.body}
-      </p>
-    </div>
+    <Note tone="warn">
+      <strong>{t.demoBanner.title}</strong> {t.demoBanner.body}
+    </Note>
   );
 }

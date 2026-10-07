@@ -256,7 +256,9 @@ describe("demo dividends", () => {
         r2(toEur(row.gross.amount)),
       );
       expect(row.foreignTaxEur).toBe(r2(toEur(row.foreignTax.amount)));
-      const slovenianTax = q(r2(mul(q("0.25"), q(row.grossEur))));
+      const slovenianTax = q(
+        r2(mul(q(demoPreview.dividendsEstimate.taxRate), q(row.grossEur))),
+      );
       const treatyCap =
         row.treatyRate === null
           ? ZERO
@@ -269,6 +271,10 @@ describe("demo dividends", () => {
       ).toBe(true);
       if (row.rate !== null) expect(row.rate.listDate <= row.date).toBe(true);
     }
+  });
+
+  it("states the dividend tax rate of ZDoh-2 Art. 132(1)", () => {
+    expect(demoPreview.dividendsEstimate.taxRate).toBe("0.25");
   });
 
   it("totals the payments and the tax still due", () => {
@@ -285,7 +291,10 @@ describe("demo dividends", () => {
     );
     const due = sum(
       rows.map((r) =>
-        sub(q(r2(mul(q("0.25"), q(r.grossEur)))), q(r.creditEur)),
+        sub(
+          q(r2(mul(q(demoPreview.dividendsEstimate.taxRate), q(r.grossEur)))),
+          q(r.creditEur),
+        ),
       ),
     );
     expect(same(d.taxDueEur, r2(due))).toBe(true);
@@ -297,10 +306,16 @@ describe("demo dividends", () => {
     const rows = demoPreview.dividends;
     const d = demoPreview.dividendsEstimate;
     for (const r of rows) {
-      const siTax = q(r2(mul(q("0.25"), q(r.grossEur))));
+      const siTax = q(
+        r2(mul(q(demoPreview.dividendsEstimate.taxRate), q(r.grossEur))),
+      );
       expect(cmp(siTax, q(r.creditEur)), r.payer).toBeGreaterThanOrEqual(0);
     }
-    const siTax = sum(rows.map((r) => q(r2(mul(q("0.25"), q(r.grossEur))))));
+    const siTax = sum(
+      rows.map((r) =>
+        q(r2(mul(q(demoPreview.dividendsEstimate.taxRate), q(r.grossEur)))),
+      ),
+    );
     expect(r2(siTax)).toBe(r2(add(q(d.creditEur), q(d.taxDueEur))));
   });
 });

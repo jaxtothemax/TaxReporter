@@ -31,13 +31,15 @@ export function Stepper({
         {FLOW_STEPS.map((step, index) => {
           const isCurrent = index === current;
           const isDone = index < current;
-          const marker = (
+          // On a phone only the marker shows, so a number in it is part of
+          // the step's name (a voice user can say "click 2"); a check is not.
+          const marker = isDone ? (
             <span className="step-marker" aria-hidden>
-              {isDone ? (
-                <CheckIcon size={12} weight="bold" />
-              ) : (
-                formatNumber(String(index + 1), locale)
-              )}
+              <CheckIcon size={12} weight="bold" />
+            </span>
+          ) : (
+            <span className="step-marker">
+              {formatNumber(String(index + 1), locale)}
             </span>
           );
           const label = <span className="step-label">{t.stepper[step]}</span>;
@@ -52,8 +54,7 @@ export function Stepper({
             >
               {isCurrent ? (
                 <span aria-current="step" className="step-item">
-                  {marker}
-                  {label}
+                  {marker} {label}
                 </span>
               ) : canEnter(state, step) ? (
                 <button
@@ -63,16 +64,14 @@ export function Stepper({
                     onGoTo(step);
                   }}
                 >
-                  {marker}
-                  {label}
+                  {marker} {label}
                   {isDone ? (
                     <span className="visually-hidden">, {t.stepper.done}</span>
                   ) : null}
                 </button>
               ) : (
                 <span className="step-item">
-                  {marker}
-                  {label}
+                  {marker} {label}
                 </span>
               )}
             </li>

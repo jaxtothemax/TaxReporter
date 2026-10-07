@@ -28,10 +28,15 @@ export function cx(...names: (string | false | null | undefined)[]): string {
 
 type ButtonProps = ComponentPropsWithoutRef<"button"> & {
   readonly variant?: "primary" | "secondary" | "ghost";
-  readonly size?: "md" | "lg";
+  readonly size?: "sm" | "md" | "lg";
 };
 
-/** A pill button. Defaults to type="button", so it never submits by accident. */
+/**
+ * A pill button. Defaults to type="button", so it never submits by accident.
+ * An action that is not available yet takes aria-disabled rather than
+ * disabled: it stays focusable, so keyboard and screen-reader users can reach
+ * it and hear why (its aria-describedby), and it gets no onClick.
+ */
 export function Button({
   variant = "secondary",
   size = "md",
@@ -60,23 +65,32 @@ export function IconButton({
     <button
       type="button"
       aria-label={label}
+      title={label}
       className={cx("icon-btn", className)}
       {...rest}
     />
   );
 }
 
+/**
+ * The one pill for short labels and status: "sm" inside rows and tables,
+ * "md" for a status that stands on its own line (with an icon first).
+ */
 export function Chip({
   tone = "neutral",
+  size = "sm",
   className,
   children,
 }: {
-  readonly tone?: "neutral" | "accent" | "warn" | "loss";
+  readonly tone?: "neutral" | "accent" | "warn";
+  readonly size?: "sm" | "md";
   readonly className?: string;
   readonly children: ReactNode;
 }) {
   return (
-    <span className={cx("chip", `chip-${tone}`, className)}>{children}</span>
+    <span className={cx("chip", `chip-${tone}`, `chip-${size}`, className)}>
+      {children}
+    </span>
   );
 }
 
@@ -102,22 +116,36 @@ export function DeltaPill({ value }: { readonly value: string }) {
   );
 }
 
-/** A stable hue for a ticker, so AAPL always gets the same tile color. */
+/** Ticker tiles take hues from cyan to violet only, see `hueOf`. */
+export const TICKER_HUES = { from: 190, span: 110 } as const;
+
+/**
+ * A stable hue for a ticker, so AAPL always gets the same tile color. The
+ * band avoids the hues that carry meaning here (amber warnings, the emerald
+ * accent and gains, rose losses), so a tile never looks like a status.
+ */
 export function hueOf(text: string): number {
   let hash = 0;
   for (const char of text) {
     hash = (hash * 31 + (char.codePointAt(0) ?? 0)) % 3600;
   }
-  return hash % 360;
+  return TICKER_HUES.from + (hash % TICKER_HUES.span);
 }
 
 /**
  * A ticker tile standing in for a company logo: logos would mean bundling
  * trademarks or fetching them from a third party, and the app does neither.
- * Decorative: the symbol is always written out next to it.
+ * The tile itself is decorative. Where the symbol is not written out next to
+ * it, `labelled` gives screen readers the symbol instead.
  */
-export function Ticker({ symbol }: { readonly symbol: string }) {
-  return (
+export function Ticker({
+  symbol,
+  labelled = false,
+}: {
+  readonly symbol: string;
+  readonly labelled?: boolean;
+}) {
+  const tile = (
     <span
       className="ticker"
       aria-hidden
@@ -125,6 +153,14 @@ export function Ticker({ symbol }: { readonly symbol: string }) {
     >
       {symbol.slice(0, 4)}
     </span>
+  );
+  return labelled ? (
+    <>
+      {tile}
+      <span className="visually-hidden">{symbol}</span>
+    </>
+  ) : (
+    tile
   );
 }
 
@@ -241,12 +277,17 @@ export interface TabItem<Id extends string> {
   readonly panel: ReactNode;
 }
 
-/** Which tab an arrow, Home or End key moves to, or null for any other key. */
+/**
+ * Which tab an arrow, Home or End key moves to, or null for any other key.
+ * A key pressed with a modifier is left alone: Alt+Left is the browser's Back.
+ */
 export function tabTarget(
   key: string,
   index: number,
   count: number,
+  modified = false,
 ): number | null {
+  if (modified) return null;
   switch (key) {
     case "ArrowRight":
       return (index + 1) % count;
@@ -283,7 +324,12 @@ export function Tabs<Id extends string>({
   const tabs = useRef<(HTMLButtonElement | null)[]>([]);
 
   function onKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
-    const target = tabTarget(event.key, index, items.length);
+    const target = tabTarget(
+      event.key,
+      index,
+      items.length,
+      event.altKey || event.ctrlKey || event.metaKey,
+    );
     const item = target === null ? undefined : items[target];
     if (target === null || item === undefined) return;
     event.preventDefault();

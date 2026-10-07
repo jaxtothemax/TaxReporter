@@ -81,8 +81,10 @@ function Field({
           {help}
         </p>
       )}
+      {/* role="alert": pressing Enter in the field leaves focus where it
+          is, so the error has to announce itself. */}
       {error ? (
-        <p id={errorId} className="field-error">
+        <p id={errorId} className="field-error" role="alert">
           <WarningCircleIcon size={16} weight="bold" aria-hidden />
           {error}
         </p>

@@ -45,9 +45,15 @@ function Frame({
     document.documentElement.lang = locale;
   }, [locale]);
 
-  // The page behind the app (overscroll, scrollbars) follows the theme too.
+  // The page behind the app (overscroll, scrollbars, the browser's own
+  // toolbar color) follows the theme too.
   useEffect(() => {
-    document.documentElement.dataset["theme"] = theme;
+    const root = document.documentElement;
+    root.dataset["theme"] = theme;
+    const background = getComputedStyle(root).getPropertyValue("--bg").trim();
+    document
+      .querySelector('meta[name="theme-color"]')
+      ?.setAttribute("content", background);
   }, [theme]);
 
   // The tab title names the screen, so history entries and screen readers can

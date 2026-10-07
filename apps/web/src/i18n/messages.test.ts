@@ -88,8 +88,13 @@ describe("message catalogs", () => {
 
   it("keep the import steps and the four 'how it works' steps aligned", () => {
     expect(sl.start.steps).toHaveLength(4);
-    expect(sl.download.importSteps("d")).toHaveLength(
-      en.download.importSteps("d").length,
-    );
+    for (const forms of [1, 2]) {
+      expect(sl.download.importSteps("d", forms)).toHaveLength(
+        en.download.importSteps("d", forms).length,
+      );
+    }
+    // Only a return with both forms asks to repeat the import.
+    expect(en.download.importSteps("d", 1).at(-1)).not.toContain("second");
+    expect(en.download.importSteps("d", 2).at(-1)).toContain("second");
   });
 });

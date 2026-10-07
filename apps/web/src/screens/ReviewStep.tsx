@@ -11,7 +11,7 @@ import {
 } from "@phosphor-icons/react";
 import { useState } from "react";
 
-import { formatNumber, plural } from "../i18n/format";
+import { formatNumber, formatPercent, plural } from "../i18n/format";
 import { useI18n } from "../i18n/i18n";
 import { HOLDING_BUCKETS, type ReturnPreview } from "../model/preview";
 import { TAX_YEAR } from "../state/wizard";
@@ -131,7 +131,11 @@ function Summary({ preview }: { readonly preview: ReturnPreview }) {
           {/* Per payment, the tax due is 25% of the gross minus the
               credited foreign tax, so the two shares make up the 25%. */}
           <div className="stat-chart">
-            <p className="mini-title">{t.review.dividendSplitTitle}</p>
+            <p className="mini-title">
+              {t.review.dividendSplitTitle(
+                formatPercent(dividends.taxRate, locale),
+              )}
+            </p>
             <StackBar
               segments={[
                 {
@@ -226,7 +230,7 @@ export function ReviewStep({
               tone={blocking > 0 ? "danger" : "warn"}
               id="review-attention"
               action={
-                <Button variant="ghost" onClick={showNotes}>
+                <Button variant="ghost" size="sm" onClick={showNotes}>
                   {t.review.showNotes}
                 </Button>
               }

@@ -21,7 +21,11 @@ import {
   plural,
 } from "../i18n/format";
 import { useI18n } from "../i18n/i18n";
-import type { AddedFile, WizardState } from "../state/wizard";
+import {
+  isSupportedFile,
+  type AddedFile,
+  type WizardState,
+} from "../state/wizard";
 import { BrokerName } from "../ui/bits";
 import { Button, Chip, cx, IconButton, Note } from "../ui/kit";
 
@@ -111,7 +115,18 @@ export function FilesStep({
       Array.from(list, (file) => ({ name: file.name, size: file.size })),
     );
     const ownBefore = state.files.filter((f) => f.kind === "own").length;
-    const added = plural(list.length, locale, t.files.announceAdded);
+    const refused = Array.from(list).filter(
+      (file) => !isSupportedFile(file.name),
+    ).length;
+    // Say at once that a file cannot be read, not only after Continue.
+    const added = [
+      plural(list.length, locale, t.files.announceAdded),
+      refused === 0
+        ? null
+        : plural(refused, locale, t.files.announceUnsupported),
+    ]
+      .filter(Boolean)
+      .join(" ");
     announce(
       ownBefore === 0 ? `${added} ${t.files.ownFilesNotice}` : added,
       ownBefore + list.length,
@@ -158,14 +173,13 @@ export function FilesStep({
         }}
         onDrop={onDrop}
       >
-        <span className="drop-icon" aria-hidden>
+        <span className="icon-tile icon-tile-lg" aria-hidden>
           <UploadSimpleIcon size={26} weight="bold" />
         </span>
         <p className="drop-title">{t.files.dropTitle}</p>
         <p className="muted">{t.files.dropBody}</p>
         <div className="drop-actions">
           <Button
-            variant="primary"
             onClick={() => {
               input.current?.click();
             }}
@@ -214,11 +228,15 @@ export function FilesStep({
         ) : (
           <ul className="file-list" role="list">
             {state.files.map((file) => (
-              <li
-                key={file.id}
-                className={cx("file-row", isRefused(file) && "is-invalid")}
-              >
-                <span className="file-tile" aria-hidden>
+              <li key={file.id} className="file-row">
+                <span
+                  className={cx(
+                    "icon-tile",
+                    "icon-tile-sm",
+                    isRefused(file) && "is-danger",
+                  )}
+                  aria-hidden
+                >
                   <FileIcon file={file} />
                 </span>
                 <div className="file-text">
@@ -237,7 +255,7 @@ export function FilesStep({
                       remove(file);
                     }}
                   >
-                    <TrashIcon size={17} weight="bold" aria-hidden />
+                    <TrashIcon size={18} weight="bold" aria-hidden />
                   </IconButton>
                 )}
               </li>

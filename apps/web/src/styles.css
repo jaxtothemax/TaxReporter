@@ -2,11 +2,13 @@
  * TaxReporter's design system: dark first, with a light theme finished to the
  * same standard. Near-black layered surfaces, one emerald accent, large
  * tabular figures and pill controls. Tokens first, then base, components and
- * screens.
+ * screens. The rules for using them are in apps/web/CLAUDE.md.
  *
  * Contrast is measured in the rendered app against WCAG 2.1 AA: 4.5:1 for
  * text, 3:1 for large text, component boundaries and state indicators. The
  * tokens that carry text were chosen to pass on every surface they sit on.
+ *
+ * Breakpoints: 560px (phones), 720px (small tablets), 1024px (desktop).
  */
 
 /* ─── Tokens ──────────────────────────────────────────────────────────────── */
@@ -17,10 +19,36 @@
     sans-serif;
   --font-mono:
     "Geist Mono Variable", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  /* One radius scale; pills use --r-pill. */
+  --r-xs: 4px;
   --r-sm: 8px;
   --r-md: 12px;
-  --r-lg: 14px;
+  --r-lg: 16px;
   --r-xl: 20px;
+  --r-pill: 999px;
+
+  /* One type scale. Nothing that carries information is set below --fs-xs;
+     only the decorative ticker tiles are. */
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-md: 14px;
+  --fs-base: 15px;
+  --fs-lg: 16px;
+  --fs-xl: 18px;
+  --fs-2xl: 22px;
+  --fw-regular: 400;
+  --fw-medium: 550;
+  --fw-semibold: 600;
+  --fw-bold: 650;
+
+  --card-pad: 24px;
+  --card-pad-lg: 28px;
+
+  /* The brand mark is the same in both themes. */
+  --brand-gradient: linear-gradient(140deg, #6ee7b7, #10b981 55%, #047857);
+  --brand-ink: #03271b;
+
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -48,14 +76,16 @@
   --on-accent: #03271b;
   --accent-soft: rgb(52 211 153 / 0.11);
   --accent-line: rgb(52 211 153 / 0.38);
+  /* --loss is for signed amounts; --danger for errors and blocking states. */
   --loss: #fb7185;
   --loss-soft: rgb(251 113 133 / 0.12);
+  --danger: #fb7185;
+  --danger-soft: rgb(251 113 133 / 0.1);
+  --danger-line: rgb(251 113 133 / 0.34);
   --warn: #fbbf24;
   --warn-text: #fcd34d;
   --warn-soft: rgb(251 191 36 / 0.08);
   --warn-line: rgb(251 191 36 / 0.3);
-  --danger-soft: rgb(251 113 133 / 0.09);
-  --danger-line: rgb(251 113 133 / 0.34);
   --focus: #6ee7b7;
   /* The selected segment of a pill control is inverted, so its state reads
      at far more than 3:1 in both themes. */
@@ -66,6 +96,11 @@
   --chart-1: #a7f3d0;
   --chart-2: #2dd4bf;
   --chart-3: #94a3b8;
+  /* Ticker tiles: saturation, lightness and alpha after the tile's hue. */
+  --ticker-bg: 70% 50% / 0.14;
+  --ticker-ring: 70% 60% / 0.24;
+  --ticker-text: 85% 78%;
+  --form-name-gradient: linear-gradient(120deg, #a7f3d0, #34d399 45%, #10b981);
   --shadow-card:
     inset 0 1px 0 rgb(255 255 255 / 0.035), 0 24px 48px -28px rgb(0 0 0 / 0.85);
   --shadow-float:
@@ -100,12 +135,13 @@
   --accent-line: rgb(4 120 87 / 0.32);
   --loss: #be123c;
   --loss-soft: rgb(190 18 60 / 0.07);
+  --danger: #be123c;
+  --danger-soft: rgb(190 18 60 / 0.06);
+  --danger-line: rgb(190 18 60 / 0.3);
   --warn: #d97706;
   --warn-text: #92400e;
   --warn-soft: rgb(217 119 6 / 0.08);
   --warn-line: rgb(217 119 6 / 0.34);
-  --danger-soft: rgb(190 18 60 / 0.05);
-  --danger-line: rgb(190 18 60 / 0.3);
   --focus: #047857;
   --seg-active: #0b0d12;
   --on-seg-active: #ffffff;
@@ -114,6 +150,10 @@
   --chart-1: #6ee7b7;
   --chart-2: #0d9488;
   --chart-3: #94a3b8;
+  --ticker-bg: 70% 45% / 0.12;
+  --ticker-ring: 60% 40% / 0.2;
+  --ticker-text: 70% 27%;
+  --form-name-gradient: linear-gradient(120deg, #047857, #059669 55%, #065f46);
   --shadow-card:
     0 1px 2px rgb(16 24 40 / 0.04), 0 12px 32px -18px rgb(16 24 40 / 0.16);
   --shadow-float:
@@ -135,12 +175,14 @@ html {
   background: var(--bg);
   color: var(--text);
   -webkit-text-size-adjust: 100%;
+  /* Keyboard focus never lands under the sticky header. */
+  scroll-padding-top: 5rem;
 }
 
 body {
   margin: 0;
   font-family: var(--font-sans);
-  font-size: 15px;
+  font-size: var(--fs-base);
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -159,7 +201,7 @@ figure {
 h1,
 h2,
 h3 {
-  font-weight: 650;
+  font-weight: var(--fw-bold);
   color: var(--text);
 }
 
@@ -170,9 +212,11 @@ input {
 }
 
 ::selection {
-  background: rgb(52 211 153 / 0.3);
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
+/* Focus rings follow :focus-visible: always shown for the keyboard, not after
+   a mouse click (apps/web/CLAUDE.md, Focus). */
 :focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
@@ -225,12 +269,12 @@ input {
 }
 
 .small {
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 
 .strong,
 .is-strong {
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
 }
 
 .is-loss {
@@ -241,10 +285,13 @@ input {
   color: var(--accent-text);
 }
 
-.label {
-  font-size: 12.5px;
-  font-weight: 500;
+/* The one caption style: small labels above a figure or a group. */
+.label,
+.mini-title,
+.fig-label {
   color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
 }
 
 .stack-tight {
@@ -285,13 +332,24 @@ input {
   min-width: 22px;
   height: 22px;
   padding: 0 7px;
-  border-radius: 999px;
-  background: var(--surface-3);
   border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
   color: var(--text-2);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
   font-variant-numeric: tabular-nums;
+}
+
+.code-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
 }
 
 /* ─── Controls ────────────────────────────────────────────────────────────── */
@@ -304,18 +362,24 @@ input {
   height: 40px;
   padding: 0 18px;
   border: 1px solid transparent;
-  border-radius: 999px;
-  font-size: 14px;
-  font-weight: 550;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-medium);
   letter-spacing: -0.005em;
   white-space: nowrap;
   cursor: pointer;
 }
 
+.btn-sm {
+  height: 34px;
+  padding: 0 14px;
+  font-size: var(--fs-sm);
+}
+
 .btn-lg {
   height: 48px;
   padding: 0 24px;
-  font-size: 15px;
+  font-size: var(--fs-base);
 }
 
 .btn:focus-visible {
@@ -328,18 +392,10 @@ input {
   box-shadow: var(--glow);
 }
 
-.btn-primary:hover:not(:disabled) {
-  background: var(--accent-hover);
-}
-
 .btn-secondary {
-  background: var(--surface-3);
   border-color: var(--border-strong);
+  background: var(--surface-3);
   color: var(--text);
-}
-
-.btn-secondary:hover:not(:disabled) {
-  background: var(--surface-hover);
 }
 
 .btn-ghost {
@@ -347,18 +403,26 @@ input {
   color: var(--text-2);
 }
 
-.btn-ghost:hover:not(:disabled) {
-  background: var(--surface-3);
+.btn:not(:disabled, [aria-disabled="true"]):hover {
+  background: var(--surface-hover);
   color: var(--text);
 }
 
-.btn:active:not(:disabled) {
+.btn-primary:not(:disabled, [aria-disabled="true"]):hover {
+  background: var(--accent-hover);
+  color: var(--on-accent);
+}
+
+.btn:not(:disabled, [aria-disabled="true"]):active {
   transform: translateY(1px);
 }
 
-.btn:disabled {
-  background: var(--surface-3);
+/* Disabled and not-yet-available actions look alike; the latter stays
+   focusable so its description can be heard. */
+.btn:disabled,
+.btn[aria-disabled="true"] {
   border-color: var(--border);
+  background: var(--surface-3);
   color: var(--text-3);
   box-shadow: none;
   cursor: not-allowed;
@@ -372,7 +436,7 @@ input {
   height: 36px;
   padding: 0;
   border: 1px solid var(--border-strong);
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   background: var(--surface-2);
   color: var(--text-2);
   cursor: pointer;
@@ -383,6 +447,21 @@ input {
   color: var(--text);
 }
 
+.icon-btn:active {
+  transform: translateY(1px);
+}
+
+.icon-btn[aria-pressed="true"] {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.icon-btn:disabled {
+  color: var(--text-3);
+  cursor: not-allowed;
+}
+
 .segmented {
   display: inline-flex;
   gap: 2px;
@@ -390,7 +469,7 @@ input {
   margin: 0;
   padding: 3px;
   border: 1px solid var(--border-strong);
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   background: var(--surface-2);
 }
 
@@ -399,10 +478,10 @@ input {
   display: inline-flex;
   align-items: center;
   padding: 4px 10px;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   color: var(--text-2);
-  font-size: 12px;
-  font-weight: 650;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
   letter-spacing: 0.04em;
   cursor: pointer;
   user-select: none;
@@ -438,12 +517,20 @@ input {
   height: 24px;
   padding: 0 10px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   background: var(--surface-3);
   color: var(--text-2);
-  font-size: 12px;
-  font-weight: 550;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
   white-space: nowrap;
+}
+
+.chip-md {
+  gap: 8px;
+  height: 32px;
+  padding: 0 12px;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
 }
 
 .chip-accent {
@@ -458,10 +545,16 @@ input {
   color: var(--warn-text);
 }
 
-.chip-loss {
-  border-color: var(--danger-line);
-  background: var(--loss-soft);
-  color: var(--loss);
+.chip svg {
+  flex: none;
+}
+
+.eyebrow-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .delta {
@@ -469,9 +562,9 @@ input {
   align-items: center;
   gap: 4px;
   padding: 3px 10px 3px 8px;
-  border-radius: 999px;
-  font-size: 13px;
-  font-weight: 600;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -491,28 +584,24 @@ input {
   color: var(--text-2);
 }
 
-/* A ticker tile in place of a logo; its hue comes from the symbol. */
+/* A ticker tile in place of a logo. Its hue comes from the symbol and stays
+   in a band with no status meaning (ui/kit.tsx, hueOf). Decorative, so it is
+   the one place text goes below --fs-xs. */
 .ticker {
-  --hue: 160;
+  --hue: 240;
   display: inline-grid;
   flex: none;
   place-items: center;
   width: 40px;
   height: 40px;
-  border-radius: 12px;
-  background: hsl(var(--hue) 70% 50% / 0.14);
-  box-shadow: inset 0 0 0 1px hsl(var(--hue) 70% 60% / 0.24);
-  color: hsl(var(--hue) 85% 78%);
+  border-radius: var(--r-md);
+  background: hsl(var(--hue) var(--ticker-bg));
+  box-shadow: inset 0 0 0 1px hsl(var(--hue) var(--ticker-ring));
+  color: hsl(var(--hue) var(--ticker-text));
   font-family: var(--font-mono);
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: -0.03em;
-}
-
-[data-theme="light"] .ticker {
-  background: hsl(var(--hue) 70% 45% / 0.12);
-  box-shadow: inset 0 0 0 1px hsl(var(--hue) 60% 40% / 0.2);
-  color: hsl(var(--hue) 70% 27%);
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  letter-spacing: -0.04em;
 }
 
 .icon-tile {
@@ -521,24 +610,42 @@ input {
   place-items: center;
   width: 44px;
   height: 44px;
-  border-radius: 14px;
+  border-radius: var(--r-md);
   background: var(--accent-soft);
   box-shadow: inset 0 0 0 1px var(--accent-line);
   color: var(--accent-text);
 }
 
+.icon-tile-sm {
+  width: 40px;
+  height: 40px;
+}
+
 .icon-tile-lg {
   width: 56px;
   height: 56px;
-  border-radius: 18px;
+  border-radius: var(--r-lg);
+}
+
+.icon-tile.is-danger {
+  background: var(--danger-soft);
+  box-shadow: inset 0 0 0 1px var(--danger-line);
+  color: var(--danger);
 }
 
 /* ─── Amounts ─────────────────────────────────────────────────────────────── */
 
+/* Headline amounts size to their card, so a seven-figure sum still fits a
+   phone. */
+.stat-card,
+.hero-card {
+  container-type: inline-size;
+}
+
 .amount {
   display: inline-block;
   color: var(--text);
-  font-weight: 620;
+  font-weight: var(--fw-semibold);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.035em;
   line-height: 1.05;
@@ -550,18 +657,18 @@ input {
 }
 
 .amount-lg {
-  font-size: 36px;
+  font-size: clamp(26px, 9cqi, 36px);
 }
 
 .amount-xl {
-  font-size: clamp(42px, 4.6vw, 54px);
+  font-size: clamp(32px, 12cqi, 54px);
 }
 
 .amount-cents,
 .amount-currency {
   color: var(--text-3);
   font-size: 0.58em;
-  font-weight: 550;
+  font-weight: var(--fw-medium);
   letter-spacing: -0.01em;
 }
 
@@ -596,6 +703,7 @@ input {
   -webkit-backdrop-filter: blur(18px) saturate(140%);
 }
 
+/* The one callout recipe (ui/kit.tsx, Note). */
 .note {
   display: flex;
   align-items: flex-start;
@@ -604,7 +712,7 @@ input {
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
   background: var(--surface);
-  font-size: 14px;
+  font-size: var(--fs-md);
 }
 
 .note-icon {
@@ -613,7 +721,7 @@ input {
   place-items: center;
   width: 28px;
   height: 28px;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   background: var(--surface-3);
   color: var(--text-2);
 }
@@ -629,22 +737,6 @@ input {
   align-self: center;
 }
 
-.note-action .btn {
-  height: 34px;
-  padding: 0 14px;
-}
-
-@media (max-width: 560px) {
-  .note {
-    flex-wrap: wrap;
-  }
-
-  .note-action {
-    flex-basis: 100%;
-    padding-left: 32px;
-  }
-}
-
 .note-warn {
   border-color: var(--warn-line);
   background: var(--warn-soft);
@@ -655,40 +747,19 @@ input {
   color: var(--warn-text);
 }
 
+.note-warn strong {
+  color: var(--warn-text);
+  font-weight: var(--fw-bold);
+}
+
 .note-danger {
   border-color: var(--danger-line);
   background: var(--danger-soft);
 }
 
 .note-danger .note-icon {
-  background: var(--loss-soft);
-  color: var(--loss);
-}
-
-.demo-banner {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 12px 16px;
-  border: 1px solid var(--warn-line);
-  border-radius: var(--r-lg);
-  background: var(--warn-soft);
-  font-size: 14px;
-}
-
-.demo-banner strong {
-  color: var(--warn-text);
-  font-weight: 650;
-}
-
-.demo-dot {
-  flex: none;
-  width: 8px;
-  height: 8px;
-  margin-top: 7px;
-  border-radius: 999px;
-  background: var(--warn);
-  box-shadow: 0 0 0 4px var(--warn-soft);
+  background: var(--danger-soft);
+  color: var(--danger);
 }
 
 /* ─── Tables ──────────────────────────────────────────────────────────────── */
@@ -698,14 +769,16 @@ input {
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
   background: var(--surface);
-  scrollbar-color: var(--border-strong) transparent;
+  /* A visible thumb: on classic scrollbars it is the only hint that a wide
+     table scrolls (WCAG 1.4.11). */
+  scrollbar-color: var(--text-3) var(--surface-3);
 }
 
 .table {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  font-size: 13.5px;
+  font-size: var(--fs-md);
 }
 
 .table :is(th, td) {
@@ -719,19 +792,20 @@ input {
   padding-block: 10px;
   background: var(--surface-2);
   color: var(--text-3);
-  font-size: 12px;
-  font-weight: 550;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
   white-space: nowrap;
 }
 
 .table tbody th {
-  font-weight: 500;
+  font-weight: var(--fw-medium);
 }
 
 .table tbody tr:last-child > * {
   border-bottom: 0;
 }
 
+/* Helps the eye follow a long row; the rows themselves are not clickable. */
 .table tbody tr:hover > * {
   background: var(--surface-2);
 }
@@ -744,14 +818,14 @@ input {
   border-top: 1px solid var(--border-strong);
   border-bottom: 0;
   background: var(--surface-2);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
 }
 
 /*
  * On narrow screens the tables scroll sideways; keeping each cell on one line
  * stops rows from growing many lines tall inside the scroller.
  */
-@media (max-width: 767px) {
+@media (max-width: 720px) {
   .table :is(th, td) {
     white-space: nowrap;
   }
@@ -785,14 +859,14 @@ input {
   display: flex;
   gap: 3px;
   height: 10px;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   overflow: hidden;
   background: var(--surface-3);
 }
 
 .stack-seg {
   height: 100%;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
 }
 
 .legend {
@@ -802,7 +876,7 @@ input {
   margin: 0;
   padding: 0;
   list-style: none;
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 
 .legend li {
@@ -815,7 +889,7 @@ input {
   flex: none;
   width: 8px;
   height: 8px;
-  border-radius: 3px;
+  border-radius: 2px;
 }
 
 .legend-label {
@@ -823,7 +897,7 @@ input {
 }
 
 .legend-value {
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
 }
 
 .stack-compact {
@@ -836,7 +910,7 @@ input {
 
 .stack-compact .legend {
   gap: 4px 14px;
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 
 .compare {
@@ -853,24 +927,24 @@ input {
 }
 
 .compare-row.bar-1 {
-  --bar: var(--text-3);
+  --bar: var(--chart-3);
 }
 
 .compare-row dt {
   color: var(--text-2);
-  font-size: 13.5px;
+  font-size: var(--fs-md);
 }
 
 .compare-row dd {
-  font-size: 15px;
-  font-weight: 600;
+  font-size: var(--fs-base);
+  font-weight: var(--fw-semibold);
 }
 
 .compare-row::after {
   content: "";
   grid-column: 1 / -1;
   height: 8px;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   background:
     linear-gradient(var(--bar), var(--bar)) no-repeat 0 0 / var(--fill) 100%,
     var(--surface-3);
@@ -906,7 +980,7 @@ input {
   width: 100%;
   max-width: 22px;
   min-height: 5px;
-  border-radius: 6px 6px 3px 3px;
+  border-radius: var(--r-xs) var(--r-xs) 2px 2px;
   background: linear-gradient(
     180deg,
     var(--chart-0),
@@ -916,6 +990,7 @@ input {
 
 .month-bar.is-empty {
   height: 4px;
+  min-height: 0;
   background: var(--surface-3);
 }
 
@@ -929,19 +1004,19 @@ input {
   left: 50%;
   padding: 2px 7px;
   border: 1px solid var(--border-strong);
-  border-radius: 7px;
+  border-radius: var(--r-sm);
   background: var(--surface-3);
   color: var(--text);
-  font-size: 11.5px;
-  font-weight: 600;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
   white-space: nowrap;
   transform: translateX(-50%);
 }
 
 .month-label {
   color: var(--text-3);
-  font-size: 11px;
-  font-weight: 550;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
   text-transform: uppercase;
 }
 
@@ -953,10 +1028,10 @@ input {
   left: 16px;
   z-index: 50;
   padding: 10px 16px;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   background: var(--accent);
   color: var(--on-accent);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   text-decoration: none;
 }
 
@@ -976,9 +1051,10 @@ input {
 
 .app-header-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 8px 16px;
   min-height: 64px;
 }
 
@@ -1003,11 +1079,11 @@ input {
   position: relative;
   width: 28px;
   height: 28px;
-  border-radius: 9px;
-  background: linear-gradient(140deg, #6ee7b7, #10b981 55%, #047857);
+  border-radius: var(--r-sm);
+  background: var(--brand-gradient);
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.35),
-    0 6px 18px -6px rgb(16 185 129 / 0.7);
+    0 6px 18px -6px var(--accent-line);
 }
 
 .brand-mark span,
@@ -1017,7 +1093,7 @@ input {
   left: 7px;
   height: 3px;
   border-radius: 2px;
-  background: #03271b;
+  background: var(--brand-ink);
 }
 
 .brand-mark span {
@@ -1042,8 +1118,8 @@ input {
 }
 
 .brand-name {
-  font-size: 16px;
-  font-weight: 650;
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-bold);
   letter-spacing: -0.02em;
 }
 
@@ -1053,24 +1129,23 @@ input {
   gap: 10px;
 }
 
-.privacy-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  color: var(--text-2);
-  font-size: 13px;
-}
-
 .privacy-pill svg {
   color: var(--accent-text);
 }
 
-@media (max-width: 760px) {
+@media (max-width: 720px) {
   .privacy-pill {
     display: none;
+  }
+}
+
+@media (max-width: 400px) {
+  .brand {
+    gap: 8px;
+  }
+
+  .header-tools {
+    gap: 6px;
   }
 }
 
@@ -1089,7 +1164,7 @@ input {
   gap: 16px 40px;
   padding-block: 28px 40px;
   color: var(--text-2);
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 
 .footer-note {
@@ -1117,7 +1192,7 @@ input {
   text-decoration-color: currentColor;
 }
 
-@media (max-width: 767px) {
+@media (max-width: 720px) {
   .footer-links {
     align-items: flex-start;
   }
@@ -1161,7 +1236,7 @@ input {
 .lead {
   max-width: 66ch;
   color: var(--text-2);
-  font-size: 16px;
+  font-size: var(--fs-lg);
   text-wrap: pretty;
 }
 
@@ -1212,11 +1287,11 @@ input {
   gap: 8px;
   padding: 5px 14px 5px 5px;
   border: 1px solid transparent;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   background: none;
   color: var(--text-3);
-  font-size: 14px;
-  font-weight: 550;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-medium);
 }
 
 button.step-item {
@@ -1236,11 +1311,11 @@ button.step-item:hover {
   width: 24px;
   height: 24px;
   border: 1px solid var(--border-strong);
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   background: var(--surface-3);
   color: var(--text-2);
-  font-size: 12px;
-  font-weight: 650;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1301,23 +1376,16 @@ button.step-item:hover {
   box-shadow: 0 0 0 4px var(--accent-soft);
 }
 
-.drop-icon {
-  display: inline-grid;
-  place-items: center;
-  width: 56px;
-  height: 56px;
+.dropzone .icon-tile {
   margin-bottom: 10px;
-  border-radius: 18px;
-  background: var(--accent-soft);
   box-shadow:
     inset 0 0 0 1px var(--accent-line),
     0 12px 32px -12px var(--accent);
-  color: var(--accent-text);
 }
 
 .drop-title {
-  font-size: 18px;
-  font-weight: 600;
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-semibold);
   letter-spacing: -0.015em;
 }
 
@@ -1341,8 +1409,8 @@ button.step-item:hover {
 }
 
 .card-head h2 {
-  font-size: 16px;
-  font-weight: 600;
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-semibold);
 }
 
 .file-list {
@@ -1359,46 +1427,35 @@ button.step-item:hover {
   border-radius: var(--r-lg);
 }
 
-.file-row:hover {
-  background: var(--surface-2);
-}
-
-.file-tile {
-  display: inline-grid;
-  flex: none;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
-  background: var(--accent-soft);
-  box-shadow: inset 0 0 0 1px var(--accent-line);
-  color: var(--accent-text);
-}
-
-.file-row.is-invalid .file-tile {
-  background: var(--loss-soft);
-  box-shadow: inset 0 0 0 1px var(--danger-line);
-  color: var(--loss);
-}
-
 .file-text {
   flex: 1;
   min-width: 0;
 }
 
 .file-name {
-  font-size: 14px;
-  font-weight: 550;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-medium);
   overflow-wrap: anywhere;
 }
 
 .file-detail {
   color: var(--text-2);
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 
 .file-detail.is-error {
-  color: var(--loss);
+  color: var(--danger);
+}
+
+/* A broker chip cannot shrink, so on a narrow phone it moves under the name. */
+@media (max-width: 560px) {
+  .file-row {
+    flex-wrap: wrap;
+  }
+
+  .file-row > .chip {
+    margin-left: 54px;
+  }
 }
 
 .empty-hint {
@@ -1407,7 +1464,7 @@ button.step-item:hover {
 }
 
 .form-card {
-  padding: 28px;
+  padding: var(--card-pad-lg);
 }
 
 .form-grid {
@@ -1428,8 +1485,8 @@ button.step-item:hover {
 }
 
 .field-label {
-  font-size: 13.5px;
-  font-weight: 550;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-medium);
 }
 
 .input {
@@ -1439,40 +1496,50 @@ button.step-item:hover {
   border-radius: var(--r-md);
   background: var(--surface-2);
   color: var(--text);
-  font-size: 15px;
+  /* 16px: iOS Safari zooms into any smaller field on focus. */
+  font-size: var(--fs-lg);
 }
 
 .input:hover {
   border-color: var(--text-3);
 }
 
+/* The transparent outline is what forced-colors mode paints as the ring. */
 .input:focus-visible {
-  outline: none;
-  border-color: var(--accent);
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  border-color: var(--focus);
   box-shadow:
-    0 0 0 1px var(--accent),
+    0 0 0 1px var(--focus),
     0 0 0 5px var(--accent-soft);
 }
 
 .input.is-invalid {
-  border-color: var(--loss);
+  border-color: var(--danger);
+}
+
+.input.is-invalid:focus-visible {
+  border-color: var(--danger);
+  box-shadow:
+    0 0 0 1px var(--danger),
+    0 0 0 5px var(--danger-soft);
 }
 
 .field-help {
   color: var(--text-3);
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 
 .field-error {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: var(--loss);
-  font-size: 14px;
-  font-weight: 500;
+  color: var(--danger);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-medium);
 }
 
-@media (max-width: 640px) {
+@media (max-width: 560px) {
   .container {
     padding-inline: 16px;
   }
@@ -1524,7 +1591,7 @@ button.step-item:hover {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding: 22px 24px 24px;
+  padding: var(--card-pad);
 }
 
 .stat-head {
@@ -1536,8 +1603,8 @@ button.step-item:hover {
 
 .stat-label {
   color: var(--text-2);
-  font-size: 14px;
-  font-weight: 500;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-medium);
 }
 
 .stat-chart {
@@ -1545,12 +1612,6 @@ button.step-item:hover {
   flex-direction: column;
   gap: 12px;
   margin-top: auto;
-}
-
-.mini-title {
-  color: var(--text-3);
-  font-size: 12.5px;
-  font-weight: 550;
 }
 
 .kv {
@@ -1569,7 +1630,7 @@ button.step-item:hover {
   gap: 12px;
   padding-top: 10px;
   border-top: 1px solid var(--border);
-  font-size: 14px;
+  font-size: var(--fs-md);
 }
 
 .kv dt {
@@ -1590,9 +1651,9 @@ button.step-item:hover {
   padding: 4px;
   overflow-x: auto;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   background: var(--surface);
-  scrollbar-width: none;
+  scrollbar-width: thin;
 }
 
 .tab {
@@ -1602,11 +1663,11 @@ button.step-item:hover {
   height: 38px;
   padding: 0 16px;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   background: transparent;
   color: var(--text-2);
-  font-size: 14px;
-  font-weight: 550;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-medium);
   white-space: nowrap;
   cursor: pointer;
 }
@@ -1615,8 +1676,10 @@ button.step-item:hover {
   color: var(--text);
 }
 
+/* Outside the pill, where it reads against the track in both themes (an
+   inset ring on the inverted selected pill would not). */
 .tab:focus-visible {
-  outline-offset: -2px;
+  outline-offset: 1px;
 }
 
 .tab[aria-selected="true"] {
@@ -1626,11 +1689,11 @@ button.step-item:hover {
 
 .tab-tag {
   padding: 1px 8px;
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   background: var(--surface-3);
   color: var(--text-2);
-  font-size: 11.5px;
-  font-weight: 600;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
 }
 
 .tab[aria-selected="true"] .tab-tag {
@@ -1645,6 +1708,15 @@ button.step-item:hover {
 
   .tab-tag.is-form {
     display: none;
+  }
+
+  .note {
+    flex-wrap: wrap;
+  }
+
+  .note-action {
+    flex-basis: 100%;
+    padding-left: 40px;
   }
 }
 
@@ -1718,14 +1790,14 @@ button.step-item:hover {
 }
 
 .security-symbol {
-  font-size: 15px;
-  font-weight: 650;
+  font-size: var(--fs-base);
+  font-weight: var(--fw-bold);
   letter-spacing: -0.01em;
 }
 
 .security-name {
   color: var(--text-2);
-  font-size: 13px;
+  font-size: var(--fs-sm);
   overflow-wrap: anywhere;
 }
 
@@ -1749,11 +1821,6 @@ button.step-item:hover {
   align-items: flex-start;
   gap: 3px;
   min-width: 0;
-}
-
-.fig-label {
-  color: var(--text-3);
-  font-size: 12px;
 }
 
 .security-caret {
@@ -1803,15 +1870,15 @@ button.step-item:hover {
 .sub-title {
   margin-top: 4px;
   color: var(--text-2);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
 }
 
 .ledger-card {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 22px 24px;
+  padding: var(--card-pad);
 }
 
 .ledger-head {
@@ -1822,7 +1889,7 @@ button.step-item:hover {
 }
 
 .ledger-head h3 {
-  font-size: 16px;
+  font-size: var(--fs-lg);
 }
 
 .ledger {
@@ -1837,7 +1904,7 @@ button.step-item:hover {
   gap: 16px;
   padding: 10px 0;
   border-bottom: 1px dashed var(--border-strong);
-  font-size: 14px;
+  font-size: var(--fs-md);
 }
 
 .ledger-row dt {
@@ -1854,7 +1921,7 @@ button.step-item:hover {
 
 .ledger-row.is-subtotal dt {
   color: var(--text);
-  font-weight: 550;
+  font-weight: var(--fw-medium);
 }
 
 .ledger-row.is-total {
@@ -1865,8 +1932,8 @@ button.step-item:hover {
 
 .ledger-row.is-total dt {
   color: var(--text);
-  font-size: 15px;
-  font-weight: 600;
+  font-size: var(--fs-base);
+  font-weight: var(--fw-semibold);
 }
 
 .payer {
@@ -1876,17 +1943,17 @@ button.step-item:hover {
 }
 
 .payer .ticker {
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  font-size: 9.5px;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-sm);
+  font-size: 10px;
 }
 
 .cap-note {
   max-width: 24ch;
   color: var(--warn-text);
-  font-size: 12.5px;
-  font-weight: 500;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
   text-align: right;
 }
 
@@ -1900,8 +1967,8 @@ button.step-item:hover {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
 }
 
 .note-stack {
@@ -1910,29 +1977,16 @@ button.step-item:hover {
   gap: 8px;
 }
 
-.all-clear {
-  display: inline-flex;
-  align-self: flex-start;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 14px 8px 10px;
-  border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--accent-text);
-  font-size: 14px;
-  font-weight: 550;
-}
-
 .empty-card {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 12px;
-  padding: 32px;
+  padding: var(--card-pad-lg);
 }
 
 .empty-card h2 {
-  font-size: 20px;
+  font-size: var(--fs-2xl);
   letter-spacing: -0.02em;
 }
 
@@ -1941,20 +1995,6 @@ button.step-item:hover {
 }
 
 /* ─── Download ────────────────────────────────────────────────────────────── */
-
-.due-chip {
-  display: inline-flex;
-  align-self: flex-start;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  border: 1px solid var(--accent-line);
-  border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--accent-text);
-  font-size: 13.5px;
-  font-weight: 600;
-}
 
 .form-cards {
   display: grid;
@@ -1972,7 +2012,7 @@ button.step-item:hover {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 24px;
+  padding: var(--card-pad);
 }
 
 .form-file-top {
@@ -1988,16 +2028,6 @@ button.step-item:hover {
   letter-spacing: -0.035em;
 }
 
-.file-chip {
-  align-self: flex-start;
-  padding: 4px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  background: var(--surface-2);
-  color: var(--text-2);
-  font-size: 12.5px;
-}
-
 .form-file-card .btn {
   align-self: flex-start;
   margin-top: auto;
@@ -2007,11 +2037,11 @@ button.step-item:hover {
   display: flex;
   flex-direction: column;
   gap: 18px;
-  padding: 24px;
+  padding: var(--card-pad);
 }
 
 .import-card h2 {
-  font-size: 18px;
+  font-size: var(--fs-xl);
   letter-spacing: -0.02em;
 }
 
@@ -2050,11 +2080,11 @@ button.step-item:hover {
   width: 29px;
   height: 29px;
   border: 1px solid var(--border-strong);
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   background: var(--surface-3);
   color: var(--text-2);
-  font-size: 12.5px;
-  font-weight: 650;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
 }
 
 .timeline p {
@@ -2099,28 +2129,6 @@ button.step-item:hover {
   gap: 22px;
 }
 
-.eyebrow {
-  display: inline-flex;
-  align-self: flex-start;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 12px 5px 10px;
-  border: 1px solid var(--accent-line);
-  border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--accent-text);
-  font-size: 13px;
-  font-weight: 550;
-}
-
-.eyebrow-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
-}
-
 .hero-title {
   font-size: clamp(38px, 5.2vw, 64px);
   line-height: 1.02;
@@ -2129,17 +2137,14 @@ button.step-item:hover {
 }
 
 /* The form names in emerald. The fallback color keeps them readable (and
-   measurable) where background-clip: text is not supported. */
+   measurable) where background-clip: text is not supported. Large text
+   only: the gradient's lightest stop passes 3:1, not 4.5:1. */
 .form-name {
-  background: linear-gradient(120deg, #a7f3d0, #34d399 45%, #10b981);
+  background: var(--form-name-gradient);
   -webkit-background-clip: text;
   background-clip: text;
   color: var(--accent-text);
   -webkit-text-fill-color: transparent;
-}
-
-[data-theme="light"] .form-name {
-  background-image: linear-gradient(120deg, #047857, #059669 55%, #065f46);
 }
 
 .hero-subtitle {
@@ -2164,7 +2169,7 @@ button.step-item:hover {
   padding: 0;
   list-style: none;
   color: var(--text-2);
-  font-size: 13.5px;
+  font-size: var(--fs-md);
 }
 
 .hero-highlights li {
@@ -2190,7 +2195,7 @@ button.step-item:hover {
   flex-direction: column;
   gap: 20px;
   margin-left: 48px;
-  padding: 24px 24px 52px;
+  padding: var(--card-pad) var(--card-pad) 52px;
 }
 
 .hero-card-head {
@@ -2222,16 +2227,17 @@ button.step-item:hover {
 
 .facts dt {
   color: var(--text-3);
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 
 .facts dd {
   margin-top: 2px;
-  font-size: 14px;
-  font-weight: 550;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-medium);
   overflow-wrap: anywhere;
 }
 
+/* Two-part content that wraps, so not a Chip: the rate, then its list. */
 .rate-chip {
   display: inline-flex;
   flex-wrap: wrap;
@@ -2240,16 +2246,16 @@ button.step-item:hover {
   gap: 4px 8px;
   padding: 7px 14px 7px 12px;
   border: 1px solid var(--accent-line);
-  border-radius: 999px;
+  border-radius: var(--r-pill);
   background: var(--accent-soft);
   color: var(--accent-text);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
 }
 
 .rate-chip-list {
   color: var(--text-2);
-  font-weight: 450;
+  font-weight: var(--fw-regular);
 }
 
 /* Overlaps the hero card's bottom padding only, never its rate chip. */
@@ -2276,7 +2282,7 @@ button.step-item:hover {
   max-width: 40ch;
   margin-top: 14px;
   color: var(--text-3);
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   text-align: right;
 }
 
@@ -2291,7 +2297,7 @@ button.step-item:hover {
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 560px) {
   .hero-visual {
     gap: 12px;
   }
@@ -2343,7 +2349,7 @@ button.step-item:hover {
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 560px) {
   .how-grid {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -2353,7 +2359,7 @@ button.step-item:hover {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 22px;
+  padding: var(--card-pad);
 }
 
 .how-card-top {
@@ -2366,16 +2372,16 @@ button.step-item:hover {
 .how-index {
   color: var(--text-3);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 
 .how-card h3 {
-  font-size: 16px;
+  font-size: var(--fs-lg);
   letter-spacing: -0.01em;
 }
 
 .how-card p {
-  font-size: 14px;
+  font-size: var(--fs-md);
 }
 
 .privacy-card,
@@ -2383,7 +2389,7 @@ button.step-item:hover {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 28px;
+  padding: var(--card-pad-lg);
 }
 
 .privacy-card {
@@ -2394,7 +2400,7 @@ button.step-item:hover {
 
 .privacy-card h2,
 .brokers-card h2 {
-  font-size: 22px;
+  font-size: var(--fs-2xl);
   letter-spacing: -0.025em;
 }
 
@@ -2409,8 +2415,8 @@ button.step-item:hover {
 .brokers-card h3 {
   margin-top: 4px;
   color: var(--text-3);
-  font-size: 12.5px;
-  font-weight: 550;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
 }
 
 .broker-list {
@@ -2430,14 +2436,14 @@ button.step-item:hover {
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
   background: var(--surface-2);
-  font-weight: 550;
+  font-weight: var(--fw-medium);
 }
 
 .broker-list .ticker {
   width: 32px;
   height: 32px;
-  border-radius: 10px;
-  font-size: 13px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
 }
 
 .chip-list {
@@ -2449,6 +2455,30 @@ button.step-item:hover {
   list-style: none;
 }
 
+/* ─── Forced colors (Windows contrast themes) ─────────────────────────────── */
+
+/* Backgrounds are replaced by system colors there, so states that rely on a
+   fill get a system color or an outline instead. */
+@media (forced-colors: active) {
+  .tab[aria-selected="true"],
+  .segment:has(input:checked),
+  .icon-btn[aria-pressed="true"] {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+  }
+
+  .step.is-current .step-item {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+
+  .form-name {
+    background: none;
+    -webkit-text-fill-color: currentColor;
+  }
+}
+
 /* ─── Motion: only for people who have not asked for less ────────────────── */
 
 @media (prefers-reduced-motion: no-preference) {
@@ -2458,7 +2488,6 @@ button.step-item:hover {
   .segment,
   .step-item,
   .security summary,
-  .file-row,
   .input,
   .brand-name {
     transition:

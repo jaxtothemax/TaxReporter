@@ -60,7 +60,7 @@ export function DividendsPanel({
             </th>
             <td>
               <span className="payer">
-                <Ticker symbol={row.symbol} />
+                <Ticker symbol={row.symbol} labelled />
                 <span className="stack-tight">
                   <span className="strong">{row.payer}</span>
                   <span className="muted small">

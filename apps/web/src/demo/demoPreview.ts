@@ -653,6 +653,7 @@ export const demoPreview: ReturnPreview = {
     taxEur: "1770.04",
   },
   dividendsEstimate: {
+    taxRate: "0.25",
     grossEur: "182.59",
     foreignTaxEur: "38.34",
     creditEur: "24.33",
