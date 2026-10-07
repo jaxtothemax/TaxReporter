@@ -28,7 +28,7 @@ function Frame({ initialState }: { readonly initialState: WizardState }) {
   const appearance = useSystemAppearance();
   const { locale, t } = useI18n();
   const [state, dispatch] = useReducer(wizardReducer, initialState);
-  const firstRender = useRef(true);
+  const previousScreen = useRef(state.screen);
   const preview = state.mode === "demo" ? demoPreview : null;
 
   useEffect(() => {
@@ -48,10 +48,8 @@ function Frame({ initialState }: { readonly initialState: WizardState }) {
   // keyboard and screen-reader users land at its start, hearing which screen it
   // is, instead of on a vanished button.
   useEffect(() => {
-    if (firstRender.current) {
-      firstRender.current = false;
-      return;
-    }
+    if (previousScreen.current === state.screen) return;
+    previousScreen.current = state.screen;
     window.scrollTo({ top: 0 });
     const target =
       document.querySelector<HTMLElement>("#main h1") ??

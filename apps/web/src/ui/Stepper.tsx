@@ -26,7 +26,7 @@ export function Stepper({
     state.screen === "start" ? -1 : FLOW_STEPS.indexOf(state.screen);
   return (
     <nav aria-label={t.stepper.label} className="stepper">
-      <ol>
+      <ol role="list">
         {FLOW_STEPS.map((step, index) => {
           const isCurrent = index === current;
           const isDone = index < current;

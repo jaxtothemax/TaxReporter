@@ -20,6 +20,7 @@ import {
 } from "@radix-ui/themes";
 import { useRef, useState, type DragEvent } from "react";
 
+import { demoPreview } from "../demo/demoPreview";
 import { formatDate, formatKilobytes, plural } from "../i18n/format";
 import { useI18n } from "../i18n/i18n";
 import type { AddedFile, WizardState } from "../state/wizard";
@@ -99,17 +100,30 @@ export function FilesStep({
         ? t.files.unsupportedBlocked
         : null;
 
+  // Each message names the new total, so two identical actions in a row are
+  // still two different announcements (React drops an unchanged string).
+  function announce(message: string, total: number): void {
+    setAnnouncement(
+      `${message} ${plural(total, locale, t.files.announceTotal)}`,
+    );
+  }
+
   function take(list: FileList | null): void {
     if (list === null || list.length === 0) return;
     onAddFiles(
       Array.from(list, (file) => ({ name: file.name, size: file.size })),
     );
-    setAnnouncement(plural(list.length, locale, t.files.announceAdded));
+    const ownBefore = state.files.filter((f) => f.kind === "own").length;
+    const added = plural(list.length, locale, t.files.announceAdded);
+    announce(
+      ownBefore === 0 ? `${added} ${t.files.ownFilesNotice}` : added,
+      ownBefore + list.length,
+    );
   }
 
   function remove(file: AddedFile): void {
     onRemoveFile(file.id);
-    setAnnouncement(t.files.announceRemoved(file.name));
+    announce(t.files.announceRemoved(file.name), state.files.length - 1);
     // The focused button disappears with its row; keep focus in the list.
     listHeading.current?.focus();
   }
@@ -179,7 +193,10 @@ export function FilesStep({
             size="2"
             variant="ghost"
             color="gray"
-            onClick={onUseDemoFiles}
+            onClick={() => {
+              onUseDemoFiles();
+              announce(t.files.announceDemo, demoPreview.files.length);
+            }}
           >
             {t.files.demoButton}
           </Button>
@@ -209,7 +226,7 @@ export function FilesStep({
             {t.files.emptyList}
           </Text>
         ) : (
-          <ul className="file-list">
+          <ul className="file-list" role="list">
             {state.files.map((file) => (
               <li key={file.id}>
                 <span className="file-icon">

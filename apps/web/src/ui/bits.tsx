@@ -5,7 +5,7 @@ import {
   WarningOctagonIcon,
 } from "@phosphor-icons/react";
 import { Callout, Text } from "@radix-ui/themes";
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 
 import { formatDate, formatEur, formatRate, isNegative } from "../i18n/format";
 import { useI18n } from "../i18n/i18n";
@@ -104,6 +104,27 @@ export function Note({
       <Callout.Text>{children}</Callout.Text>
     </Callout.Root>
   );
+}
+
+/**
+ * Makes a Radix table's scroll container reachable by keyboard and named.
+ * Table.Root wraps <table> in a ScrollArea whose viewport has no tabindex, so
+ * a table wider than a phone screen could not be scrolled without a pointer in
+ * browsers that do not focus scrollers by themselves (WCAG 2.1.1). Table.Root
+ * forwards its ref to that wrapper; the viewport is found inside it.
+ */
+export function useScrollRegion(label: string) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const viewport = ref.current?.querySelector<HTMLElement>(
+      "[data-radix-scroll-area-viewport]",
+    );
+    if (viewport === null || viewport === undefined) return;
+    viewport.tabIndex = 0;
+    viewport.setAttribute("role", "region");
+    viewport.setAttribute("aria-label", label);
+  }, [label]);
+  return ref;
 }
 
 /** Shown on every flow screen while the data on it is made up. */

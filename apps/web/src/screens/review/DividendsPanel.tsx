@@ -13,7 +13,14 @@ import {
 } from "../../i18n/format";
 import { useI18n } from "../../i18n/i18n";
 import type { DividendRow, DividendsEstimate } from "../../model/preview";
-import { BrokerName, Eur, Note, RateText, SourceText } from "../../ui/bits";
+import {
+  BrokerName,
+  Eur,
+  Note,
+  RateText,
+  SourceText,
+  useScrollRegion,
+} from "../../ui/bits";
 
 function isCapped(row: DividendRow): boolean {
   return row.creditEur !== row.foreignTaxEur;
@@ -27,6 +34,7 @@ export function DividendsPanel({
   readonly totals: DividendsEstimate;
 }) {
   const { locale, t } = useI18n();
+  const region = useScrollRegion(t.review.tabDividends);
   if (dividends.length === 0) {
     return <Note tone="gray">{t.review.noDividends}</Note>;
   }
@@ -35,12 +43,8 @@ export function DividendsPanel({
     (a, b) => a.date.localeCompare(b.date) || a.payer.localeCompare(b.payer),
   );
   return (
-    <Table.Root
-      size="2"
-      variant="surface"
-      className="data-table"
-      aria-label={t.review.tabDividends}
-    >
+    <Table.Root size="2" variant="surface" className="data-table" ref={region}>
+      <caption className="visually-hidden">{t.review.tabDividends}</caption>
       <Table.Header>
         <Table.Row>
           <Table.ColumnHeaderCell>{t.review.colDate}</Table.ColumnHeaderCell>

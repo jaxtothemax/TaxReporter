@@ -74,12 +74,12 @@ export function AppHeader({ onHome }: { readonly onHome: () => void }) {
               }}
             >
               {LOCALES.map((code) => (
-                <SegmentedControl.Item
-                  key={code}
-                  value={code}
-                  aria-label={t.app.languageNames[code]}
-                >
+                <SegmentedControl.Item key={code} value={code}>
                   {code.toUpperCase()}
+                  <span className="visually-hidden" lang={code}>
+                    {" "}
+                    {t.app.languageNames[code]}
+                  </span>
                 </SegmentedControl.Item>
               ))}
             </SegmentedControl.Root>
@@ -109,7 +109,13 @@ export function AppFooter() {
             gap="1"
             align={{ initial: "start", md: "end" }}
           >
-            <Link size="2" href={SOURCE_URL} target="_blank" rel="noreferrer">
+            <Link
+              size="2"
+              href={SOURCE_URL}
+              target="_blank"
+              rel="noreferrer"
+              underline="always"
+            >
               {t.app.footerSource}
               <span className="visually-hidden"> {t.app.opensInNewTab}</span>
             </Link>

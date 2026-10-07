@@ -194,7 +194,7 @@ export function StartScreen({
           <Heading as="h2" size="6" mb="6">
             {t.start.howTitle}
           </Heading>
-          <ol className="how-list">
+          <ol className="how-list" role="list">
             {t.start.steps.map((step, i) => {
               const Icon = STEP_ICONS[i] ?? FilesIcon;
               return (

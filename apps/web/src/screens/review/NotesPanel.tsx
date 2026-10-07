@@ -94,8 +94,8 @@ export function NotesPanel({
         const group = diagnostics.filter((d) => d.severity === severity);
         if (group.length === 0) return null;
         return (
-          <section key={severity} aria-labelledby={`notes-${severity}`}>
-            <Heading as="h3" size="3" mb="3" id={`notes-${severity}`}>
+          <div key={severity}>
+            <Heading as="h3" size="3" mb="3">
               {t.review.severity[severity]}
             </Heading>
             <Flex direction="column" gap="3">
@@ -105,7 +105,7 @@ export function NotesPanel({
                 </Note>
               ))}
             </Flex>
-          </section>
+          </div>
         );
       })}
     </Flex>

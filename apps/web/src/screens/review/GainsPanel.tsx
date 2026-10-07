@@ -28,28 +28,27 @@ import {
   type HoldingBucket,
   type SecurityResult,
 } from "../../model/preview";
-import { BrokerName, Eur, Note, RateText, SourceText } from "../../ui/bits";
+import {
+  BrokerName,
+  Eur,
+  Note,
+  RateText,
+  SourceText,
+  useScrollRegion,
+} from "../../ui/bits";
 
 /** "25" → "25 %" in Slovenian, "25%" in English. */
 function bucketLabel(bucket: HoldingBucket, locale: "sl" | "en"): string {
   return formatPercent(`0.${bucket.padStart(2, "0")}`, locale);
 }
 
-function InventoryTable({
-  security,
-  labelledBy,
-}: {
-  readonly security: SecurityResult;
-  readonly labelledBy: string;
-}) {
+function InventoryTable({ security }: { readonly security: SecurityResult }) {
   const { locale, t } = useI18n();
+  const caption = `${security.symbol}: ${t.review.rowsTitle}`;
+  const region = useScrollRegion(caption);
   return (
-    <Table.Root
-      size="1"
-      variant="surface"
-      className="data-table"
-      aria-labelledby={labelledBy}
-    >
+    <Table.Root size="1" variant="surface" className="data-table" ref={region}>
+      <caption className="visually-hidden">{caption}</caption>
       <Table.Header>
         <Table.Row>
           <Table.ColumnHeaderCell>{t.review.colDate}</Table.ColumnHeaderCell>
@@ -118,21 +117,13 @@ function InventoryTable({
   );
 }
 
-function LotsTable({
-  security,
-  labelledBy,
-}: {
-  readonly security: SecurityResult;
-  readonly labelledBy: string;
-}) {
+function LotsTable({ security }: { readonly security: SecurityResult }) {
   const { locale, t } = useI18n();
+  const caption = `${security.symbol}: ${t.review.lotsTitle}`;
+  const region = useScrollRegion(caption);
   return (
-    <Table.Root
-      size="1"
-      variant="surface"
-      className="data-table"
-      aria-labelledby={labelledBy}
-    >
+    <Table.Root size="1" variant="surface" className="data-table" ref={region}>
+      <caption className="visually-hidden">{caption}</caption>
       <Table.Header>
         <Table.Row>
           <Table.ColumnHeaderCell>{t.review.colBought}</Table.ColumnHeaderCell>
@@ -189,8 +180,12 @@ function SecurityItem({ security }: { readonly security: SecurityResult }) {
   const { locale, t } = useI18n();
   return (
     <details className="security">
-      <summary>
-        <span className="visually-hidden">
+      <summary aria-describedby={`hint-${security.isin}`}>
+        <span
+          id={`hint-${security.isin}`}
+          className="visually-hidden"
+          aria-hidden
+        >
           {t.review.showDetails(security.symbol)}
         </span>
         <span className="security-head">
@@ -246,17 +241,14 @@ function SecurityItem({ security }: { readonly security: SecurityResult }) {
         />
       </summary>
       <Box className="security-body">
-        <Heading as="h3" size="2" mb="2" id={`rows-${security.isin}`}>
+        <Heading as="h3" size="2" mb="2">
           {t.review.rowsTitle}
         </Heading>
-        <InventoryTable
-          security={security}
-          labelledBy={`rows-${security.isin}`}
-        />
-        <Heading as="h3" size="2" mt="5" mb="2" id={`lots-${security.isin}`}>
+        <InventoryTable security={security} />
+        <Heading as="h3" size="2" mt="5" mb="2">
           {t.review.lotsTitle}
         </Heading>
-        <LotsTable security={security} labelledBy={`lots-${security.isin}`} />
+        <LotsTable security={security} />
       </Box>
     </details>
   );

@@ -73,6 +73,8 @@ export interface Messages {
     readonly unsupportedBlocked: string;
     readonly announceAdded: PluralForms;
     readonly announceRemoved: (name: string) => string;
+    readonly announceTotal: PluralForms;
+    readonly announceDemo: string;
     readonly rows: PluralForms;
     readonly coverage: (
       broker: string,
@@ -96,6 +98,8 @@ export interface Messages {
     readonly emailLabel: string;
     readonly emailHelp: string;
     readonly residentNote: string;
+    readonly requiredNote: string;
+    readonly requiredSuffix: string;
     readonly demoNote: string;
     readonly next: string;
   };
@@ -295,6 +299,11 @@ export const en: Messages = {
     unsupportedBlocked: "Remove the files TaxReporter cannot read to continue.",
     announceAdded: { one: "{n} file added.", other: "{n} files added." },
     announceRemoved: (name) => `${name} removed.`,
+    announceTotal: {
+      one: "{n} file in the list.",
+      other: "{n} files in the list.",
+    },
+    announceDemo: "The two demo exports were added.",
     rows: { one: "{n} row", other: "{n} rows" },
     coverage: (broker, from, to, rows) =>
       `${broker}, ${from} to ${to}, ${rows}`,
@@ -318,6 +327,8 @@ export const en: Messages = {
       "Only if you want FURS to be able to contact you about this return.",
     residentNote:
       "TaxReporter prepares returns for Slovenian tax residents only.",
+    requiredNote: "Only the tax number is required.",
+    requiredSuffix: "(required)",
     demoNote: "Not required in the demo.",
     next: "Review results",
   },
@@ -526,6 +537,13 @@ export const sl: Messages = {
       other: "Dodanih je {n} datotek.",
     },
     announceRemoved: (name) => `Datoteka ${name} je odstranjena.`,
+    announceTotal: {
+      one: "Na seznamu je {n} datoteka.",
+      two: "Na seznamu sta {n} datoteki.",
+      few: "Na seznamu so {n} datoteke.",
+      other: "Na seznamu je {n} datotek.",
+    },
+    announceDemo: "Dodana sta oba demo izvoza.",
     rows: {
       one: "{n} vrstica",
       two: "{n} vrstici",
@@ -553,6 +571,8 @@ export const sl: Messages = {
     emailHelp: "Le če želite, da vas FURS glede te napovedi lahko kontaktira.",
     residentNote:
       "TaxReporter pripravlja napovedi samo za slovenske davčne rezidente.",
+    requiredNote: "Obvezna je le davčna številka.",
+    requiredSuffix: "(obvezno)",
     demoNote: "V demu podatki niso obvezni.",
     next: "Na pregled",
   },
