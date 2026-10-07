@@ -3,9 +3,20 @@
 **Date:** 2026-10-07
 **Status:** Accepted (2026-10-07)
 
-> **Implementation status (2026-10-07):** decided during project setup; nothing ships with
-> this ADR yet beyond the package skeleton. Remove this note when the first implementation
-> merges.
+> **Implementation status (2026-10-07):** the Doh-KDVP and Doh-Div validators and writers
+> ship in `packages/furs` (`kdvp.ts`, `div.ts`, built on the escaping writer in `xml.ts`), with
+> golden files validated against the vendored XSDs in tests. Not yet built: the scheduled
+> drift check and validation inside the browser app.
+>
+> **Test-time validator:** `xmllint-wasm` 5.3.0, pinned exactly, a devDependency of
+> `packages/furs` used only from `packages/furs/test/xsd.ts` (dependency review
+> 2026-10-07). It embeds **libxml2 2.13.8, an end-of-life branch** that `pnpm audit` and
+> the osv-scan job cannot see, because they match package versions. Its exposure is low:
+> it only validates our own golden files against SHA-256-pinned schemas, and none of the
+> libxml2 CVEs since 2.13.8 is reachable through plain schema validation of such input.
+> Revisit it before any use in the browser, where the XML derives from hostile broker files,
+> or when a libxml2 CVE reachable through schema validation is published. GitHub's Ubuntu
+> runner ships no system xmllint, so that is not an alternative for CI.
 
 ## Context
 

@@ -1,3 +1,4 @@
+import { defaultServerConditions } from "vite";
 import { defineConfig } from "vitest/config";
 
 // One Vitest run over every workspace package, from the repository root, so
@@ -6,6 +7,10 @@ import { defineConfig } from "vitest/config";
 // report AND the coverage exclusion list below (see COVERAGE_LAYERS in the
 // Makefile), so the gate and Vitest cannot disagree about what counts as source.
 export default defineConfig({
+  // Workspace packages export their TypeScript sources under the "source"
+  // condition, so tests run against src/ without building dist/ first.
+  resolve: { conditions: ["source", ...defaultServerConditions] },
+  ssr: { resolve: { conditions: ["source", ...defaultServerConditions] } },
   test: {
     // Any depth below a package, not just src/: a test file that no include
     // pattern reaches is one that silently never runs.

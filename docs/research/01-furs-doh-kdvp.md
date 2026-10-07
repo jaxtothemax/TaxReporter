@@ -1,6 +1,6 @@
 # Doh-KDVP: eDavki XML import format (`Doh_KDVP_9.xsd`)
 
-> Researched: 2026-10-06 · Verification: adversarially verified (21 claims: 20 confirmed, 0 refuted, 1 uncertain)
+> Researched: 2026-10-06 · Verification: adversarially verified (21 claims: 20 confirmed, 0 refuted, 1 uncertain) · Updated: 2026-10-07 (F10 polarity settled from the navodila and the display XSLT, §5.2)
 >
 > Research for building TaxReporter. It is not tax advice, and FURS publications and the law win over anything written here. Inline markers are explained in the [README](README.md#confidence-and-verification-legend).
 
@@ -150,6 +150,13 @@ Element order: `ISIN` (max 12), `Code` (max 10, the ticker), `Name` (max 100), *
 The instructions say: purchase rows fill columns 1, 2, 3, 4, 5, 8 and 11; sale rows fill 6, 7, 8, 9 and 10.
 
 **F10 polarity is not fully settled** (corrected after verification; raised by the [04](04-si-tax-rules.md#53-wash-sale-rule-pravilo-navidezne-odsvojitve-art-975) verification). Column 10 "DA" means the condition for the loss to reduce the base is met (navodila, confirmed by this doc's verifier), and the display XSLT shows `true` as "Da" (§7), so "`true` = the loss may reduce the base" is the supported reading. However, the XSD itself documents F10 only by the rule's name and publishes no true/false semantics, and prior-art tools disagree: t212-edavki writes `true`, while LazyFURS, brrr-generator and mp_tax-generator write `false`. Confirm with an eDavki import test before code relies on it.
+
+**Settled on 2026-10-07 from primary sources** (the import test was not possible: the tax-year-2026 form only opens in January 2027). Both were re-read for this decision: the navodila ([doh_odm_kdvp_25.n.sl.pdf](https://edavki.durs.si/OpenPortal/Dokumenti/doh_odm_kdvp_25.n.sl.pdf), `Last-Modified: Wed, 14 Jan 2026 06:30:35 GMT`, SHA-256 `0c8244f13f526b35c9fe601252ffd5c69125f9de8396c79cfeea648e608b4823`) and the display XSLT ([Doh_KDVP_9.23-display-sl.xslt](https://edavki.durs.si/Documents/Transforms/Doh_KDVP_9.23-display-sl.xslt), `Last-Modified: Wed, 26 Aug 2026 13:43:59 GMT`, SHA-256 `69f155a138ccf292025818b88668c19be664e006e8c782c1662709b59d6c1ef3`), both retrieved 2026-10-07.
+
+- The navodila say: "V stolpec 10 se vpiše »DA«, če je izpolnjen pogoj za zmanjšanje pozitivne davčne osnove, oziroma »NE«, če pogoj ni izpolnjen." The English edition says the same ("indicate “YES” if the condition for reducing the positive tax base has been fulfilled").
+- The XSLT renders `Sale/F10` with its `YesNo` template, which prints "Da" for `true` (compared case-insensitively) and "Ne" for `false` **and for a missing value**, under the footnote "Izpolnjeni pogoji za zmanjšanje pozitivne davčne osnove po drugem odstavku v povezavi s petim odstavkom 97. člena ZDoh-2 (vpisuje se DA oziroma NE)".
+- So **`true` = the loss may reduce the tax base** (no replacement capital within the 30-day window), and `false` = it may not. Tools that write `false` for an ordinary loss report it as not deductible.
+- **An omitted F10 displays as "Ne".** Whether the eDavki backend also treats it as "NE" is not documented, but the safe assumption is that it does: omitting F10 on a loss is the conservative choice (the loss does not reduce the base), never an under-statement. `packages/furs` writes F10 only when it has been determined.
 
 ### 5.3 Short lists (`SecuritiesShort`, `SecuritiesWithContractShort`)
 
