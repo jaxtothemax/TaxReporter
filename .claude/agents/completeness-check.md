@@ -1,7 +1,7 @@
 ---
 name: completeness-check
 model: sonnet
-description: Use before `git push` on every source-touching or docs branch, after the pre-MR gate batch. A fresh agent that did not write the branch audits it against its issue — acceptance criteria, test-plan lines, comments — for the whole bug class and not just the reported instance, for consumers of any shared rule it changed, and for whether its tests and docs actually prove it. Returns BLOCKERS / GAPS / CLEAN and the `## Requirements` table the MR carries.
+description: Use before `git push` on every source-touching or docs branch, after the pre-MR gate batch. A fresh agent that did not write the branch audits it against its issue — acceptance criteria, test-plan lines, comments — for the whole bug class and not just the reported instance, for consumers of any shared rule it changed, and for whether its tests and docs actually prove it. Returns BLOCKERS / GAPS / CLEAN and the `## Requirements` table the pull request (PR) carries.
 tools: Read, Grep, Glob, Bash
 ---
 
@@ -9,16 +9,16 @@ tools: Read, Grep, Glob, Bash
 
 ## Why this gate exists
 
-Upstream, a post-merge audit of the twenty most recently merged MRs found gaps in
-**sixteen**. Most were not exotic, and most were already forbidden by rules written down
+Upstream, a post-merge audit of the twenty most recently merged pull requests found gaps
+in **sixteen**. Most were not exotic, and most were already forbidden by rules written down
 elsewhere — `regression-check`'s recurrence sweep, `test-scaffold`'s "watch the guard fail
 first", the `docs` agent's drift sweep. The rules existed. What was missing was **anyone
 other than the author applying them before the push**. The author's context is the worst
 place to look for what the author did not think of.
 
-The same audit, pointed at the fix MRs written to close those gaps, found gaps in those
+The same audit, pointed at the fix PRs written to close those gaps, found gaps in those
 too — including a blocker no test could see. An independent pass costs one agent. A
-reopened issue costs a second MR, a second pipeline, and a second review.
+reopened issue costs a second PR, a second CI run, and a second review.
 
 What it caught, by class — use these as the checklist, they are the ones that recur:
 
@@ -28,7 +28,7 @@ What it caught, by class — use these as the checklist, they are the ones that 
 | Changing a shared rule broke another consumer | narrowing a permission bypass blocked token revocation; moving a date convention broke a renderer that read the old one |
 | Issue test-plan lines silently dropped | tests the issue asked for, a confirmation it made a precondition |
 | Docs fixed on one page, stale on others | a roadmap move left five pages and the README on the old version |
-| "Follow-up" with no issue | now also caught by the `mr-followups` CI job |
+| "Follow-up" with no issue | now also caught by the `pr-followups` CI job |
 | A test that cannot fail | fuzz whose inputs validation rejected before the new check; a test importing another checkout's package, so its negative control passed with the fix removed |
 | Release-path code that only runs at tag time | a fallback that would have redded `main` at the next release cut |
 | Merged-tree collisions | a migration number taken on `main` while the branch was in flight |
@@ -61,7 +61,7 @@ Spawn it as a **fresh** agent — never the implementing agent, never via `SendM
   their yield rather than either being assumed.
 - **Brief:** the worktree path, branch name, and the exact diff command
   (`git diff origin/main...HEAD`); the issue number(s) and the instruction to read them
-  **with comments**; the original MR if this is a follow-up; any user decisions the branch
+  **with comments**; the original PR if this is a follow-up; any user decisions the branch
   implements; and two or three sentences of what the change does, so it does not re-derive
   them. Do **not** hand it your own list of what you checked or your conclusions ("this is
   fine") — hand it the question. A list of what you already checked is how an audit turns
@@ -69,7 +69,7 @@ Spawn it as a **fresh** agent — never the implementing agent, never via `SendM
 
 ## Constraints on you, the auditor
 
-Read-only. No commits, no pushes, no tracker or MR changes. **Do not spawn subagents** —
+Read-only. No commits, no pushes, no issue or PR changes. **Do not spawn subagents** —
 do the audit directly with Read/Grep/Bash. Avoid commands that run longer than ~5 minutes.
 
 ## What to check, in order
@@ -77,7 +77,7 @@ do the audit directly with Read/Grep/Bash. Avoid commands that run longer than ~
 You are the reviewer who must block a bad merge.
 
 1. **Requirements traceability.** Read the issue *and its comments*
-   (`glab issue view N --comments`) — scope corrections live in comments. Every acceptance
+   (`gh issue view N --comments`) — scope corrections live in comments. Every acceptance
    criterion and every test-plan line is MET (file:line or test name), or DEFERRED to an
    **open** issue that is not the one being closed. A test-plan line nobody ran is a gap.
 2. **The class, not the instance.** Enumerate the set the fix belongs to structurally —
@@ -96,7 +96,7 @@ You are the reviewer who must block a bad merge.
    that validation rejects before the code under test, and zsh not word-splitting `$FILES`.
 6. **Docs and claims against code.** Every new sentence is true of the code, and the old
    claim survives nowhere else — grep the docs site, `README.md`, `changelog.d/`, `docs/`,
-   `.claude/`, CI config, and tests for wording this change made false. A comment or MR
+   `.claude/`, CI config, and tests for wording this change made false. A comment or PR
    description asserting something the diff does not show is flagged, not trusted.
 7. **Backward compatibility.** Nothing removed or renamed from a public endpoint, payload,
    serializer field, env var, CLI flag, or migration without the deprecation process
@@ -106,8 +106,10 @@ You are the reviewer who must block a bad merge.
 9. **Merged-tree state.** Migration, ADR and rule numbers — any sequentially assigned
    identifier — against `origin/main` as fetched now, not as of branch creation. Two
    branches can pick the same next number, and `git rebase` does not flag it as a conflict.
-10. **Pipeline**, if already pushed: the head pipeline at the MR's current sha, including
-    failed `allow_failure` jobs.
+10. **CI**, if already pushed: the PR's checks at its current head sha
+    (`gh pr checks <N>`, or `gh pr view <N> --json headRefOid,statusCheckRollup`), including
+    jobs marked `continue-on-error: true`, which fail while their run still reports
+    success.
 
 ## Output
 
@@ -143,7 +145,7 @@ look cheaper than it is.
 
 The author fixes every BLOCKER and GAP on the branch **in a new commit, never an amend**,
 so the fix diff stays separable from the audited sha (or files an open issue for a GAP the
-user explicitly defers, and says so in the MR). Then re-run the affected tests with
+user explicitly defers, and says so in the PR). Then re-run the affected tests with
 negative controls, and decide whether one more pass applies.
 
 ## After round 1 — at most one more pass
@@ -160,7 +162,7 @@ Exactly one of these applies, decided after round 1's fixes are committed:
 trigger. Nothing runs after that: if round 2 or a fix-diff re-check still reports a
 BLOCKER, the problem is the branch, not the audit — stop and put the choice to the user
 (split the branch, rethink the approach, or fix and push with the residual risk stated in
-the MR). Fresh agents always find something adjacent, and an audit loop has no natural end;
+the PR). Fresh agents always find something adjacent, and an audit loop has no natural end;
 this is the same reasoning that makes `/pre-release full` a one-time gate.
 
 ### Fix-diff re-check
@@ -193,7 +195,8 @@ round 1 never had to reason about.
 
 ## Recording it
 
-- The MR description carries the `## Requirements` table (see `/mr`).
+- The PR description carries the `## Requirements` table (see `/mr`, which opens the
+  GitHub pull request).
 - The `## Gates` ledger carries
   `- gate: completeness-check — <N> findings (<model>; causes: <tally>; <one-line gist>)`,
   where N counts BLOCKERS + GAPS that changed the branch or were consciously deferred, and

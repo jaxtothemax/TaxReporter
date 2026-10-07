@@ -10,7 +10,8 @@
 # already reviewed the notes (the /release skill does so in chat). A run with no
 # TTY and no such flag fails closed rather than shipping unreviewed.
 #
-# Customize RELEASE_FILES below to add version locations for your stack.
+# The version-bearing manifests it bumps are derived, not listed: see
+# release_manifests below.
 set -euo pipefail
 
 # ─── CHANGELOG rotation ──────────────────────────────────────────────────────
@@ -82,6 +83,53 @@ confirm_release_notes() {
   # EOF (Ctrl-D) is not an Enter: it aborts.
   read -r -p "Press Enter to accept these release notes, anything else to abort: " reply || return 1
   [[ -z "$reply" ]]
+}
+
+# ─── Version-bearing manifests ───────────────────────────────────────────────
+#
+# release_manifests — every package.json that carries the release version, one
+# per line: the root package.json plus each pnpm workspace package, matching
+# the `packages:` globs in pnpm-workspace.yaml. Derived from git, not listed by
+# name, so a workspace package added later is bumped without anyone editing
+# this script. `:(glob)` makes `*` stop at a slash, so a package.json nested
+# deeper (a test fixture) is never stamped with the release. website/package.json
+# is deliberately not matched: the docs site is tooling, waived in
+# scripts/check-version-lockstep.py, which is the backstop for all of this.
+release_manifests() {
+  git ls-files -- package.json ':(glob)packages/*/package.json' ':(glob)apps/*/package.json'
+}
+
+# bump_manifests <version> — set the top-level "version" of every manifest
+# release_manifests names, and nothing else. JSON-aware (node), not sed: a sed
+# over `"version": ...` also rewrites any nested "version" key, and the 2-space
+# JSON.stringify layout is the one Prettier keeps package.json in. Fails when
+# there is no manifest at all, or one without a top-level version string — a
+# release that bumps nothing must not look like one that bumped everything.
+bump_manifests() {
+  local version="$1" f
+  local -a files=()
+  # Here-string, not a pipe into `while read` (scripts/check-sigpipe-readers.sh).
+  while IFS= read -r f; do
+    [[ -n "$f" ]] && files+=("$f")
+  done <<< "$(release_manifests)"
+  if [[ "${#files[@]}" -eq 0 ]]; then
+    echo "Error: no version-bearing package.json is tracked (root, packages/*, apps/*)" >&2
+    return 1
+  fi
+  node -e '
+    const fs = require("node:fs");
+    const [version, ...files] = process.argv.slice(1);
+    for (const file of files) {
+      const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
+      if (typeof manifest.version !== "string") {
+        console.error("Error: " + file + " has no top-level \"version\" string");
+        process.exit(1);
+      }
+      manifest.version = version;
+      fs.writeFileSync(file, JSON.stringify(manifest, null, 2) + "\n");
+    }
+    console.log("Bumped " + files.length + " package.json manifest(s) to " + version + ": " + files.join(", "));
+  ' "$version" "${files[@]}"
 }
 
 # abort_release_branch <branch> <default-branch> [<notes-file>] — leave no half-edited tree behind.
@@ -274,6 +322,38 @@ if [[ "${1:-}" == "--self-test" ]]; then
   _prompt_case "a non-empty reply aborts" 1 "n"
   _prompt_case "EOF at the prompt aborts" 1 EOF
 
+  # bump_manifests: the root and every workspace package.json move to the
+  # release version together; a nested "version" key, a package.json nested
+  # deeper than the workspace globs (a fixture) and website/ stay as they were.
+  bumpdir="$tmp/bumpcase"
+  mkdir -p "$bumpdir/packages/a/test/fixture" "$bumpdir/apps/b" "$bumpdir/website"
+  printf '{\n  "name": "root",\n  "version": "0.1.0",\n  "private": true\n}\n' > "$bumpdir/package.json"
+  printf '{\n  "name": "@x/a",\n  "version": "0.1.0",\n  "nested": { "version": "9.9.9" }\n}\n' > "$bumpdir/packages/a/package.json"
+  printf '{\n  "name": "@x/b",\n  "version": "0.1.0"\n}\n' > "$bumpdir/apps/b/package.json"
+  printf '{\n  "name": "fixture",\n  "version": "0.0.1"\n}\n' > "$bumpdir/packages/a/test/fixture/package.json"
+  printf '{\n  "name": "docs",\n  "version": "0.0.0"\n}\n' > "$bumpdir/website/package.json"
+  git -C "$bumpdir" init -q && git -C "$bumpdir" add -A
+  bump_rc=0
+  (cd "$bumpdir" && bump_manifests 1.2.3 >/dev/null) || bump_rc=$?
+  # One node call reads every field the case asserts, in a fixed order.
+  got="$(cd "$bumpdir" && node -p '[
+    "package.json", "packages/a/package.json", "apps/b/package.json",
+    "packages/a/test/fixture/package.json", "website/package.json",
+  ].map((f) => require("./" + f).version).join(" ") + " " + require("./packages/a/package.json").nested.version')"
+  # $(tail -c 1) is empty exactly when the file still ends in a newline.
+  if [[ "$bump_rc" -eq 0 && "$got" == "1.2.3 1.2.3 1.2.3 0.0.1 0.0.0 9.9.9" ]] \
+     && [[ -z "$(tail -c 1 "$bumpdir/package.json")" ]]; then
+    echo "SELF-TEST OK: the root and workspace manifests are bumped together, and nothing else is"
+  else
+    echo "SELF-TEST FAILED: bump_manifests (rc=$bump_rc) left versions '$got' (wanted '1.2.3 1.2.3 1.2.3 0.0.1 0.0.0 9.9.9')" >&2; rc=1
+  fi
+  emptydir="$tmp/bump-empty"; mkdir -p "$emptydir"; git -C "$emptydir" init -q
+  if (cd "$emptydir" && bump_manifests 1.2.3 >/dev/null 2>&1); then
+    echo "SELF-TEST FAILED: bump_manifests passed with no manifest to bump" >&2; rc=1
+  else
+    echo "SELF-TEST OK: a release with no manifest to bump fails instead of bumping nothing"
+  fi
+
   # abort_release_branch: reset, return to the default branch, delete the branch.
   git -C "$tmp/work" -c user.email=t@t -c user.name=t checkout -q -b main 2>/dev/null || git -C "$tmp/work" checkout -q main 2>/dev/null || true
   base="$(git -C "$tmp/work" rev-parse --abbrev-ref HEAD)"
@@ -369,39 +449,26 @@ if grep -qxF "$TAG" <<<"$(git tag)"; then
 fi
 refuse_if_published "${RELEASE_REMOTE:-origin}" "$TAG" "$VERSION" || exit 1
 
-# ─── Stack-specific version files ────────────────────────────────────────────
+# ─── Version-bearing files ───────────────────────────────────────────────────
 #
-# Add your project's version-bearing files here. Each entry is a sed command
-# that updates the version string in the file.
+# The root package.json and every pnpm workspace package's package.json: found
+# by release_manifests and bumped by bump_manifests (both defined above), right
+# after the CHANGELOG rotation below.
 #
-# THIS LIST IS THE THING THAT ROTS. It covers the files someone remembered; a
-# manifest added later, by someone who was not thinking about releases, is
-# stamped with whatever version it was born with and nothing says otherwise.
-# Upstream that was a Helm `Chart.yaml`, and because its `appVersion` doubles as
-# the chart's default image tag, the published chart pointed at an image that
-# had never been built. `scripts/check-version-lockstep.py` is the backstop: it
-# fails an MR the moment one manifest disagrees with the others, so the drift
-# surfaces while someone is still editing rather than after an artifact is
-# public. Add the file here AND let that gate confirm it.
+# A HAND-KEPT LIST IS THE THING THAT ROTS. It covers the files someone
+# remembered; a manifest added later, by someone who was not thinking about
+# releases, is stamped with whatever version it was born with and nothing says
+# otherwise. Upstream that was a Helm `Chart.yaml`, and because its `appVersion`
+# doubles as the chart's default image tag, the published chart pointed at an
+# image that had never been built. That is why the manifests are derived from
+# the workspace globs rather than listed, and `scripts/check-version-lockstep.py`
+# is the backstop: it fails a PR the moment one manifest disagrees with the
+# others, so drift surfaces while someone is still editing rather than after an
+# artifact is public.
 #
-# A manifest that DERIVES something from its version (an image tag, a lockfile
-# pin, a docs banner) carries a second version, not a copy — bump both.
-#
-# Examples (uncomment what applies):
-#
-# # .env.example
-# sed -i '' "s/^APP_VERSION=.*/APP_VERSION=${VERSION}/" .env.example
-#
-# # package.json
-# sed -i '' "s/\"version\": \".*\"/\"version\": \"${VERSION}\"/" frontend/package.json
-#
-# # pyproject.toml
-# sed -i '' "s/^version = \".*\"/version = \"${VERSION}\"/" pyproject.toml
-#
-# # docker-compose.yml
-# if grep -q "APP_VERSION: [^$]" docker-compose.yml; then
-#   sed -i '' "s/APP_VERSION: .*/APP_VERSION: ${VERSION}/" docker-compose.yml
-# fi
+# A file that DERIVES something from its version (an image tag, a docs banner)
+# carries a second version, not a copy — bump it next to bump_manifests below,
+# and teach the lockstep gate to read it.
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Create release branch from latest main
@@ -415,7 +482,7 @@ git checkout -b "$RELEASE_BRANCH"
 # `set -e` failure, Ctrl-C at the notes prompt) removes the release branch and its
 # half-edited tree, instead of leaving them behind. A trap rather than a call at
 # each exit point, so a failure added later is covered without anyone remembering.
-# It is disarmed once the commit exists: a push/MR failure after that must not
+# It is disarmed once the commit exists: a push/PR failure after that must not
 # destroy a committed release branch.
 _cleanup_release_branch() {
   local status=$?
@@ -449,6 +516,11 @@ fi
 
 echo "Updated CHANGELOG.md"
 
+# Every version-bearing manifest, in lockstep (release_manifests, above). After
+# the rotation so a CHANGELOG with no [Unreleased] section fails first; inside
+# the EXIT trap, so an abort from here on resets these edits with the branch.
+bump_manifests "$VERSION"
+
 # Human confirmation of the notes, before anything is committed or pushed. Placed
 # as soon as the rotated text exists so an abort has nothing to undo but this
 # branch's working tree. Previewed via --stdout: docs/releases/ is not touched yet.
@@ -465,7 +537,7 @@ fi
 # Release notes, derived from the rotated CHANGELOG plus the commit range since
 # the previous release tag. This step replaces a RELEASE_NOTES variable that was
 # computed here and then never used — so every release shipped with whatever
-# someone pasted into the forge UI by hand, or with nothing.
+# someone pasted into the release UI by hand, or with nothing.
 scripts/release-notes.sh "$VERSION" >/dev/null
 echo "Wrote docs/releases/${TAG}.md"
 
@@ -477,15 +549,17 @@ git push -u origin "$RELEASE_BRANCH"
 
 echo "Pushed branch $RELEASE_BRANCH"
 echo ""
-echo "Next steps:"
-echo "  1. Create an MR from $RELEASE_BRANCH -> main and get it merged."
-echo "  2. Confirm the merged commit's own pipeline is green:"
-echo "       glab ci list --ref main --per-page 5"
-echo "  3. Tag and publish directly — this project does not auto-tag from CI:"
+echo "Next steps (GitHub Flow — main is protected, so the release lands through a PR):"
+echo "  1. Open a PR from $RELEASE_BRANCH -> main, wait for green checks, and merge it:"
+echo "       gh pr create --base main --head $RELEASE_BRANCH --title \"chore: release ${TAG}\" --fill"
+echo "       gh pr checks --watch"
+echo "  2. Confirm the merged commit's own workflow runs on main are green:"
+echo "       gh run list --branch main --limit 5"
+echo "  3. Tag the merged commit on main and push the tag:"
 echo "       git checkout main && git pull"
 echo "       git tag $TAG && git push origin $TAG"
-echo "       glab release create $TAG --notes-file docs/releases/${TAG}.md"
-echo ""
-echo "GitLab Flow with a production branch: merge main -> production first,"
-echo "and tag on production instead of main — see"
-echo "website/src/content/docs/guides/release-workflow.md."
+echo "  4. The tag push runs .github/workflows/release.yml: it refuses unless main's checks"
+echo "     passed for the tagged commit, then publishes the GitHub Release from"
+echo "     docs/releases/${TAG}.md. Watch it with:  gh run list --workflow release.yml --limit 1"
+echo "     Without that workflow, publish by hand:"
+echo "       gh release create $TAG --verify-tag --title $TAG --notes-file docs/releases/${TAG}.md"

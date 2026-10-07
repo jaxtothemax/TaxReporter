@@ -81,6 +81,10 @@ sed_edit() { # <file> <sed-expr...>
 # (no GNU-only `0,/re/` sed address extension, which macOS/BSD sed rejects).
 # Used by the negative control to reintroduce exactly one placeholder.
 replace_first() { # <file> <find> <replace>
+  # Same mode-preservation as sed_edit: this rewrites .claude/hooks/*.sh, and a
+  # hook that loses its exec bit is one customize.sh rightly warns about.
+  local mode
+  mode="$(stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1")"
   awk -v find="$2" -v repl="$3" '
     !done {
       i = index($0, find)
@@ -89,6 +93,7 @@ replace_first() { # <file> <find> <replace>
     { print }
   ' "$1" > "$1.awktmp"
   mv "$1.awktmp" "$1"
+  chmod "$mode" "$1"
 }
 
 # Delete the FIRST HTML comment block in a file (CLAUDE.md's SETUP CHECKLIST
@@ -145,23 +150,42 @@ simulate_kickoff() { # <dir>
     -e 's/^## Sam —/## Lena Kim —/' \
     -e 's/^## Maya —/## Taylor Brooks —/'
 
-  # .gitlab-ci.yml — the pristine template already reports this section
-  # clean (its check is indent-anchored and the shipped comment lines are
-  # indented — a known quirk, out of scope for this issue), so nothing to do.
+  # .github/workflows/ci.yml — the application's own lint/test/build workflow
+  # is the one CI file the template cannot ship (the stack is the adopter's
+  # choice), so a completed setup has added one. The harness workflows
+  # (governance, security, docs, release), Dependabot and the issue/PR
+  # templates ship with the template and must already be in HEAD — the
+  # simulation deliberately does NOT create them, so a port that drops one, or
+  # leaves .gitlab-ci.yml / renovate.json behind, fails Case 2 here.
+  mkdir -p "$d/.github/workflows"
+  cat > "$d/.github/workflows/ci.yml" <<'CIEOF'
+name: ci
+on: [pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "application tests run here"
+CIEOF
 
   # Makefile — drop the commented Node/multi-stack example recipe lines that
   # trip the "uncomment your stack" check; a customized Makefile has either
   # picked one stack (uncommented) or deleted the unused examples.
   sed_edit "$d/Makefile" '/^#.*cd (frontend|backend)/d'
 
+  # .github/ISSUE_TEMPLATE/config.yml — the security link's repository name.
+  sed_edit "$d/.github/ISSUE_TEMPLATE/config.yml" 's#github\.com/OWNER/REPO/#github.com/acme/widget/#'
+
   # CONTRIBUTING.md
   sed_edit "$d/CONTRIBUTING.md" 's/\[PROJECT NAME\]/Acme Widget/g'
   sed_edit "$d/CONTRIBUTING.md" 's/\[FILL IN[^]]*\]/#support on Slack/g'
 
   # .claude/hooks/post-edit-checks.sh — retarget the example file patterns
-  # at a real stack instead of the template's Django/Prisma placeholders.
+  # at a real stack instead of the template's placeholder module names.
   replace_first "$d/.claude/hooks/post-edit-checks.sh" \
-    'models.py (Django), schema.prisma' 'models.go, schema.sql'
+    'parser.py (Python), importer.ts (TypeScript)' 'ibkr_parser.py, edavki_writer.py'
 
   # scripts/release.sh and docs/adr/ already report clean on a pristine
   # checkout of this repo (no template placeholder left in either) — nothing
@@ -244,6 +268,16 @@ case "$out_fresh" in
   *"Remaining: "*) r=0 ;;
 esac
 check "fresh clone: at least one [ ] TODO item reported" "$r"
+
+# The project is hosted on GitHub: the manual-settings checklist and the next
+# steps must be GitHub's, and nothing may still point a new adopter at GitLab.
+r=1
+case "$out_fresh" in
+  *"GitHub repository settings"*"Private vulnerability reporting"*"status:wip"*"gh auth login"*) r=0 ;;
+esac
+check "fresh clone: GitHub settings checklist and 'gh auth login' are printed" "$r"
+r=0; grep -qiE 'glab|gitlab →|GitLab project settings' <<< "$out_fresh" && r=1
+check "fresh clone: no GitLab settings or glab commands in the report" "$r"
 
 # ─── Case 2: a simulated completed /kickoff reports all clear ────────────────
 

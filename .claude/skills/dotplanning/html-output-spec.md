@@ -24,7 +24,10 @@ Required sections, in order:
 7. **Sequenced plan** — the Step 4 workstreams in order, each with its gate chain.
 8. **Commitment ledger** — the full Step 6 table, one row per issue (issue, current
    value, proposed value, the rule that fired), plus the fit numbers and every issue
-   left undecided.
+   left undecided. Values are the GitHub label names (`release:committed`,
+   `release:reserve`, `release:stretch`). GitHub does not enforce exclusivity, so an
+   issue holding two `release:*` labels shows **every** label it holds in the current
+   column, flagged 🔴 — never just the first one.
 9. **Delight wedge** — the single Step 7 idea (or "none in scope this cycle").
 10. **Appendix — inputs reviewed** — spec/roadmap source, issue ids pulled, persona file,
     throughput window measured, code anchors surveyed. So the plan is auditable.
@@ -33,6 +36,12 @@ Use a legible severity palette so it reads at a glance:
 - 🔴 missing / blocking → `#b42318` (red)
 - 🟡 planned / should-decide → `#b54708` (amber)
 - 🟢 exists / ready → `#067647` (green)
+
+**Issue references.** Render every issue number as a link to
+`https://github.com/<owner>/<repo>/issues/<N>`, taking `<owner>/<repo>` from
+`gh repo view --json nameWithOwner -q .nameWithOwner` at report time — never hardcoded.
+With no GitHub repo yet (the no-tracker case in `SKILL.md`), render plain `#N` text and
+say so in the header. Links are fine; what must not exist is a fetched asset.
 
 Keep the CSS minimal (system font stack, max-width ~960px, light background, generous
 padding). The file must open correctly by double-click with no network access.

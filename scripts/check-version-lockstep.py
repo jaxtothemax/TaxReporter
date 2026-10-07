@@ -13,7 +13,7 @@ overwrote the previous chart at the same registry tag, and nothing in the
 pipeline had an opinion, because the only check on the bump list was the person
 writing it.
 
-The fix is not "remember the file next time". It is a gate that fails on an MR
+The fix is not "remember the file next time". It is a gate that fails on a PR
 the moment a manifest disagrees with the others, so the drift is found while
 someone is still editing, rather than after an artifact is public and
 immutable.

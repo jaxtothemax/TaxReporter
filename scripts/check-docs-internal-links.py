@@ -42,11 +42,12 @@ Made configurable (flags, all optional — auto-detected/skipped if omitted):
                    framework simply gets an empty redirect map, which is
                    safe (it makes the gate slightly stricter, never looser).
   --site          Override the auto-detected site URL.
-  --repo-source   URL prefix (`https://gitlab.com/org/repo` or a GitHub
-                   equivalent) for cross-repository blob/tree "source of
-                   record" links. Auto-detected from `git remote get-url
-                   origin` when omitted. Supports GitLab's `/-/blob|tree/`
-                   convention and GitHub's `/blob|tree/` convention.
+  --repo-source   URL prefix (`https://github.com/owner/repo`) for
+                   cross-repository blob/tree "source of record" links.
+                   Auto-detected from `git remote get-url origin` when
+                   omitted, so the repository is never hardcoded. Supports
+                   GitHub's `/blob|tree/` convention, and GitLab's
+                   `/-/blob|tree/` for links into upstream Blueprint.
 
 Left Astro/remark-shaped, documented, not configurable:
   - Route generation (file path -> URL): `index.md` -> `/`, `foo/index.md`
@@ -644,7 +645,7 @@ def run_check(
 TEST_DOCS_REL = "website/src/content/docs"
 TEST_CONFIG_REL = "website/astro.config.mjs"
 TEST_SITE = "https://docs.example.test"
-TEST_REPO_SOURCE = "https://gitlab.example.test/group/project"
+TEST_REPO_SOURCE = "https://github.com/example/project"
 # Needs at least one anchor AND one cross-page link, or run_check's "matched
 # nothing" refusal (exit 2) fires and masks whatever the case is testing.
 GOOD_BODY = (
@@ -786,6 +787,8 @@ def _case_helpers() -> bool:
         ("git@gitlab.com:group/project.git", "https://gitlab.com/group/project"),
         ("https://gitlab.com/group/project.git", "https://gitlab.com/group/project"),
         ("https://github.com/org/repo", "https://github.com/org/repo"),
+        ("git@github.com:org/repo.git", "https://github.com/org/repo"),
+        ("https://github.com/org/repo.git", "https://github.com/org/repo"),
         ("not a url", None),
     ]
     for remote, expected in cases:
@@ -808,7 +811,7 @@ def self_test() -> int:
         " [c](/features/csv-import-export/#export--csv--excel) [d](#same-page)"
         f" [e]({TEST_SITE}/features/csv-import-export/#custom-anchor)"
         " [f](../../features/csv-import-export/)"
-        f" [g]({TEST_REPO_SOURCE}/-/blob/main/docs/adr/0001-example.md)\n\n"
+        f" [g]({TEST_REPO_SOURCE}/blob/main/docs/adr/0001-example.md)\n\n"
         "```md\n[fenced, never checked](/nowhere/)\n```\n\n`[inline code, never checked](/nowhere/)`\n"
     )
     cases: list[tuple[str, str, str, int]] = [
@@ -824,7 +827,7 @@ def self_test() -> int:
         ("a missing same-page anchor", good + "\n[x](#not-a-heading)\n", "", 1),
         (
             "a cross-tree link to a missing source file",
-            good + f"\n[x]({TEST_REPO_SOURCE}/-/blob/main/docs/adr/9999-missing.md)\n",
+            good + f"\n[x]({TEST_REPO_SOURCE}/blob/main/docs/adr/9999-missing.md)\n",
             "",
             1,
         ),

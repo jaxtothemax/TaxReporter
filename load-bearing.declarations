@@ -36,7 +36,7 @@
 # ── When the gate fires ──────────────────────────────────────────────────────
 #
 # Restore the call, or move the declaration to the guard's new home, or delete
-# the stanza and say in the MR what covers this now. All three are reviewable
+# the stanza and say in the PR what covers this now. All three are reviewable
 # one-line diffs. That is the whole mechanism: it cannot stop the removal, it
 # makes the removal visible.
 #
@@ -60,6 +60,10 @@ path: .claude/settings.json
 call: .claude/hooks/pre-tool-safety.sh
 why:  The only wiring of the Edit/Write safety hook. Removing this entry disarms it while the script itself stays present and passing.
 
+path: .claude/settings.json
+call: "Bash(gh pr merge:*)"
+why:  The only rule stopping an agent from merging a PR, `--auto` included. Delete it and nothing else in the suite fails: the hooks and skills only tell agents not to merge.
+
 path: scripts/check-sigpipe-readers.sh
 call: is_ignored "$f" && continue
 why:  The only thing keeping the shell walk out of gitignored files. Removing it makes the gate red locally on files CI can never see, and green in CI, with nothing pointing at the difference.
@@ -71,3 +75,11 @@ why:  Same guard, same walk, same failure mode — a local-only RED naming a rea
 path: scripts/check-stale-references.sh
 call: drop_ignored_lines
 why:  The only filter between this gate's tree-wide grep and gitignored scratch output. Removing it makes downloaded fixtures and local reports look like tracked debt.
+
+path: .gitattributes
+call: packages/furs/schemas/*.xsd -text
+why:  The only thing stopping `* text=auto` from normalizing the vendored FURS schemas' CRLF line endings on commit. Delete it and the furs SHA-256 test stays green (the working tree keeps its bytes); the next re-vendored schema is then committed normalized, CI's checkout no longer matches its pin, and the easy "fix" pins bytes FURS never published.
+
+path: website/astro.config.mjs
+call: markdownLinks(),
+why:  The only wiring of the Markdown link rewrite. Delete it and the build, page-size check and link check stay green while every in-content link on the deployed Pages site 404s and repository links ignore GITHUB_REPOSITORY.

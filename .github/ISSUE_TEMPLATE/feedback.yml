@@ -1,0 +1,37 @@
+name: Feedback
+description: Tell us how using the project went, what worked, and what got in your way.
+labels: ["feedback"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. Short answers are fine; skip anything that does
+        not apply. Please do not paste personal or tax data.
+  - type: textarea
+    id: goal
+    attributes:
+      label: What were you trying to do?
+      description: For example, "convert a year of broker trades into a capital-gains form".
+    validations:
+      required: true
+  - type: textarea
+    id: worked
+    attributes:
+      label: What worked well?
+  - type: textarea
+    id: friction
+    attributes:
+      label: What was confusing, missing, or got in your way?
+      description: Name the docs page, command, or step if you can.
+  - type: textarea
+    id: better
+    attributes:
+      label: What would have made it better?
+  - type: textarea
+    id: setup
+    attributes:
+      label: Your setup
+      value: |
+        - Version or commit:
+        - OS / browser:
+        - Broker(s) and export type:

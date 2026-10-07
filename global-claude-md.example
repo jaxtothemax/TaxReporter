@@ -6,6 +6,12 @@
 #
 # Customize: remove sections for agents your project doesn't use, and add
 # project-specific rules at the bottom.
+#
+# Forge: GitHub (repo, issues, pull requests, Actions, Pages). The template is
+# GitLab-first upstream, so a few names keep their upstream spelling: the skills
+# /mr, /fix-mr and /mass-merge, and the "pre-MR gate batch". In these
+# instructions an MR is a GitHub pull request (PR). Use `gh`, never `glab`, and
+# resolve the repository from the origin remote — never hardcode owner/repo.
 
 ## First-time setup
 
@@ -33,12 +39,11 @@ in that row — the unnamed gates are out of scope. Do not run them out of habit
 | Dependency bump (single package, no API change) | `dependency` → `changelog` → `/mr` |
 | Docs-only | `docs` (if a new page) → `completeness-check` → `/mr` |
 | Chore / CI config / lint-only | `/mr` |
-| Schema / migration change only (no behavior change) | `schema-check` (**before push**) → `test-scaffold` → `completeness-check` → `changelog` → `/mr` |
-| Backend-only feature (new endpoint or model) | `architect` → pre-MR gate batch → `test-scaffold` → `completeness-check` → `changelog` → `/mr` |
-| Wiring onto an already-designed surface (a form or toggle bound to an *existing* API contract, inside a shell whose design already shipped) | `ux-review` (visual diff) → `rbac-check` + `security-review` + `regression-check` → `test-scaffold` → `completeness-check` → `changelog` → `/mr` |
+| Core-logic-only change (parser, calculation, or output generation; no UI change) | `architect` → pre-MR gate batch → `test-scaffold` → `completeness-check` → `changelog` → `/mr` |
+| Wiring onto an already-designed surface (a form or toggle bound to *existing* core logic, inside a shell whose design already shipped) | `ux-review` (visual diff) → `security-review` + `regression-check` → `test-scaffold` → `completeness-check` → `changelog` → `/mr` |
 | Frontend-only feature (no API change) | `architect` → `ux-design` → implement → `ux-review` + `accessibility` → `test-scaffold` → `completeness-check` → `changelog` → `/mr` |
 | New user-visible feature (full stack) | `/voc` → `architect` → `ux-design` → implement → pre-MR gate batch → `ux-review` + `accessibility` → `test-scaffold` → `completeness-check` → `changelog` → `/mr` |
-| New trust-boundary subsystem (auth, uploads, tenancy, external input) | `threat-model` → `architect` → implement → pre-MR gate batch (incl. `security-review` + `rbac-check`) → `test-scaffold` → `completeness-check` → `changelog` → `/mr` |
+| New trust-boundary subsystem (file import/parsing of untrusted input, generated output another system ingests, external input) | `threat-model` → `architect` → implement → pre-MR gate batch (incl. `security-review`) → `test-scaffold` → `completeness-check` → `changelog` → `/mr` |
 
 When a change spans rows, take the **union**. When genuinely ambiguous, default to the
 **heavier** row — but say which row you chose and why, so the user can redirect. When a
@@ -47,52 +52,46 @@ carve-out row (see `/kaizen`).
 
 The *wiring* row is such a carve-out: once a shell (a settings area, a dashboard frame) is
 designed and its first page has shipped, `architect` and `ux-design` find nothing new on
-each further "bind a form to its existing endpoint" page. It applies **only** when the
+each further "bind a form to its existing core logic" page. It applies **only** when the
 layout is already designed **and** the change introduces no new interaction pattern. A
 page that does introduce one takes the Frontend-only row.
 
 ## Pre-MR gate batch — run in parallel, not serially
 
-The pre-MR gate cluster — `regression-check`, `security-review`, `rbac-check`,
-`perf-check` — are **independent reads of the same diff**. None depends on another's
-output. Run them as a **single parallel agent batch** (multiple Agent calls in one
+The pre-MR gate cluster — `regression-check`, `security-review`,
+`generated-artifact-check` — are **independent reads of the same diff**. None depends
+on another's output. Run them as a **single parallel agent batch** (multiple Agent calls in one
 message), then consolidate the findings before `/mr`. Serial invocation is the single
-biggest avoidable source of pre-MR drag.
+biggest avoidable source of pre-PR drag.
 
 Apply only the gates relevant to the diff:
-- `security-review` + `rbac-check` — only if a view, route, handler, endpoint, serializer, permission, or auth path changed
-- `perf-check` — only if a query or data-access path changed
+- `security-review` — only if file import/parsing, input handling, output generation, or a dependency's trust surface changed
 - `generated-artifact-check` — only if an API surface, exported type, or public schema changed
 - `regression-check` — always, on any source-touching branch
-
-**`schema-check` is not in this batch — it runs before `git push`.** A migration that
-fails usually fails *on container start*, which is a crash loop on every replica with
-the old version already gone, not a failed deploy you roll back at leisure. Catching it
-before the push is cheaper than a failed CI job and far cheaper than production.
 
 **Then, before `git push`, run `completeness-check`** (`.claude/agents/completeness-check.md`)
 — one fresh agent that did not write the branch, reading the issue (with comments), the
 diff and the code. It is serial *after* the batch on purpose: it audits the branch the
 batch's fixes produced. It exists because an upstream audit found gaps in 16 of 20 merged
-MRs whose rules were already written down but that nobody but the author had applied
+PRs whose rules were already written down but that nobody but the author had applied
 before the push. Fix every finding in a **new commit, never an amend**,
 so the fix diff stays separable. Then at most **one** more pass, never a loop: a full
 **round 2** (fresh Opus, not shown round 1's findings) when round 1 reported a
 `class-missed` or `collateral` BLOCKER or four or more findings; otherwise a narrow
 **fix-diff re-check** of the fix commits only, when round 1 returned a BLOCKER or a fix
-commit changes executable behavior (application code, CI or chart logic, a gate or check
-script, a migration — not docs, tests, comments, or changelog text). Record the re-check as
+commit changes executable behavior (application code, CI logic, a gate or check
+script — not docs, tests, comments, or changelog text). Record the re-check as
 `gate: completeness-check/fix-diff — <N> findings` (`/fix-diff`, not parentheses: the
 ledger parser drops a label with a space or paren), `n/a` when the fix round was docs,
 tests, comments, or changelog only; record round 2 as a second `completeness-check` line with
 `round 2` first in its parenthetical. See `.claude/agents/completeness-check.md`
 § After round 1. Its `## Requirements`
-table goes in the MR description, and the `mr-followups` CI job fails any MR description
+table goes in the PR description, and the `pr-followups` CI job fails any PR description
 that names a follow-up without an open issue.
 
-Any Critical/High finding stops the MR: surface it and ask the user how to proceed.
+Any Critical/High finding stops the PR: surface it and ask the user how to proceed.
 
-**Record every gate's outcome in the MR's `## Gates` section** — one
+**Record every gate's outcome in the PR's `## Gates` section** — one
 `gate: <name> — <N> findings` line per gate run, in the format `/mr` defines. This is
 the only record of gate *yield*, and it is what lets a gate that has stopped earning
 its slot be found and narrowed. Four rules:
@@ -136,7 +135,7 @@ personas defined in `CLAUDE.md` or `.claude/personas.md`.
 - **What this produces is simulated feedback from modeled personas — not user research.**
   Nobody is asked anything. It is a legitimate pre-launch proxy and an illegitimate
   substitute for a real report. So: never present panel output as customer feedback in
-  an issue, MR, ADR, or commit message; if a persona finding is worth filing, file it on
+  an issue, PR, ADR, or commit message; if a persona finding is worth filing, file it on
   its merits and say a simulated panel surfaced it. Two panels agreeing is not
   corroboration — only a real user report corroborates a modeled finding.
 - **Check for real signal first.** If a real user report already covers the question, it
@@ -172,20 +171,17 @@ drifts out of date and costs context every turn.
 | `ux-design` | new UI component, page, modal, panel, or flow — **not** backend-only, test-only, docs, or minor styling | Pass it the architect output. The proposal must be specific enough that no layout or interaction decision is left to the implementer. Order: `architect` → `ux-design` → implement → `ux-review`. |
 | `ux-review` + `accessibility` | any frontend change that affects the UI, after implementation — **not** backend-only, dependency bumps, test-only, or docs | Run as a pair: `ux-review` checks the design system, `accessibility` checks that real users can operate it (WCAG 2.1 AA). **A new design rule either one surfaces is written into the frontend's `CLAUDE.md` before the branch merges** — left in the transcript, it is lost. |
 | `threat-model` | a new subsystem touching auth, authorization, session/sync, tenancy/membership, file handling, payments, or external input | Runs **before** code exists, and feeds its decisions into the architect's ADR. `security-review` is the later, code-level audit. |
-| `security-review` | endpoint, serializer, auth, file upload, user-controlled input | Owns the broader OWASP Top 10 and project-specific patterns (IDOR, serializer over-exposure, broadcast safety). Role enforcement belongs to `rbac-check`. |
-| `rbac-check` | any new or modified endpoint, view, route, handler, or permission rule | A missing permission check is a **security vulnerability**, not a quality finding. Treat its output accordingly. |
-| `perf-check` | any query or data-access path | — |
+| `security-review` | file import/parsing, user-controlled input, generated output another system ingests, auth | Owns the broader OWASP Top 10 and project-specific patterns (unsafe XML/CSV parsing, path traversal, output injection, secrets in logs). |
 | `generated-artifact-check` | an API surface, exported type, or public schema changed | Runs in the pre-MR batch. Catches a generated schema, type, or SDK that was not regenerated. |
-| `schema-check` | any migration or schema change | Runs **before push**, not in the pre-MR batch. It is cheaper than a failed CI job and far cheaper than a crash loop on container start. |
 | `regression-check` | any source-touching branch (not docs-only, test-only, or CI config) | Must come back clean (no stale mocks, no permission regressions, no broken suites) **before** `/mr`, not in parallel with it. |
-| `completeness-check` | every source-touching or docs branch, before `git push`, after the batch | Must be a **fresh agent that did not write the branch**. Opus when `batch`'s escalation criteria apply, Sonnet otherwise; record the model on the ledger line. Every BLOCKER and GAP is fixed on the branch or deferred to an **open** issue named in the MR. Fixes go in a new commit (never an amend) so the fix diff stays separable for the `/fix-diff` re-check. |
+| `completeness-check` | every source-touching or docs branch, before `git push`, after the batch | Must be a **fresh agent that did not write the branch**. Opus when `batch`'s escalation criteria apply, Sonnet otherwise; record the model on the ledger line. Every BLOCKER and GAP is fixed on the branch or deferred to an **open** issue named in the PR. Fixes go in a new commit (never an amend) so the fix diff stays separable for the `/fix-diff` re-check. |
 | `test-scaffold` | a new feature or bug fix with no existing coverage | See *Testing practice* below; that section applies whether or not this agent runs. |
 | `dependency` | before adding any package | — |
-| `changelog` | any branch touching source (exempt: CI config, dependency bumps, test-only, docs-only) | Fragment is `changelog.d/<issue-or-slug>.<type>.md`, types `added`, `changed`, `fixed`, `security`. **Never edit `CHANGELOG.md` directly.** When in doubt, add one: removing a fragment is cheaper than fixing a red pipeline. |
+| `changelog` | any branch touching source (exempt: CI config, dependency bumps, test-only, docs-only) | Fragment is `changelog.d/<issue-or-slug>.<type>.md`, types `added`, `changed`, `fixed`, `security`. **Never edit `CHANGELOG.md` directly.** When in doubt, add one: removing a fragment is cheaper than fixing a red CI run. A PR that genuinely needs none carries the `no-changelog` label — the user's call. |
 | `docs` | any change to user-facing documentation | A docs pass is not a claims review. Report which classes it checked (see the agent's own list), never "docs reviewed". |
 
 **Skipping.** If the user says "skip the X review" or "just do it", proceed without it, but
-note the skipped gate inline so it lands in the MR's `## Gates` section as `skipped`. Bias
+note the skipped gate inline so it lands in the PR's `## Gates` section as `skipped`. Bias
 hard toward the fast-path carve-outs: on a bugfix with an identified local root cause,
 `architect` reliably finds nothing and costs a round trip.
 
@@ -212,7 +208,7 @@ fast-path table it took. Do not consider a feature complete without tests.
 - **Watch the new test FAIL before you trust it.** Restore the pre-fix code (copy the
   file aside, never `git stash`), run the test, require red, then put the fix back. A
   test that passes on the unfixed build is not coverage — it is an assertion about the
-  author's intent. Say so in the MR: "verified failing without the fix." The vacuous
+  author's intent. Say so in the PR: "verified failing without the fix." The vacuous
   shapes that pass review — absence assertions that sample before the action fires, key
   sequences that cancel themselves, name matchers that bind to a neighboring node,
   parameterized guards whose parameter is ignored — are catalogued in the project's
@@ -241,37 +237,40 @@ across the codebase. This is a **one-time gate**, not an iterative loop:
 ## Issues — check for duplicates before creating
 
 Before creating a new issue, **search the tracker for duplicates and partial overlaps**
-in open *and* recently closed issues (`glab issue list --search "<key terms>" --all`, or
-the forge's equivalent), using two or three phrasings of the problem. `/tracker-hygiene`
+in open *and* recently closed issues (`gh issue list --state all --search "<key terms>"`),
+using two or three phrasings of the problem. `/tracker-hygiene`
 sweeps for duplicates after the fact; this check happens before filing.
 
 - This applies to: any new feature request, bug report, or chore ticket
 - If a duplicate is found, add a comment to the existing issue rather than opening a new one
 - If work genuinely differs, reference the related issue in the new one's description
 
-## Milestone commitment — every issue in a dated milestone carries one `release::` label
+## Milestone commitment — every issue in a dated milestone carries one `release:*` label
 
-A milestone with a date is a promise, and a few hundred issues against one date
-is not a plan. State the shape of that promise with one **scoped** label per
-issue. Scoped labels (`key::value`) are mutually exclusive in GitLab, so an issue
-holds exactly one of these and the tracker enforces it:
+A milestone with a date (a GitHub milestone with a due date) is a promise, and a few
+hundred issues against one date is not a plan. State the shape of that promise with one
+of three labels per issue. GitHub has no scoped (`key::value`) labels, so **nothing in
+the tracker makes these exclusive** — the convention does:
 
 | Label | Meaning |
 |---|---|
-| `release::committed` | Ships, or the release slips. The **only** issues that appear as bullets in a public roadmap's section for that milestone. |
-| `release::reserve` | A slot held against inbound work from real users. Spent when someone real hits something. The reserve is a number written on the milestone, not a sentiment. |
-| `release::stretch` | Stays in the milestone and ships if there is time. Moves to the next milestone at feature freeze without discussion. Never a roadmap bullet. |
+| `release:committed` | Ships, or the release slips. The **only** issues that appear as bullets in a public roadmap's section for that milestone. |
+| `release:reserve` | A slot held against inbound work from real users. Spent when someone real hits something. The reserve is a number written on the milestone, not a sentiment. |
+| `release:stretch` | Stays in the milestone and ships if there is time. Moves to the next milestone at feature freeze without discussion. Never a roadmap bullet. |
 
 - **When an issue moves into the current dated milestone — whether you file it
   there, re-milestone it, or a script places it — stop and ask the user which of
   the three applies. Never infer it.** The commitment state is the user's call
-  every time: a guessed `release::committed` is a promise nobody made, and a
-  guessed `release::stretch` quietly drops work the user meant to ship. If the
+  every time: a guessed `release:committed` is a promise nobody made, and a
+  guessed `release:stretch` quietly drops work the user meant to ship. If the
   user's own instruction already names the label, apply it without asking. If the
   user does not answer, **leave the issue unlabeled and say so** — an unlabeled
   issue in a dated milestone is a visible gap, a guessed label is an invisible one.
-- Changing an issue's commitment means applying the new value; the scoped key
-  drops the old one. Do not stack them.
+- **Applying one `release:*` label removes the other two in the same call** —
+  `gh issue edit <N> --add-label release:committed --remove-label release:reserve,release:stretch`.
+  `--add-label` alone leaves the old value in place, so an issue silently holds two.
+  Changing an issue's commitment is the same call with the new value; never stack them.
+  `/tracker-hygiene` reports any issue that ends up holding two.
 - Whatever label the project uses for intended-but-unmilestoned work is not a
   fourth value on this axis. Reason tags (`0.X-hardening` and the like) coexist
   with any of the three.
@@ -279,21 +278,22 @@ holds exactly one of these and the tracker enforces it:
   (charter work → committed, other bugs → reserve, polish and unclaimed features
   → stretch). It is not a substitute for asking on each subsequent move.
 
-## MR creation — always use `/mr`
+## PR creation — always use `/mr`
 
-When opening a merge request, **always invoke `/mr`**. This ensures consistent
-descriptions, pre-flight checks, and correct heredoc syntax.
+When opening a pull request, **always invoke `/mr`** (the name is kept from upstream; it
+opens a GitHub PR with `gh pr create`). This ensures consistent descriptions, pre-flight
+checks, and correct heredoc syntax.
 
-- Every MR that resolves a tracked issue **must** include `Closes #NNN` (or `Fixes #NNN`
+- Every PR that resolves a tracked issue **must** include `Closes #NNN` (or `Fixes #NNN`
   / `Resolves #NNN`) in the description body — one line per issue. Without these keywords
-  the issue will not auto-close on merge. The `/mr` skill must emit these lines; verify
-  they are present before submitting.
+  the issue will not auto-close when the PR merges into the default branch. The `/mr`
+  skill must emit these lines; verify they are present before submitting.
 
 ## Git workflow discipline — always on
 
-- **Never auto-merge after creating an MR** — after `/mr`, stop. Hand the URL to the
-  user. Do not call merge commands or pass merge flags.
-- **Never commit or push directly to `main`** — all changes go through branches and MRs
+- **Never auto-merge after creating a PR** — after `/mr`, stop. Hand the URL to the
+  user. Do not call `gh pr merge`, and never pass `--auto`.
+- **Never commit or push directly to `main`** — all changes go through branches and PRs
 - **Always branch from the default branch** — never from another feature branch
 - **Verify branch cleanliness before the first commit** — before committing any work to a
   feature branch, run `git log origin/main..HEAD --oneline`. If any commits unrelated to
@@ -302,8 +302,9 @@ descriptions, pre-flight checks, and correct heredoc syntax.
 - **Always `git fetch origin` before comparing to remote** — never trust a stale local ref
   when the user reports a discrepancy. The remote is authoritative.
 - **Check for in-flight work before claiming an issue** — run `scripts/wt list` and check
-  for an existing open MR. Two sessions picking the same issue is a real and recurring
-  failure, and the cost is discovered late, at the second MR.
+  for an existing open PR (`gh pr list --search "<issue number>"`) and the `status:wip`
+  label. Two sessions picking the same issue is a real and recurring failure, and the cost
+  is discovered late, at the second PR.
   `scripts/check-issue-collision.sh` re-enforces this at push time (wired into
   `make pre-push-checks`) because `git checkout -b` bypasses the `wt` claim entirely —
   push is the one chokepoint every branch passes through regardless of how it was made.
@@ -339,9 +340,9 @@ Each of these has cost real work. None announces itself.
   boundary explicitly in the prompt.
 - A silent subagent is usually **stalled, not dead** — resume it with a message rather
   than respawning and losing its context.
-- A worktree is **not private**: another local session can commit, push, and open an MR
-  from it mid-edit. Before merging, verify local HEAD, the MR's sha, and the pipeline's
-  sha are the same commit.
+- A worktree is **not private**: another local session can commit, push, and open a PR
+  from it mid-edit. Before merging, verify local HEAD, the PR's head sha
+  (`gh pr view <N> --json headRefOid`), and the sha its checks ran on are the same commit.
 
 ### Subagent fan-out ceiling — default for any multi-agent orchestration
 
@@ -366,38 +367,38 @@ your project wires in on top of it:
 This is enforced by review, not by `settings.json` — a hook that tries to count or block
 subagent spawns runs into events that can't block (`SubagentStart`/`SubagentStop`) and a
 spawn-tool name that isn't stable across Claude Code versions. Verify what a delegated
-agent actually did (`git log origin/main..HEAD`, the MR it opened) instead of trusting
+agent actually did (`git log origin/main..HEAD`, the PR it opened) instead of trusting
 its summary.
 
-## Landing several MRs in one sitting — use `/mass-merge`
+## Landing several PRs in one sitting — use `/mass-merge`
 
-Merging a batch one MR at a time reddens the default branch even when every MR's own
-pipeline was green, for two reasons that are not code-quality problems:
+Merging a batch one PR at a time reddens the default branch even when every PR's own
+checks were green, for two reasons that are not code-quality problems:
 
 - **Aggregate / ratchet gates do not compose.** A gate that counts something across the
-  whole tree against a baseline sees only its own MR's tree. Two MRs each under the
-  ceiling can be over it combined — visible only on the post-merge pipeline.
-- **Stale merge base.** Each MR is gated against the branch point, not current main.
+  whole tree against a baseline sees only its own PR's tree. Two PRs each under the
+  ceiling can be over it combined — visible only on the post-merge run on `main`.
+- **Stale merge base.** Each PR is gated against the branch point, not current main.
   Auto-merges on shared files (a generated schema, a route registry, changelog
   fragments) apply cleanly as *text* and break *semantically*.
 
 `/mass-merge` stacks the batch on a local integration branch, re-runs the aggregate
-gates after each add, then lands only the safe prefix serially — rebasing each MR onto
-the latest default branch and waiting for a green default-branch pipeline before the
+gates after each add, then lands only the safe prefix serially — rebasing each PR onto
+the latest default branch and waiting for a green default-branch CI run before the
 next merge. It is **user-invoked only**; it force-pushes and merges.
 
-Two rules that apply even when landing MRs by hand:
+Two rules that apply even when landing PRs by hand:
 
 - **Rebase before each merge.** After A merges: fetch, rebase B onto the default branch,
   run its targeted tests, force-push with `--force-with-lease`, then merge. Never merge
   B on a stale base.
-- **Space the merges out.** Landing many quickly exhausts CI job capacity, and a
-  pipeline that fails at *creation* reports `failed` with **zero jobs** — it tested
-  nothing. Never conclude anything from one, and never batch-merge to catch up.
+- **Space the merges out.** Landing many quickly exhausts CI runner capacity, and a
+  workflow run that fails at *startup* (an invalid workflow file, an exhausted Actions
+  quota) reports `failure` with **zero jobs** — it tested nothing. Never conclude anything from one, and never batch-merge to catch up.
 
 ## Static analysis that runs after merge — keep local gates ahead of it
 
-If a post-merge scanner (CodeQL, a nightly SonarCloud scan, a mirror pipeline) reports
+If a post-merge scanner (CodeQL, a nightly SonarCloud scan, a scheduled workflow) reports
 maintainability findings on the default branch, treat it as a *lagging* signal and keep
 the blocking local gates ahead of it:
 
@@ -460,7 +461,7 @@ states a reusable trap is durable and stays.
 2. **On contradiction.** When a change invalidates a memory, fix the memory in the
    same session. Memories are point-in-time and nothing re-validates them, so the only
    moment anyone knows one went stale is the moment they make it stale. Prefer a dated
-   **Superseded** note naming the MR over a silent rewrite — the old belief is often
+   **Superseded** note naming the PR over a silent rewrite — the old belief is often
    why a decision looks strange later.
 3. **At each release close.** Sweep `MEMORY.md` for entries whose issues all closed and
    whose hooks state no reusable rule; demote them to a dated `## Archived` section in
@@ -518,17 +519,18 @@ cold. Apply these by default:
 
 ## CI failures — read the log before touching anything
 
-When a pipeline fails, fetch the failing job's log and identify the root cause
-**before** attempting any fix. Do not retry a failing pipeline without a code change
-unless the failure is clearly infrastructure. Four traps that all look like "your diff
-broke it":
+When a CI run fails, fetch the failing job's log (`gh run view <id> --log-failed`) and
+identify the root cause **before** attempting any fix. Do not re-run a failing workflow
+without a code change unless the failure is clearly infrastructure. Four traps that all
+look like "your diff broke it":
 
-- **A green pipeline on the *branch* ref proves nothing.** Branch pipelines stop once
-  an MR exists, so listing pipelines by branch shows a frozen pre-MR success. Read the
-  pipeline attached to the MR itself.
-- **A pipeline can read `success` while a job inside it failed** — any job marked
-  allow-failure. Query the jobs list, not just the pipeline status, and pull the
-  artifact: an *error* result (never ran) and a *failure* result (found something) are
+- **A green run on the *branch* proves nothing about the PR.** A `pull_request` run tests
+  the merge of the branch into the current base, while a `push` run tests the branch tip
+  alone, and `gh run list --branch` mixes the two. Read the checks attached to the PR
+  itself (`gh pr checks <N>`), at its current head sha.
+- **A run can read `success` while a job inside it failed** — any job or step marked
+  `continue-on-error: true`. Query the jobs list (`gh run view <id> --json jobs`), not
+  just the run conclusion, and pull the artifact: an *error* result (never ran) and a *failure* result (found something) are
   different answers.
 - **A red gate that names your code is often a stale base.** The default branch already
   deleted that marker, already shipped the cap the new assertion checks. Fetch and diff
@@ -539,15 +541,15 @@ broke it":
 
 A test that starts failing after a rebase may also be the **calendar** — date-seeded
 fixtures that roll over at UTC midnight or snap across a weekend. Reproduce on a
-pristine default branch before blaming the MR; if it fails there too, the default
+pristine default branch before blaming the PR; if it fails there too, the default
 branch is latently red.
 
 ## Harness self-improvement — run `/kaizen` periodically
 
 The harness is not fixed. Run `/kaizen` on demand (or once per milestone) to audit the
-*process itself* — CI, the gate chain, the pre-push hook, MR cycle time — for friction,
+*process itself* — CI, the gate chain, the pre-push hook, PR cycle time — for friction,
 and get a small ranked list of speed wins. It is distinct from `/pre-release` (which
 audits the code); kaizen audits the harness. It proposes changes and optionally files
 tooling issues, but never edits the harness itself — every change lands through a normal
-MR. The most common outcome: a gate that keeps firing on a change class and finding
+PR. The most common outcome: a gate that keeps firing on a change class and finding
 nothing gets a carve-out row added to the *Fast paths by change class* table above.

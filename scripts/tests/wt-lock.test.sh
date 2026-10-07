@@ -2,13 +2,13 @@
 # scripts/tests/wt-lock.test.sh — the `wt` issue check-out lock.
 #
 # The bug: every agent shares one forge identity, so nothing stopped two sessions
-# (or two `/batch` waves) from taking the same issue and opening duplicate MRs.
-# `wt new` / `wt claim` now apply a `status::wip` label plus a check-out comment and
+# (or two `/batch` waves) from taking the same issue and opening duplicate PRs.
+# `wt new` / `wt claim` now apply a `status:wip` label plus a check-out comment and
 # refuse an issue that already carries it; `wt remove` / `wt prune` / `wt release`
 # clear it.
 #
-# The forge CLI is stubbed with a small stateful glab, because the sandbox has no
-# forge. Each positive case has a negative twin: a locked issue is refused but
+# The forge CLI is stubbed with a small stateful gh, because the sandbox has no
+# GitHub. Each positive case has a negative twin: a locked issue is refused but
 # --force takes it over; remove clears the label on a CLOSED issue and leaves it on
 # an OPEN one; with no forge CLI the worktree is still created.
 
@@ -24,52 +24,67 @@ check() { # <label> <0 = pass>
   else echo "SELF-TEST FAILED: $1" >&2; fail=1; fi
 }
 
-# Stateful glab stub. State lives in $STUB_DIR/<issue>.{labels,state,notes}.
-# `issue view` emits the JSON shape real glab does (labels, state, Notes).
+# Stateful gh stub. State lives in $STUB_DIR/<issue>.{labels,state,notes} plus a
+# repo-wide $STUB_DIR/repo.labels. `issue view --json …` emits the shape real gh
+# does (label objects, OPEN/CLOSED, comment objects); a `--jq '.labels[].name'` /
+# `'.comments[].body'` read — the collision gate's — gets the already-filtered lines.
 mkdir -p "$TMP/bin" "$TMP/state"
 export STUB_DIR="$TMP/state"
-cat > "$TMP/bin/glab" <<'STUB'
+cat > "$TMP/bin/gh" <<'STUB'
 #!/usr/bin/env bash
 d="$STUB_DIR"
+printf '%s|%s\n' "${1:-} ${2:-}" "${GH_REPO:-}" >> "$d/calls.log"
 case "${1:-} ${2:-}" in
   "issue view")
     n="$3"
-    if [[ "$*" != *"--output"* ]]; then
-      # Human-readable mode, as the collision gate reads it: a labels line, then notes.
-      echo "labels: $(paste -sd, "$d/$n.labels" 2>/dev/null | sed 's/,/, /g')"
-      cat "$d/$n.notes" 2>/dev/null || true
-      exit 0
-    fi
-    python3 - "$d" "$n" <<'PY'
+    fields=""; shift 3
+    while [[ $# -gt 0 ]]; do
+      case "$1" in --json) fields="$2"; shift 2 ;; *) shift ;; esac
+    done
+    case "$fields" in
+      title)    echo "Issue $n" ;;
+      labels)   cat "$d/$n.labels" 2>/dev/null || true ;;
+      comments) cat "$d/$n.notes" 2>/dev/null || true ;;
+      *)
+        python3 - "$d" "$n" <<'PY'
 import json, os, sys
 d, n = sys.argv[1], sys.argv[2]
 def rd(ext):
     p = f"{d}/{n}.{ext}"
     return open(p).read().splitlines() if os.path.exists(p) else []
-state = (rd("state") or ["opened"])[0]
-print(json.dumps({"title": f"Issue {n}", "labels": rd("labels"), "state": state,
-                  "Notes": [{"body": b} for b in rd("notes")]}))
+state = (rd("state") or ["open"])[0].upper()
+print(json.dumps({"labels": [{"name": l} for l in rd("labels")], "state": state,
+                  "comments": [{"body": b} for b in rd("notes")]}))
 PY
-    ;;
-  "issue update")
+        ;;
+    esac ;;
+  "issue edit")
     n="$3"; shift 3
     while [[ $# -gt 0 ]]; do
       case "$1" in
-        --label)   echo "$2" >> "$d/$n.labels"; shift 2 ;;
-        --unlabel) { grep -vxF "$2" "$d/$n.labels" 2>/dev/null || true; } > "$d/$n.labels.tmp"
-                   mv "$d/$n.labels.tmp" "$d/$n.labels"; shift 2 ;;
+        --add-label)    # real gh refuses a label the repo does not have
+                        grep -qxF "$2" "$d/repo.labels" 2>/dev/null || exit 1
+                        echo "$2" >> "$d/$n.labels"; shift 2 ;;
+        --remove-label) { grep -vxF "$2" "$d/$n.labels" 2>/dev/null || true; } > "$d/$n.labels.tmp"
+                        mv "$d/$n.labels.tmp" "$d/$n.labels"; shift 2 ;;
         *) shift ;;
       esac
     done ;;
-  "issue note") echo "$5" >> "$d/$3.notes" ;;
-  "label list") echo "status::wip" ;;
+  "issue comment")
+    n="$3"; shift 3
+    while [[ $# -gt 0 ]]; do
+      case "$1" in --body) echo "$2" >> "$d/$n.notes"; shift 2 ;; *) shift ;; esac
+    done ;;
+  "label list")   cat "$d/repo.labels" 2>/dev/null || true ;;
+  "label create") echo "$3" >> "$d/repo.labels" ;;
+  "api "*)        printf '%s\n' "${GH_REPO:-}" >> "$d/api.ghrepo"; echo '[]' ;;
   *) ;;
 esac
 exit 0
 STUB
-chmod +x "$TMP/bin/glab"
+chmod +x "$TMP/bin/gh"
 export PATH="$TMP/bin:$PATH"
-export WT_FORGE=glab
+export WT_FORGE=gh
 export WT_GRACE_MIN=0
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 
@@ -90,7 +105,7 @@ labels() { cat "$STUB_DIR/$1.labels" 2>/dev/null || true; }
 # shellcheck disable=SC2317,SC2329
 contains() { [[ "$1" == *"$2"* ]]; }
 # shellcheck disable=SC2317,SC2329
-has_label() { grep -qxF 'status::wip' <<<"$(labels "$1")"; }
+has_label() { grep -qxF 'status:wip' <<<"$(labels "$1")"; }
 
 # Assertions are written as `if` blocks so a failing condition is a recorded result
 # rather than an errexit, and `$?` is never read stale.
@@ -107,8 +122,11 @@ out="" rc=0
 
 # new on a free issue applies the lock and records a check-out comment.
 run new 11
-expect "wt new applies status::wip to a free issue" has_label 11
+expect "wt new applies status:wip to a free issue" has_label 11
 expect "wt new posts a check-out comment" grep -q 'checked out' "$STUB_DIR/11.notes"
+# gh refuses --add-label for a label the repository lacks, so wt creates it first —
+# once: a second check-out must not create (and so re-color) it again.
+expect "wt creates the missing lock label in the repository" grep -qxF 'status:wip' "$STUB_DIR/repo.labels"
 
 # Negative twin: the same issue again is refused, and the refusal names the holder.
 run new 11
@@ -146,6 +164,24 @@ expect "wt new creates the worktree when no forge CLI is available" \
   grep -q 'feat/33-no-forge' <<<"$(git -C "$REPO" worktree list)"
 expect_not "no label is applied without a forge CLI" has_label 33
 
+expect "the lock label is created only once" \
+  test "$(grep -cxF 'status:wip' "$STUB_DIR/repo.labels")" -eq 1
+
+# A non-GitHub origin (here a local bare repo, as in a fresh scaffold with no
+# GitHub remote yet) selects no forge at all — wt must not call gh against it.
+rc=0; out="$(WT_FORGE='' wt new feat/34-local-origin)" || rc=$?
+expect_run "a non-GitHub origin degrades to the no-forge warning" 0 "no forge CLI" "$rc" "$out"
+expect_not "no label is applied for a non-GitHub origin" has_label 34
+
+# With a GitHub origin, wt pins every gh call to that repository (GH_REPO), so a
+# fork's `upstream` remote can never receive the lock. Nothing contacts the URL.
+git -C "$REPO" remote set-url origin https://github.com/acme/widget.git
+run claim 77
+git -C "$REPO" remote set-url origin "$REPO.origin.git"
+expect "wt pins gh to origin's repository when labeling (GH_REPO)" \
+  grep -qxF 'issue edit|acme/widget' "$STUB_DIR/calls.log"
+run release 77
+
 # prune releases the lock of a merged-and-deleted branch.
 B="feat/44-prune-lock"
 wt new "$B" >/dev/null
@@ -165,17 +201,17 @@ expect_run "claim rejects a typo'd flag" 2 "unknown option: --forse" "$rc" "$out
 
 # The push-time collision gate must stay quiet for the claimant and speak for anyone
 # else. It runs for real here (not in its fixture mode, which skips the label
-# lookup): a scratch repo whose origin URL merely LOOKS like GitLab, so the gate
-# picks the stubbed glab. Nothing contacts that URL.
+# lookup): a scratch repo whose origin URL merely LOOKS like GitHub, so the gate
+# picks the stubbed gh. Nothing contacts that URL.
 CG="$(cd "$(dirname "$WT")" && pwd)/check-issue-collision.sh"
 CGREPO="$TMP/cg"
 mkdir -p "$CGREPO"
 ( cd "$CGREPO"
   git init -q -b main; git config user.email t@example.com; git config user.name t
-  git remote add origin https://gitlab.example.invalid/x/y.git
+  git remote add origin https://github.example.invalid/x/y.git
   git commit -q --allow-empty -m init; git checkout -q -b feat/55-claimant )
 collide() { ( cd "$CGREPO" && bash "$CG" 2>&1 ); }
-printf '%s\n' 'status::wip' > "$STUB_DIR/55.labels"
+printf '%s\n' 'status:wip' > "$STUB_DIR/55.labels"
 # shellcheck disable=SC2016  # literal backticks, as wt writes them
 printf '%s\n' '🔒 checked out T · branch `feat/55-claimant` · worktree `/x`' > "$STUB_DIR/55.notes"
 expect_not "collision gate is quiet when the check-out names this branch" \
@@ -187,6 +223,30 @@ expect "collision gate warns after a takeover by another branch" \
 : > "$STUB_DIR/55.notes"
 expect "collision gate warns on a hand-applied label with no check-out comment" \
   contains "$(collide)" "labelled"
+
+# The collision gate pins gh to origin's repository via GH_REPO (a GitHub
+# Enterprise-shaped host here, so the HOST/ prefix is kept).
+expect "collision gate pins gh to origin's repository (GH_REPO)" \
+  grep -qxF 'github.example.invalid/x/y' "$STUB_DIR/api.ghrepo"
+
+# scripts/lib/gh-repo.sh — the one place owner/repo is derived from a remote URL.
+# Every shape a GitHub origin takes resolves; anything else resolves to nothing,
+# so a non-GitHub or local origin never pins gh to a made-up repository.
+# shellcheck source-path=SCRIPTDIR source=../lib/gh-repo.sh
+. "$(dirname "$WT")/lib/gh-repo.sh"
+# shellcheck disable=SC2317,SC2329  # invoked indirectly, through expect
+slug_is() { [[ "$(gh_repo_from_url "$1")" == "$2" ]]; }
+expect "gh-repo: scp-style github.com URL"      slug_is 'git@github.com:acme/widget.git' 'acme/widget'
+expect "gh-repo: https URL with .git"           slug_is 'https://github.com/acme/widget.git' 'acme/widget'
+expect "gh-repo: https URL, no .git, trailing /" slug_is 'https://github.com/acme/widget/' 'acme/widget'
+expect "gh-repo: ssh:// URL with a port"        slug_is 'ssh://git@github.com:22/acme/widget.git' 'acme/widget'
+expect "gh-repo: https URL with credentials"    slug_is 'https://x-access-token:t@github.com/acme/widget' 'acme/widget'
+expect "gh-repo: GitHub Enterprise keeps its host" slug_is 'git@github.corp.example:acme/widget.git' 'github.corp.example/acme/widget'
+expect "gh-repo: a non-GitHub host is not a GitHub repo" slug_is 'git@codeberg.org:acme/widget.git' ''
+expect "gh-repo: a local path is not a GitHub repo"     slug_is '/tmp/origin.git' ''
+expect "gh-repo: a nested path is not OWNER/REPO"       slug_is 'https://github.com/acme/widget/tree/main' ''
+expect "gh-repo: an explicit GH_REPO wins over origin" \
+  test "$(GH_REPO=keep/me bash -c '. "$1"; gh_export_repo "$2"; printf %s "$GH_REPO"' _ "$(dirname "$WT")/lib/gh-repo.sh" "$CGREPO")" = keep/me
 
 [[ "$fail" -eq 0 ]] && echo "wt-lock: self-test passed."
 exit "$fail"

@@ -13,10 +13,12 @@
 #                      or above the threshold's floor, or — when no CVSS score
 #                      is published — the GitHub advisory label
 #                      (database_specific.severity) ranks at or above it.
-#   - WARN (exit 2)  → below the threshold: printed, non-blocking. The CI job
-#                      maps exit 2 to `allow_failure`, so the pipeline shows a
-#                      yellow warning (surfacing dependency debt) instead of a
-#                      silent green pass.
+#   - WARN (exit 2)  → below the threshold: printed, non-blocking. The osv-scan
+#                      job in .github/workflows/security.yml maps exit 2 to a
+#                      `::warning::` annotation plus a job-summary entry and a
+#                      passing step (GitHub Actions has no per-exit-code
+#                      allow-failure), so the run surfaces dependency debt
+#                      instead of a silent green pass.
 #
 # Exit-code contract (the whole pipeline's OSV verdict):
 #   0 → clean: no advisories survived suppression, or nothing was found to
@@ -25,7 +27,7 @@
 #       (missing/empty/unparseable results): the scan verdict is bad or the
 #       scan itself did not complete — block.
 #   2 → only below-threshold advisories, OR a scan that could not complete
-#       with ALLOW_UNRESOLVED=1 set — non-blocking warning (allow_failure).
+#       with ALLOW_UNRESOLVED=1 set — non-blocking warning (see WARN above).
 #   3 → usage or configuration error (bad invocation, unrecognized
 #       OSV_SEVERITY_THRESHOLD). A hard block, kept distinct from 2 so a
 #       misconfigured gate can never be mistaken for a benign warning.

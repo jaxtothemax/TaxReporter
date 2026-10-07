@@ -1,7 +1,7 @@
 ---
 name: pre-release
-description: Cross-cutting audit of the codebase before cutting a release. Runs security, performance, regression, and documentation checks against the full change inventory since the last tag.
-argument-hint: "[full | security | performance | docs]"
+description: Cross-cutting audit of the codebase before cutting a release. Runs security, regression, and documentation checks against the full change inventory since the last tag.
+argument-hint: "[full | security | regression | docs]"
 ---
 
 # Pre-Release Audit
@@ -14,7 +14,7 @@ Usage:
 ```
 /pre-release full                # run all audits
 /pre-release security            # security only
-/pre-release performance         # performance only
+/pre-release regression          # regression only
 /pre-release docs                # documentation only
 ```
 
@@ -32,7 +32,7 @@ Parse `$ARGUMENTS`:
 ## Step 1.5 — Cost and fan-out (before launching anything)
 
 **State the expected cost before launching.** Tell the user the audit type, the number of
-agents it will launch (2 context agents plus one per phase — `full` is 6), and a token
+agents it will launch (2 context agents plus one per phase — `full` is 5), and a token
 estimate, and give them the chance to narrow the scope to one phase. Until this project has
 its own measurements, estimate from the agent count and say that the number is an
 estimate. Record the run's actual total in the report so the next estimate has a real
@@ -95,15 +95,6 @@ Focus on:
 - New file upload handling without validation
 - Hardcoded secrets or credentials
 - Dependency CVEs (run `npm audit` / `pip-audit` / `govulncheck` as appropriate)
-
-### Phase: Performance
-
-Invoke the `perf-check` agent with the full change inventory as context.
-Focus on:
-- New queries without eager loading
-- New endpoints without pagination
-- New bulk operations without transaction boundaries
-- Missing database indexes for new filter/sort fields
 
 ### Phase: Regression
 

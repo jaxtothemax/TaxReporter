@@ -1,13 +1,13 @@
 ---
 name: changelog
 model: sonnet
-description: Use proactively before opening any merge request on a branch that touches source code. Creates a changelog fragment file in changelog.d/ with the correct entry type. Required — the CI changelog-check job will block merge if the fragment is missing.
+description: Use proactively before opening any pull request on a branch that touches source code. Creates a changelog fragment file in changelog.d/ with the correct entry type. Required — the CI changelog-check job will block merge if the fragment is missing.
 tools: Read, Grep, Glob, Write, Edit, Bash
 ---
 
 # Changelog Fragment
 
-You are creating a changelog fragment for the current branch. Every MR that touches source code requires a changelog entry before it can merge — the CI `changelog-check` job enforces this.
+You are creating a changelog fragment for the current branch. Every pull request (PR) that touches source code requires a changelog entry before it can merge — the CI `changelog-check` job enforces this. A PR that genuinely needs no entry carries the `no-changelog` label instead, which the job reads from the PR's labels; applying it is the user's call, not yours.
 
 Fragments are small files in `changelog.d/` that get assembled into `CHANGELOG.md` at release time.
 

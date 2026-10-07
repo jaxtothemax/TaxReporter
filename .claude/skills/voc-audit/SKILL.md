@@ -10,7 +10,7 @@ description: >
   checks design-system compliance; and distinct from /sunset-check, which
   decides whether a surface should exist at all. voc-audit reasons about
   persona-level friction in what actually exists.
-argument-hint: "<merged MR, page, or feature name> [--calibrate]"
+argument-hint: "<merged PR, page, or feature name> [--calibrate]"
 ---
 
 # VoC Audit — Persona Review of Shipped Surfaces
@@ -22,7 +22,7 @@ reasons from composite personas in `.claude/personas.md`. That is a legitimate
 post-launch proxy and an illegitimate substitute for a user report. Three rules
 follow, and they are not stylistic:
 
-- **Never present panel output as customer feedback** — not in an issue, MR, ADR,
+- **Never present panel output as customer feedback** — not in an issue, PR, ADR,
   roadmap entry, or commit message. If a finding is worth filing, file it on its
   merits and say a simulated panel surfaced it.
 - **Two panels agreeing is not corroboration.** It is the same model agreeing
@@ -35,7 +35,8 @@ follow, and they are not stylistic:
 
 ## Step 0 — Resolve the target surface
 
-From the argument, resolve exactly what shipped: the merged MR(s), the files, the
+From the argument, resolve exactly what shipped: the merged pull request(s) (PRs —
+`gh pr view <N> --json title,body,files,mergedAt,mergeCommit`), the files, the
 routes or endpoints, and the release it landed in. If the target is ambiguous,
 ask — auditing the wrong surface wastes the whole run.
 
@@ -131,10 +132,20 @@ yield and verification yield must be tellable apart over time.
 
 Only **survived** findings reach this step. For each, search the tracker in
 **all** states (open and closed) with 2–3 keywords; run one search per facet of a
-multi-faceted finding. Assign a state:
+multi-faceted finding:
 
-- **`tracked in #N (priority::P)`** — an open issue exists. If the panel raises
-  urgency above the current priority, mark it a **boost candidate**.
+```bash
+gh issue list --state all --search "<keywords>" --limit 30 \
+  --json number,title,state,stateReason,closedAt,labels,milestone
+```
+
+(`stateReason` is GitHub's close reason — `COMPLETED` or `NOT_PLANNED`; read the closing
+comment too, since it is where the *why* lives.) Assign a state:
+
+- **`tracked in #N (priority: P)`** — an open issue exists; P is its current priority
+  as the tracker records it (its `release:*` label and milestone, or a priority label if
+  the project uses one). If the panel raises urgency above it, mark it a **boost
+  candidate**.
 - **`closed #N (<date>, <close reason>)`** — read the close reason. Do **not**
   silently re-file. Classify with the user as: regression / new instance of the
   same class / already-decided.

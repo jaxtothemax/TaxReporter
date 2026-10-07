@@ -5,11 +5,18 @@
 # CUSTOMIZE: Add patterns for your project's sensitive file types.
 # Exit 0 = informational; exit 2 = block.
 
+# The event JSON arrives on stdin, but `python3 -` reads its program from
+# stdin too (the heredoc below), so the event must be captured first and
+# handed over in an env var. Reading sys.stdin inside the heredoc program
+# finds EOF, the except branch exits 0, and the hook silently checks nothing.
+HOOK_EVENT_JSON="$(cat)"
+export HOOK_EVENT_JSON
+
 python3 - <<'PYEOF'
-import sys, json, re
+import os, sys, json, re
 
 try:
-    data = json.load(sys.stdin)
+    data = json.loads(os.environ.get("HOOK_EVENT_JSON") or "{}")
     file_path = data.get("tool_input", {}).get("file_path", "")
 except Exception:
     sys.exit(0)
@@ -19,19 +26,16 @@ messages = []
 # ── Agent reminders for sensitive file types ──────────────────────────────────
 # CUSTOMIZE: Add patterns for your project's sensitive file types.
 
-# Data models changed → check migrations
-# Examples: models.py (Django), schema.prisma, migrations/, *.sql
-if re.search(r"models\.py$|schema\.prisma$|\.sql$", file_path):
-    messages.append("models/schema modified — verify migration safety")
+# Untrusted-input handling changed → check security
+# Examples: parser.py (Python), importer.ts (TypeScript) — parsers/importers of
+# foreign-broker exports, file upload handling, XML/CSV readers and writers,
+# CLI argument handling.
+if re.search(r"(parsers?|importers?|readers?|writers?|uploads?)(/|\.|_)|xml|cli\.", file_path):
+    messages.append("input/output handling modified — use the security-review agent")
 
-# Endpoint/handler changed → check auth, RBAC, and security
-# Examples: views.py (Django), routes/ (Express), handlers/ (Go)
-if re.search(r"views\.py$|routes/|handlers/|controllers/", file_path):
-    messages.append("endpoint modified — use the rbac-check and security-review agents (run them as a parallel batch)")
-
-# Auth/permission logic changed → check RBAC
+# Auth/permission logic changed → check security
 if re.search(r"permissions?\.py$|auth\.|middleware", file_path):
-    messages.append("auth/permissions modified — use the rbac-check and security-review agents")
+    messages.append("auth/permissions modified — use the security-review agent")
 
 # UI surface changed → remind about VoC (before design) and accessibility (after)
 # Examples: components/, pages/, features/ with *.tsx/*.jsx/*.vue/*.svelte
@@ -42,7 +46,7 @@ if re.search(r"(components?|pages?|screens?|features?|views?)/.*\.(tsx|jsx|vue|s
     )
 
 # ── Same-commit test reminder ─────────────────────────────────────────────────
-# When production source is edited (not tests/migrations), remind to update
+# When production source is edited (not tests/fixtures), remind to update
 # the corresponding test file in the same commit.
 #
 # CUSTOMIZE: Adjust path patterns for your project's source layout.

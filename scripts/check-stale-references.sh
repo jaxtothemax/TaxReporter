@@ -25,7 +25,7 @@
 # exclusion when #NNNN lands". It had landed. The gate suite was green partly by
 # hiding failures that no open issue tracked, and nothing could have noticed.
 #
-# So this gate runs on merge requests (a newly added marker must name a real,
+# So this gate runs on pull requests (a newly added marker must name a real,
 # open issue) AND on the default branch on a schedule — because the interesting
 # case is not a diff event at all.
 #
@@ -45,8 +45,10 @@
 # ## Failing closed
 #
 # A gate that cannot reach its oracle must go RED, not silently skip. An issue
-# lookup that fails (network, auth, a private tracker with no token) is a hard
-# failure. `ALLOW_UNRESOLVED=1` is the explicit, reviewable escape hatch.
+# lookup that fails (network, auth, a private repository with no token, no `gh`,
+# no origin to name the repository) is a hard failure. `ALLOW_UNRESOLVED=1` is
+# the explicit, reviewable escape hatch. In GitHub Actions, `gh` is on the runner
+# image and needs only `GH_TOKEN: ${{ github.token }}` with `issues: read`.
 #
 # ## Usage
 #
@@ -63,8 +65,10 @@
 #
 # ## Configuration
 #
-#   FORGE               glab | gh   (default: auto-detect from the git remote)
-#   ISSUE_REPO          owner/repo or GitLab path; default: inferred from remote
+#   ISSUE_REPO          owner/repo to resolve issues in. Default: $GITHUB_REPOSITORY
+#                       (set by GitHub Actions), else whatever `gh` infers from the
+#                       origin remote. Never hardcoded — a fork or a rename must
+#                       keep working without an edit here.
 #   ALLOW_UNRESOLVED=1  downgrade an unresolvable lookup to a warning
 #   SCAN_ROOTS          space-separated default roots (default: every tracked dir)
 #   EXCLUDE_DIRS        extra --exclude-dir names
@@ -142,6 +146,40 @@ STUBRESOLVER
     echo "SELF-TEST FAILED: an unresolvable lookup did not fail the gate." >&2; rc=1
   else
     echo "SELF-TEST OK: an unresolvable lookup fails closed."
+  fi
+
+  # The default resolver itself, through a stubbed `gh` on PATH: the OPEN/CLOSED
+  # mapping is the half the ISSUE_STATE_CMD cases above never reach, and a
+  # mapping that read every answer as "opened" would pass all of them.
+  mkdir -p "$tmp/ghbin"
+  cat > "$tmp/ghbin/gh" <<'STUBGH'
+#!/usr/bin/env bash
+[ "${MOCK_MODE:-}" = "fail" ] && { echo "HTTP 401" >&2; exit 1; }
+[ "${MOCK_MODE:-}" = "blank" ] && exit 0
+case "$3" in 1) echo CLOSED ;; *) echo OPEN ;; esac
+STUBGH
+  chmod +x "$tmp/ghbin/gh"
+  gh_gate() { PATH="$tmp/ghbin:$PATH" ISSUE_REPO=example/project bash "$0" "$@" >/dev/null 2>&1; }
+
+  if gh_gate "$tmp/closed"; then
+    echo "SELF-TEST FAILED: gh reporting CLOSED was accepted." >&2; rc=1
+  else
+    echo "SELF-TEST OK: gh's CLOSED maps to a stale reference."
+  fi
+  if gh_gate "$tmp/open"; then
+    echo "SELF-TEST OK: gh's OPEN maps to an open issue."
+  else
+    echo "SELF-TEST FAILED: gh reporting OPEN was rejected." >&2; rc=1
+  fi
+  if MOCK_MODE=fail gh_gate "$tmp/open"; then
+    echo "SELF-TEST FAILED: a failing gh lookup did not fail the gate." >&2; rc=1
+  else
+    echo "SELF-TEST OK: a failing gh lookup fails closed."
+  fi
+  if MOCK_MODE=blank gh_gate "$tmp/open"; then
+    echo "SELF-TEST FAILED: an empty gh answer was read as a state." >&2; rc=1
+  else
+    echo "SELF-TEST OK: an empty gh answer fails closed."
   fi
 
   [ "$rc" -eq 0 ] && echo "SELF-TEST: all cases passed."
@@ -228,31 +266,29 @@ fi
 # Contract: called with an issue number, prints `opened` or `closed`, exits
 # non-zero when it cannot answer.
 
-resolve_forge() {
-  local remote; remote="$(git config --get remote.origin.url 2>/dev/null || true)"
-  case "$remote" in
-    *gitlab*) echo glab ;;
-    *github*) echo gh ;;
-    *) command -v glab >/dev/null 2>&1 && echo glab || echo gh ;;
-  esac
-}
+ISSUE_REPO="${ISSUE_REPO:-${GITHUB_REPOSITORY:-}}"
+# Outside Actions, resolve from origin (scripts/lib/gh-repo.sh) rather than gh's
+# own remote inference, which is ambiguous in a fork that also has `upstream`.
+if [ -z "$ISSUE_REPO" ]; then
+  # shellcheck source-path=SCRIPTDIR source=lib/gh-repo.sh
+  . "${SCRIPT_DIR}/lib/gh-repo.sh"
+  ISSUE_REPO="${GH_REPO:-$(gh_repo_from_url "$(git config --get remote.origin.url 2>/dev/null || true)")}"
+fi
 
 default_issue_state() { # <number> -> opened|closed
-  local n="$1" forge="${FORGE:-$(resolve_forge)}"
-  case "$forge" in
-    glab)
-      command -v glab >/dev/null 2>&1 || return 3
-      glab issue view "$n" --output json ${ISSUE_REPO:+--repo "$ISSUE_REPO"} 2>/dev/null \
-        | python3 -c 'import json,sys; print(json.load(sys.stdin)["state"])' 2>/dev/null || return 3
-      ;;
-    gh)
-      command -v gh >/dev/null 2>&1 || return 3
-      local s
-      s="$(gh issue view "$n" --json state ${ISSUE_REPO:+--repo "$ISSUE_REPO"} \
-             -q .state 2>/dev/null)" || return 3
-      [ "$s" = "OPEN" ] && echo opened || echo closed
-      ;;
-    *) return 3 ;;
+  local n="$1" s
+  command -v gh >/dev/null 2>&1 || return 3
+  # With no ISSUE_REPO, gh resolves the repository from the origin remote; with
+  # no GitHub origin either it errors, which is an unresolved lookup — fail closed.
+  s="$(gh issue view "$n" --json state ${ISSUE_REPO:+--repo "$ISSUE_REPO"} \
+         -q .state 2>/dev/null)" || return 3
+  # Map gh's OPEN/CLOSED onto this gate's opened/closed contract. Anything else —
+  # an empty answer included — is not an answer: report it as unresolved rather
+  # than guessing a state.
+  case "$s" in
+    OPEN)   echo opened ;;
+    CLOSED) echo closed ;;
+    *)      return 3 ;;
   esac
 }
 

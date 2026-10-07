@@ -1,13 +1,13 @@
 ---
 name: import-spec
-description: Convert a product spec, PRD, or feature list into structured GitLab issues. Parses features and phases with parallel sub-agents, confirms with user before creating anything.
+description: Convert a product spec, PRD, or feature list into structured GitHub issues. Parses features and phases with parallel sub-agents, confirms with user before creating anything.
 disable-model-invocation: true
 argument-hint: "[path/to/spec.md]"
 ---
 
 # Import Specification
 
-Convert a product spec, PRD, or feature list into structured GitLab issues.
+Convert a product spec, PRD, or feature list into structured GitHub issues.
 
 Usage:
 ```
@@ -67,17 +67,35 @@ Wait for confirmation. If the user says "edit", accept corrections before procee
 
 ---
 
-## Step 4 — Create GitLab issues
+## Step 4 — Create GitHub issues
 
-Confirm the GitLab project path if not already known:
-> "GitLab project path? (e.g. myorg/my-project)"
+Resolve the repository from the origin remote — never hardcode it:
+
+```bash
+gh repo view --json nameWithOwner -q .nameWithOwner
+```
+
+If that fails (no origin remote yet, or origin is not on GitHub), ask:
+> "GitHub repository (owner/name)? (e.g. myorg/my-project)"
+
+and pass it to every `gh` call below as `--repo <owner/name>` (or export
+`GH_REPO=<owner/name>`, which `gh issue` and `gh api` both honor). Confirm the
+repository back to the user before creating anything.
+
+Every label named below must already exist in the repository — `gh issue create` fails
+on an unknown label rather than creating it. Check with
+`gh label list --limit 500 --json name -q '.[].name'`; if `feature` is missing, ask
+before creating it (`/kickoff` Step 4 creates the project's standard set).
+
+**If phases were detected, do Step 5 first** — `--milestone` names an existing
+milestone, and the create fails if it does not exist yet.
 
 Create issues one at a time using the Feature template shape:
 
 ```bash
-glab issue create \
+gh issue create \
   --title "feat: <title>" \
-  --description "$(cat <<'EOF'
+  --body "$(cat <<'EOF'
 ## Problem
 
 <user problem from spec>
@@ -98,22 +116,35 @@ EOF
   [--milestone "<phase name>" if phases were detected]
 ```
 
+If the milestone has a due date, it is a dated milestone, and `CLAUDE.md`'s
+*Milestone commitment* rule applies: ask the user which of `release:committed` /
+`release:reserve` / `release:stretch` each issue carries — grouped, one question per
+phase is fine — and add it to `--label` (`"feature,release:<value>"`). Never infer it.
+If the user does not answer, create the issue without one and list it in the summary
+as unlabeled.
+
 Report each issue URL as it's created.
 
 ---
 
 ## Step 5 — Create milestones (if phases detected)
 
-If the spec had phases, create GitLab milestones first:
+If the spec had phases, create GitHub milestones **before** Step 4's issues — skip any
+whose title already exists (`gh api --paginate "repos/{owner}/{repo}/milestones?state=all&per_page=100" -q '.[].title'`;
+`-q` runs per page, so the paginated output is already one title per line):
 
 ```bash
-glab api projects/:fullpath/milestones \
+gh api "repos/{owner}/{repo}/milestones" \
   --method POST \
   -f title="<phase name>" \
   -f description="<phase description>"
 ```
 
-Then re-run issue creation with `--milestone` flags.
+Add `-f due_on="<YYYY-MM-DD>T00:00:00Z"` only if the spec gives the phase a date — a due
+date is what makes it a *dated* milestone.
+
+`{owner}/{repo}` resolve from the origin remote, or from `GH_REPO` when Step 4 had to ask.
+Then create the issues with `--milestone "<phase name>"`.
 
 ---
 
@@ -134,6 +165,8 @@ Next: run /voc all <feature description> before starting architecture on any of 
 
 - Never create an issue without user confirmation of the list first
 - Never invent acceptance criteria not implied by the spec — use 3 placeholder checkboxes if unclear
-- Use `glab` only — do not use the GitLab web UI or API directly
-- If `glab` is not authenticated, tell the user to run `glab auth login` and stop
-- Do not create duplicate issues — check existing open issues first if the project already has issues
+- Use `gh` only (`gh issue`, `gh label`, and `gh api` for milestones) — do not use the
+  GitHub web UI or hand-rolled `curl` calls
+- If `gh auth status` fails, tell the user to run `gh auth login` and stop
+- Do not create duplicate issues — search open and closed issues first
+  (`gh issue list --state all --search "<key terms>"`) if the project already has issues

@@ -18,6 +18,7 @@ dist/
 build/
 bin/
 *.egg-info/
+*.tsbuildinfo
 
 # ─── Coverage ─────────────────────────────────────────────────────────────────
 coverage/
@@ -41,6 +42,14 @@ Thumbs.db
 .npm/
 .cache/
 .astro/
+.vite/
+
+# ─── Real broker exports — NEVER commit ───────────────────────────────────────
+# Real, non-anonymized exports from your own broker accounts go under a private/
+# directory (at any depth) to try the tool on them. They carry account numbers,
+# holdings and personal data; committed test fixtures must be synthetic or
+# anonymized instead.
+private/
 
 # scripts/wt per-worktree files (direnv env, ownership marker)
 .envrc

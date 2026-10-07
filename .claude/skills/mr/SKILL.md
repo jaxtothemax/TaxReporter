@@ -1,13 +1,15 @@
 ---
 name: mr
-description: Open a GitLab MR for the current branch targeting main. Runs pre-flight checks (clean branch, changelog fragment, no duplicate MR), writes a structured description, and creates via glab.
+description: Open a GitHub pull request (PR) for the current branch targeting main. Runs pre-flight checks (clean branch, changelog fragment, no duplicate PR), writes a structured description, and creates it via gh.
 disable-model-invocation: true
 argument-hint: ""
 ---
 
-# Open Merge Request
+# Open Pull Request (`/mr`)
 
-Create a GitLab MR for the current branch targeting `main`.
+In this repository an MR is a GitHub pull request (PR).
+
+Create a GitHub PR for the current branch targeting `main`.
 
 ---
 
@@ -31,8 +33,9 @@ Spawn these two sub-agents concurrently with `model: "sonnet"`. Wait for both.
 >     show what fragments exist.
 > (c) **Branch name**: run `git branch --show-current` and verify it follows
 >     `feat/`, `fix/`, `docs/`, `chore/`, `test/`, `refactor/`, `perf/`, `ci/`.
-> (d) **Existing MR**: run `glab mr list --source-branch $(git branch --show-current) 2>/dev/null`
->     and report any open MRs with titles and URLs.
+> (d) **Existing PR**: run
+>     `gh pr list --head "$(git branch --show-current)" --state open --json number,title,url 2>/dev/null`
+>     and report any open PRs with titles and URLs.
 
 ### Evaluate results
 
@@ -40,12 +43,12 @@ Spawn these two sub-agents concurrently with `model: "sonnet"`. Wait for both.
 - **Branch not pushed** → push it: `git push -u origin $(git branch --show-current)`, then continue.
 - **No changelog fragment** and branch is not exempt (`chore/*`, `ci/*`, `docs/*`) → run the
   `changelog` agent to create one, commit it, then continue.
-- **Existing MR with matching title** → report the URL and stop (already open).
-- **Existing MR with different title** → stop and tell the user — something is wrong.
+- **Existing PR with matching title** → report the URL and stop (already open).
+- **Existing PR with different title** → stop and tell the user — something is wrong.
 
 ---
 
-## Step 2 — Write the MR description
+## Step 2 — Write the PR description
 
 Using the research from Step 1, produce:
 
@@ -65,12 +68,12 @@ Derive from the most significant commit or branch name.
 | Requirement (quoted from the issue, its comments, or its test plan) | Status |
 |---|---|
 | <criterion> | MET: <file:line or test name> |
-| <criterion> | DEFERRED: #<open issue, not one this MR closes> |
+| <criterion> | DEFERRED: #<open issue, not one this PR closes> |
 
 ## Test plan
 - [ ] <specific thing to verify manually>
 - [ ] <another verification step>
-- [ ] Confirm CI pipeline is green
+- [ ] Confirm every required check is green (`gh pr checks`)
 
 ## Gates
 <!-- machine-readable; one line per gate. Format: `gate: <name> — <outcome>` -->
@@ -88,23 +91,25 @@ Rules:
 - **`## Requirements` lists every acceptance criterion and test-plan line of each closed
   issue** — including scope changes made in the issue's comments — as MET with evidence or
   DEFERRED to an open issue. It comes from the `completeness-check` agent, which runs
-  before the push. A line the MR silently leaves out is the failure this table exists to
+  before the push. A line the PR silently leaves out is the failure this table exists to
   expose. Omit the section only for chores with no issue.
 - **Any follow-up, deferral, or "left open" sentence names an open issue on the same
-  line.** The `mr-followups` CI job fails the pipeline otherwise; mark a line that owes
+  line.** The `pr-followups` job (`.github/workflows/governance.yml`) fails the PR's
+  checks otherwise; mark a line that owes
   nothing with `followup-ok` (e.g. `<!-- followup-ok -->`). Check a draft by hand with
   `bash scripts/check-mr-followups.sh --file <description.md>`.
-- Add `Closes #N` after Notes if the branch resolves an issue
+- Add `Closes #N` after Notes if the branch resolves an issue — GitHub closes it when
+  the PR merges into `main`, the default branch
 - Add `## Screenshots\n<!-- attach before/after -->` for UI changes
 - No filler text
 
 ### The Gates section
 
-Every MR that ran any agent gate carries this section. It costs nothing to author
+Every PR that ran any agent gate carries this section. It costs nothing to author
 — the gates already ran and their outcomes are already known — and it is the
-**only** record of gate *yield*. Without it, a gate that runs on every MR and
+**only** record of gate *yield*. Without it, a gate that runs on every PR and
 never finds anything is indistinguishable from a gate that catches real defects:
-both look like compliance. `/kaizen` parses these lines across recent MRs to find
+both look like compliance. `/kaizen` parses these lines across recent PRs to find
 gates that have earned a fast-path exemption.
 
 Four rules, each of which has been broken in practice:
@@ -140,13 +145,14 @@ Two conventions for gates with more than one mode:
 
 ---
 
-## Step 3 — Create the MR
+## Step 3 — Create the PR
 
 ```bash
-glab mr create \
+gh pr create \
   --title "<title>" \
-  --target-branch main \
-  --description "$(cat <<'EOF'
+  --base main \
+  --head "$(git branch --show-current)" \
+  --body "$(cat <<'EOF'
 <body>
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
@@ -155,10 +161,16 @@ EOF
 ```
 
 **Always use a heredoc for the body** — never inline `\n` literals. Inline `\n`
-renders as literal text in GitLab descriptions.
+renders as literal text in GitHub PR descriptions.
 
-Do not pass `--web`, `--squash`, `--remove-source-branch`, or `--yes` unless the
-user explicitly requested them.
+Do not pass `--web`, `--draft`, `--fill`, or `--reviewer` unless the user explicitly
+requested them. Never follow `gh pr create` with `gh pr merge --auto`: auto-merge is a
+merge, and the user merges every PR by hand.
+
+`gh pr create` is intercepted by `.claude/hooks/pre-mr-security-gate.sh`. On a
+source-touching branch it denies the call until `security-review` has run. After the
+gate batch has run (or the user said to skip it), retry the same command with
+`SKIP_SECURITY_GATE=1 ` prefixed, as the hook's deny reason says.
 
 ---
 
@@ -166,7 +178,7 @@ user explicitly requested them.
 
 Output:
 ```
-MR created: <URL>
+PR created: <URL>
 
 After it merges, reap the worktree from the main checkout:
   scripts/wt prune
@@ -175,21 +187,26 @@ After it merges, reap the worktree from the main checkout:
 Emit the `scripts/wt prune` line whenever the branch lives in a `scripts/wt` worktree;
 omit it for a branch checked out in the main checkout. **Nothing reaps a worktree after
 a forge merge**, and each one left behind counts against the WIP cap. Do not run the
-prune yourself at this step: the MR has not merged, so prune would keep this worktree
+prune yourself at this step: the PR has not merged, so prune would keep this worktree
 anyway — and waiting for the merge is off-limits.
 
-**Stop here.** Do not merge, do not poll the pipeline, do not post comments.
-The user reviews and merges all MRs manually. CI runs automatically on push.
-Use `/fix-mr` if you need to watch and fix a failing pipeline.
+**Stop here.** Do not merge, do not poll the checks, do not post comments.
+The user reviews and merges all PRs manually. GitHub Actions runs the PR's workflows
+automatically when the PR opens and on every push to its branch.
+Use `/fix-mr` if you need to watch and fix failing checks.
 
 ---
 
 ## Rules
 
-- **Never force-push** to prepare for an MR — if the branch is behind main,
+- **Never force-push** to prepare for a PR — if the branch is behind main,
   tell the user and let them decide whether to rebase
-- **Never open an MR to a branch other than main** without explicit instruction
-- **Never create duplicate MRs** — check first (Step 1d)
-- **Never merge after creating** — hand the URL to the user and stop
+- **Never open a PR to a branch other than main** without explicit instruction
+- **Never create duplicate PRs** — check first (Step 1d)
+- **Never merge after creating** — hand the URL to the user and stop. This includes
+  `gh pr merge --auto`
 - **Heredoc syntax is mandatory** for multi-line bodies
-- If `glab` is not authenticated, tell the user to run `glab auth login` and stop
+- If `gh` is not authenticated (`gh auth status` fails), tell the user to run
+  `gh auth login` and stop
+- If the repository has no `origin` remote yet, stop and tell the user. There is nowhere
+  to open a PR against

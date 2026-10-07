@@ -1,104 +1,139 @@
 ---
 name: fix-mr
-description: Get a blocked GitLab MR to green AND mergeable. Reads both axes of readiness (pipeline status and mergeability), resolves conflicts with the default branch, diagnoses pipeline failures with parallel sub-agents, applies fixes, commits, pushes, and re-checks (max 3 iterations).
+description: Get a blocked GitHub pull request (PR) to green AND mergeable. Reads both axes of readiness (check status and mergeability), resolves conflicts with the default branch, diagnoses failing GitHub Actions checks with parallel sub-agents, applies fixes, commits, pushes, and re-checks (max 3 iterations).
 disable-model-invocation: true
-argument-hint: "[MR number ...]"
+argument-hint: "[PR number ...]"
 ---
 
 # Fix MR
 
-Get a blocked GitLab MR to green **and** mergeable.
+In this repository an MR is a GitHub pull request (PR).
 
-**An MR is blocked on two independent axes.** The pipeline can be green while the
-branch conflicts with the default branch, and the branch can be mergeable while the
-pipeline is red. GitLab tracks them separately — `head_pipeline.status` versus
-`detailed_merge_status` / `has_conflicts` — and this skill covers both. Reading only
-the pipeline is how a conflicted MR gets reported "ready to merge": upstream, that is
-exactly the state an MR was in when this skill was found to be one-axis.
+Get a blocked PR to green **and** mergeable.
+
+**A PR is blocked on two independent axes.** The checks can be green while the branch
+conflicts with the default branch, and the branch can be mergeable while a check is
+red. GitHub tracks them separately — the head commit's check runs (`gh pr checks`)
+versus `mergeable` / `mergeStateStatus` — and this skill covers both. Reading only the
+checks is how a conflicted PR gets reported "ready to merge": upstream, that is exactly
+the state an MR was in when this skill was found to be one-axis.
 
 Usage:
 ```
-/fix-mr            # uses the current branch's MR
-/fix-mr 42         # targets MR !42
+/fix-mr            # uses the current branch's PR
+/fix-mr 42         # targets PR #42
 /fix-mr 42 43 47   # several: read both axes for all of them, then work them one at a time
 ```
 
 ---
 
-## Step 1 — Read BOTH axes: pipeline status and mergeability
+## Step 1 — Read BOTH axes: check status and mergeability
 
-If `$ARGUMENTS` holds MR numbers, use them. Otherwise find the MR for the current
-branch. Bare `glab mr list` means open — there is no `--state` flag — and its text
-table parenthesizes the branch, so read JSON rather than scraping the table:
-
-```bash
-glab mr list --source-branch "$(git branch --show-current)" -F json | jq -r '.[].iid'
-```
-
-If no open MR exists, stop and tell the user. Then, for **every** MR, one call returns
-everything:
+If `$ARGUMENTS` holds PR numbers, use them. Otherwise find the open PR for the current
+branch. Read JSON rather than scraping `gh pr list`'s table:
 
 ```bash
-glab api "projects/:id/merge_requests/<MR>" | jq -r '
-  "source:         \(.source_branch)",
-  "state:          \(.state)",
-  "pipeline:       \(.head_pipeline.status // "none") (\(.head_pipeline.id // "-"))",
-  "merge_status:   \(.detailed_merge_status // .merge_status)",
-  "has_conflicts:  \(.has_conflicts)"'
+gh pr list --head "$(git branch --show-current)" --state open --json number -q '.[].number'
 ```
 
-With several MRs, report the two-axis state of each **before** working any of them — a
-batch where one MR is conflicted and another is red needs different treatment per MR,
+If no open PR exists, stop and tell the user. Then, for **every** PR, read the
+mergeability axis:
+
+```bash
+gh pr view <PR> --json headRefName,headRefOid,state,isDraft,mergeable,mergeStateStatus,reviewDecision -q '
+  "source:        \(.headRefName)",
+  "head:          \(.headRefOid)",
+  "state:         \(.state)",
+  "draft:         \(.isDraft)",
+  "mergeable:     \(.mergeable)",
+  "merge_state:   \(.mergeStateStatus)",
+  "review:        \(.reviewDecision)"'
+```
+
+and the checks axis, collapsed to one word:
+
+```bash
+gh pr checks <PR> --json bucket -q '[.[].bucket]
+  | if length == 0 then "none"
+    elif any(. == "fail" or . == "cancel") then "fail"
+    elif any(. == "pending") then "pending"
+    else "pass" end'
+```
+
+Read the JSON, not `gh pr checks`' exit status: it exits non-zero both for a failed
+check and (exit 8) for one still pending, so a bare `if gh pr checks` conflates the two.
+When the head commit has no checks at all it prints `no checks reported` instead of
+JSON. Treat that as `none`.
+Add `--required` to see only the checks branch protection requires — those decide
+mergeability; a failing non-required check shows up as `merge_state: UNSTABLE`.
+
+With several PRs, report the two-axis state of each **before** working any of them — a
+batch where one PR is conflicted and another is red needs different treatment per PR,
 and this table is what tells them apart.
 
 Route on the pair. The axes are independent, so check both even when one of them is
 already an answer:
 
-| pipeline | `detailed_merge_status` | Go to |
+| checks | `mergeable` / `mergeStateStatus` | Go to |
 |---|---|---|
-| `failed` | `mergeable` | Step 2 (pipeline only) |
-| `success` | `conflict` | **Step 3b** (conflict only) |
-| `failed` | `conflict` | **Step 3b first** — merging the default branch often clears the red too |
-| `success` | `mergeable` | Step 6 — genuinely done |
-| `running` / `pending` | either | Step 5, then re-read both |
+| `fail` | `MERGEABLE` | Step 2 (checks only) |
+| `pass` | `CONFLICTING` / `DIRTY` | **Step 3b** (conflict only) |
+| `fail` or `none` | `CONFLICTING` / `DIRTY` | **Step 3b first** — GitHub does not run `pull_request` workflows on a PR that has a merge conflict, so these checks are stale or absent until the conflict is resolved |
+| `pass` | `MERGEABLE` / `BEHIND` | **Step 3b** without a conflict — branch protection requires the branch to be up to date with `main` |
+| `pass` | `MERGEABLE` / `CLEAN` | Step 6 — genuinely done |
+| `pending` | either | Step 5, then re-read both |
+| any | `UNKNOWN` | Re-read in a few seconds — GitHub computes mergeability asynchronously after every push to the branch or to `main` |
 
-**Read the pipeline from the MR, never from the branch ref.** Once an MR exists, the
-`workflow:` rules suppress branch pipelines, so a branch-scoped status can show a
-*frozen pre-MR* result that ran almost no jobs. `head_pipeline` is the real one:
+**Read the checks from the PR's head commit, never from the branch.** `gh run list
+--branch <branch>` lists runs for every commit the branch ever had, so a green run for
+an older head can sit on top of the list while the current head's run has not started.
+`gh pr checks` reads the head commit; when you need the runs themselves, pin them to
+that exact sha:
 
 ```bash
-PIPELINE_ID=$(glab api "projects/:id/merge_requests/<MR>" | jq -r '.head_pipeline.id')
+HEAD_SHA=$(gh pr view <PR> --json headRefOid -q .headRefOid)
+gh run list --commit "$HEAD_SHA" --event pull_request \
+  --json databaseId,workflowName,status,conclusion
 ```
 
-**A `success` can hide a failure.** A pipeline reports `success` while an
-`allow_failure: true` job failed. If the MR is green but something still looks wrong,
-query the jobs, not the pipeline summary.
+**A `pass` can hide a failure.** A job with `continue-on-error: true` reports success
+when its steps failed, and a job skipped by an `if:` reports `skipped`, which **satisfies
+a required check** of the same name. If the PR is green but something still looks wrong,
+read the jobs (`gh run view <run-id> --json jobs`), not the check summary.
 
 ---
 
 ## Step 2 — Diagnose failures (parallel sub-agents)
 
-**First, rule out a pipeline that tested nothing.** A `failed` pipeline with **0 jobs**,
-no `started_at`, and no YAML errors failed at *creation*. Two causes, neither of which
-is a code defect: job-quota exhaustion ("exceeded the allowed number of jobs in active
-pipelines" — wait for active pipelines to drain, then re-trigger), or a stale merge base
-(Step 3b clears it). Do not diagnose code against it.
+**First, rule out a run that tested nothing.** Three shapes, none of them a code defect:
+
+- A workflow run with conclusion `startup_failure` and no jobs failed at *creation*:
+  the workflow file is invalid, or it references an action that is not allowed or a
+  pinned SHA that does not exist. `actionlint` reproduces the first locally.
+- Checks stuck `queued` for a long time are waiting for a runner or for the account's
+  concurrent-job limit. Wait for active runs to drain.
+- `none` — no runs at all for the head sha — means the PR is conflicted (Step 3b), the
+  workflow's `paths:` filters excluded the change, or the head commit message carried
+  `[skip ci]`.
+
+A `cancel` from the workflow's `concurrency:` group means a newer push superseded the
+run. Read the newer run, not the canceled one. Do not diagnose code against any of these.
 
 Otherwise, launch **2 sub-agents in parallel** (both with `model: "sonnet"`). Wait for
 both.
 
 **Sub-agent 1 — Fetch failed job logs:**
-> List the failed jobs of pipeline `$PIPELINE_ID` with
-> `glab api "projects/:id/pipelines/$PIPELINE_ID/jobs?scope[]=failed"`. For each, fetch
-> its log with `glab ci trace <job-id>`. Return the job name, stage, and the log tail
-> that contains the failure — not the whole log.
+> List the failed runs for the PR's head commit with
+> `gh run list --commit "$HEAD_SHA" --event pull_request --json databaseId,workflowName,conclusion -q '.[] | select(.conclusion == "failure")'`.
+> For each, fetch the failing steps' logs with `gh run view <run-id> --log-failed`.
+> Return the workflow name, job name, step name, and the log tail that contains the
+> failure — not the whole log.
 
 **Sub-agent 2 — Gather context:**
 > Run `git log --oneline -5` and `git diff origin/main...HEAD --stat` to understand the
-> branch's changes. Read `.gitlab-ci.yml` and any `ci/*.yml` files defining the failed
-> jobs.
+> branch's changes. Read the `.github/workflows/*.yml` files defining the failed jobs.
 >
-> Return: recent commits, changed files, and the relevant CI job definitions.
+> Return: recent commits, changed files, and the relevant workflow job definitions.
 
 ---
 
@@ -118,13 +153,13 @@ Using the sub-agent results:
    make test    # for test failures
    ```
 
-### Step 3b — Merge conflict (`detailed_merge_status: conflict`)
+### Step 3b — Merge conflict (`mergeable: CONFLICTING`) or a stale branch (`BEHIND`)
 
-Not a pipeline failure — the branch cannot merge into the default branch. It has its own
+Not a check failure — the branch cannot merge into the default branch. It has its own
 procedure because two things reliably go wrong here.
 
 **First: check the worktree before resolving anything.** The resolution is often already
-on disk, unpushed, leaving no trace on the forge. In the issue's worktree
+on disk, unpushed, leaving no trace on GitHub. In the issue's worktree
 (`scripts/wt list`):
 
 ```bash
@@ -146,7 +181,9 @@ git merge origin/main
 ```
 
 Prefer **merge over rebase** — it needs no force-push, so the no-force-push rule below
-stays satisfied without a round trip.
+stays satisfied without a round trip. For `BEHIND` the merge is conflict-free; it exists
+only to satisfy the "require branches to be up to date" protection rule. Do not use the
+web UI's "Update branch" button for a conflict. It cannot resolve one.
 
 **Resolve in place, between the conflict markers.** Never rebuild a conflicted file from
 `git show :2:<path>`. Stage 2 is the branch's *pre-merge* blob, so copying it over the
@@ -178,11 +215,11 @@ git push origin "$(git branch --show-current)"
 
 ## Step 5 — Wait and re-check
 
-After pushing, read both axes again (the Step 1 call). If the pipeline is still running,
+After pushing, read both axes again (the Step 1 calls). If a check is still running,
 tell the user and stop — do not poll in a foreground loop. If you must wait, run a
 bounded poll in the background and make no other tool calls until it reports.
 
-If the pipeline has completed:
+If the checks have completed:
 - **Green**: go to Step 6
 - **Red with new failures**: go back to Step 2 (max 3 iterations)
 
@@ -191,33 +228,36 @@ If the pipeline has completed:
 ## Step 6 — Confirm green AND mergeable
 
 Re-read both axes. A fix for one axis can change the other: merging the default branch
-re-runs the pipeline, and a new commit re-evaluates mergeability.
+re-runs the checks, and a new commit re-evaluates mergeability.
 
-**Only report ready to merge when `head_pipeline.status == "success"` AND
-`detailed_merge_status == "mergeable"`.** Both, every time:
+**Only report ready to merge when every check on the head commit is `pass` AND
+`mergeable == "MERGEABLE"` with `mergeStateStatus == "CLEAN"`.** Both, every time:
 
 ```
-Pipeline is green and the branch is mergeable. MR !<N> is ready to merge.
+Checks are green and the branch is mergeable. PR #<N> is ready to merge.
 ```
 
 When they disagree, say so rather than reporting the good half:
 
 ```
-MR !<N>: pipeline green, but the branch CONFLICTS with main — not mergeable.
+PR #<N>: checks green, but the branch CONFLICTS with main — not mergeable.
 ```
 
-`detailed_merge_status` also reports blockers this skill does not fix —
-`not_approved`, `discussions_not_resolved`, `draft_status`, `blocked_status`. Report
-those verbatim rather than calling the MR ready; they need a human.
+`mergeStateStatus` also reports blockers this skill does not fix. `BLOCKED` means a
+required review (`reviewDecision: REVIEW_REQUIRED` or `CHANGES_REQUESTED`), an
+unresolved conversation, or another protection rule is unmet. `DRAFT` means the PR is
+still a draft. `UNSTABLE` means a non-required check is failing. Report those verbatim
+rather than calling the PR ready; they need a human.
 
 ---
 
 ## Rules
 
-- **Check both axes before reporting anything** — a green pipeline is half the answer; `detailed_merge_status` is the other half
+- **Check both axes before reporting anything** — green checks are half the answer; `mergeable` / `mergeStateStatus` is the other half
 - **Never force-push** without user confirmation — create new commits for fixes, and merge (not rebase) to resolve conflicts
-- **Max 3 fix iterations** — if the pipeline still fails after 3 rounds, report the remaining failures and stop. The user needs to investigate.
-- **Never merge the MR** — hand back the URL and stop. The user merges manually.
-- **Do not retry without a code change** unless the failure is clearly infrastructure-related (runner timeout, network error, OOM, a zero-job pipeline)
+- **Max 3 fix iterations** — if the checks still fail after 3 rounds, report the remaining failures and stop. The user needs to investigate.
+- **Never merge the PR** — hand back the URL and stop. The user merges manually. That
+  includes `gh pr merge --auto`
+- **Do not retry without a code change** unless the failure is clearly infrastructure-related (runner timeout, network error, OOM, a `startup_failure` run). Re-run only the failed jobs, with `gh run rerun <run-id> --failed`, and never repeatedly to force green
 - **Verify locally before pushing** — do not use CI as a debugger
-- If `glab` is not authenticated, tell the user to run `glab auth login` and stop
+- If `gh` is not authenticated (`gh auth status` fails), tell the user to run `gh auth login` and stop

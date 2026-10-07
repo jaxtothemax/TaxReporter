@@ -1,8 +1,10 @@
 # Gate rules
 
 Loaded automatically whenever Claude reads or edits a file under `scripts/` — this
-is where check scripts and CI gates live. The same lessons apply to `ci/**` and
-`.gitlab-ci.yml` / `.github/workflows/**`; see `ci/CLAUDE.md`.
+is where check scripts and CI gates live. The same lessons apply to
+`.github/workflows/**`, whose own `CLAUDE.md` imports this file and adds the
+GitHub Actions rules (SHA-pinned actions, least-privilege `permissions:`, gate
+scripts called directly from `run:`).
 
 A gate is a script that says yes or no about the tree. Its whole value is that a
 green result is *evidence*. Everything below exists because a gate reported OK
@@ -16,11 +18,12 @@ fixture, runs the real decision path against it, and asserts the gate says no.
 
 **Run it in the gate's own CI job, first, before the real scan — not in a
 shared self-test job.** The half that rots is environment-dependent, so a
-self-test that ran in a different job ran on a different image and is evidence
-about that image, not about the gate. Upstream, the two gates that had gone
-blind *both already had passing test suites*; the suites ran in a job with GNU
-grep and the gates ran in a job with BusyBox grep. Same job is the only way to
-say "same image" in a CI config.
+self-test that ran in a different job ran on a different image (on GitHub
+Actions, a different runner VM) and is evidence about that environment, not
+about the gate. Upstream, the two gates that had gone blind *both already had
+passing test suites*; the suites ran in a job with GNU grep and the gates ran in
+a job with BusyBox grep. Same job is the only way to say "same image" in a CI
+config.
 
 `scripts/check-gate-selftest-parity.sh` enforces this. Without it the rule is
 prose, and the property it asserts is invisible by construction: a gate that has
@@ -99,7 +102,8 @@ For a gate whose input is application code, add a case to
 `scripts/tests/lib/app-fixture.sh` generates at run time (never committed —
 every downstream project is a clone of this tree), written
 in the shape the real generator produces (copy real output, do not paraphrase
-it). See `ci/CLAUDE.md`, "Application-aware gates vs. a real app tree".
+it). See `.github/workflows/CLAUDE.md`, "Application-aware gates vs. a real app
+tree".
 
 ## A self-test must tell a crash from a rejection
 
@@ -115,20 +119,26 @@ executed a single check. The log read as though the pattern were over-matching.
   every count and before every verdict; its absence proves the script never reached one.
 - **Read the signature.** Failures on exactly the expect-*pass* fixtures are a crash, not
   an over-matching pattern.
-- **Write to the job image's toolset** instead of adding interpreters to it — POSIX /
-  BusyBox awk has no `gensub`, `ENDFILE`, `\s`, or `\b` — and verify in that image
-  (`docker run --rm -v "$PWD":/w -w /w <image> sh -c '… --self-test'`), not a local proxy.
+- **Write to the job's toolset** instead of adding interpreters to it — POSIX awk
+  (mawk, BusyBox, macOS's BSD awk) has no `gensub`, `ENDFILE`, `\s`, or `\b`, and
+  macOS ships bash 3.2 and BSD sed — and verify where the job runs (push the branch
+  and read the `ubuntu-latest` log, or `docker run --rm -v "$PWD":/w -w /w ubuntu:24.04
+  …` as a proxy), not only on a laptop. When a gate needs a tool the runner image does
+  not pin (PyYAML, shellcheck), the job installs a pinned version, and the gate must not
+  pass without it in CI: the PyYAML readers exit 2 when it is missing, and the
+  `shellcheck` job asserts the pinned binary is on PATH, because `check-shellcheck.sh`
+  deliberately skips when the tool is absent on a laptop.
 
 ## Stage a backlog by rule severity, not by `allow_failure`
 
-A new detector opens with a backlog. Shipping its job `allow_failure: true` looks
-cautious and is worse: a failing `allow_failure` job renders as a **green** pipeline, so
-the reviewer who needs the signal never sees it, and a permanently yellow job is one
-everybody learns to scroll past. Make the job **blocking** from day one and stage the
-backlog *inside* the tool — rules with a clean tree at `error`, rules with a backlog at
-`warn` (every finding printed, none reaching the exit code), each promoted to `error` in
-its own change as it reaches zero. Red then means exactly one thing: a class declared
-clean has regressed.
+A new detector opens with a backlog. Shipping its job `allow_failure: true` (on GitHub
+Actions, `continue-on-error: true`) looks cautious and is worse: a failing
+`allow_failure` job renders as a **green** pipeline, so the reviewer who needs the
+signal never sees it, and a permanently yellow job is one everybody learns to scroll
+past. Make the job **blocking** from day one and stage the backlog *inside* the tool —
+rules with a clean tree at `error`, rules with a backlog at `warn` (every finding
+printed, none reaching the exit code), each promoted to `error` in its own change as it
+reaches zero. Red then means exactly one thing: a class declared clean has regressed.
 
 Before trusting the detector, plant the violation it exists to find. Upstream, a
 dead-export scanner reported clean for a freshly created file exporting a symbol nobody

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.config.json" },
+    { "path": "./packages/core" },
+    { "path": "./packages/fx" },
+    { "path": "./packages/furs" },
+    { "path": "./packages/brokers" },
+    { "path": "./apps/cli" },
+    { "path": "./apps/web" }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "name": "@taxreporter/furs",
+  "version": "0.0.0",
+  "private": true,
+  "description": "TaxReporter FURS eDavki forms: form builders, schema-ordered XML writers and XSD validation (Doh-KDVP, Doh-Div).",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "schemas"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  }
+}

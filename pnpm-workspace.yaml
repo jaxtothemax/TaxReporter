@@ -1,0 +1,12 @@
+# pnpm workspace: the application packages. website/ is NOT a member — the docs
+# site is its own npm project (website/package-lock.json) and is built by
+# .github/workflows/docs.yml, not by this workspace.
+#
+# pnpm itself is pinned by the root package.json "packageManager" field, and
+# deliberately to the 10.x line: Dependabot (.github/dependabot.yml) documents
+# pnpm lockfile support for v7–v10 only, so a newer major would silently stop
+# dependency updates for this workspace. Move the pin to a newer major only once
+# Dependabot lists it.
+packages:
+  - "packages/*"
+  - "apps/*"

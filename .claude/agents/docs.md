@@ -89,7 +89,7 @@ When a feature's *behavior* changes (not just a field rename), the narrative des
   not only on the page you edited. Grep the docs site, `README.md`, `changelog.d/`
   (fragments ship verbatim in release notes) and `docs/` for the old version number, the
   old date, and the old noun phrase. Upstream, a roadmap move left five other pages and the
-  README with the old version, and a changelog fragment kept a claim the same MR had
+  README with the old version, and a changelog fragment kept a claim the same PR had
   superseded.
 - **No pinned-prerelease "latest" claims.** Grep for present-tense statements that name a specific prerelease or patch as current ("the latest release is `X.Y.Z-beta.N`"). A version-status gate that compares only major.minor cannot see them go stale. Prefer wording that names no pinned tag, or point at the roadmap as the source of truth.
 - Hard-flag any doc page that still references a feature name, env var, or enum value that grep can no longer find in the current source — that is a guaranteed reader confusion.

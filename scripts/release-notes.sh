@@ -184,5 +184,8 @@ if [ -z "$STDOUT_ONLY" ]; then
   cp "$TMP_NOTES" "docs/releases/${TAG}.md"
   echo "" >&2
   echo "Wrote docs/releases/${TAG}.md" >&2
-  echo "Publish with:  glab release create ${TAG} --notes-file docs/releases/${TAG}.md" >&2
+  # Publishing is release.yml's job once the tag is pushed (it reads this exact
+  # file); the gh command is the manual fallback and the preview of what it runs.
+  echo "Published on tag push by .github/workflows/release.yml; by hand:" >&2
+  echo "  gh release create ${TAG} --verify-tag --title ${TAG} --notes-file docs/releases/${TAG}.md" >&2
 fi

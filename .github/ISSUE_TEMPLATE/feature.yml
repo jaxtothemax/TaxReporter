@@ -1,0 +1,36 @@
+name: Feature request
+description: Propose a new capability or a change to existing behavior.
+labels: ["feature"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user need or pain point does this address?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: Describe the feature. Be specific about user-visible behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What other approaches did you consider, and why is this one preferred?
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: >-
+        Each line becomes a row in the PR's Requirements table, so write them so
+        they can be checked.
+      value: |
+        - [ ]
+        - [ ]
+        - [ ]
+    validations:
+      required: true

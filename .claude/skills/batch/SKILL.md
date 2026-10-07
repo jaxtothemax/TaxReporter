@@ -4,7 +4,7 @@ model: opus
 disable-model-invocation: true
 description: >
   Pick up a batch of milestone issues and land them in parallel — one git
-  worktree and one delegated agent per issue, each finishing with its own MR.
+  worktree and one delegated agent per issue, each finishing with its own PR.
   Asks which milestone and which labels to pull from; never infers either.
   Enforces measured token-discipline rules (Sonnet by default, a hard wave cap,
   and per-agent commit verification). User-invoked only — it spawns many agents
@@ -14,8 +14,10 @@ argument-hint: "[milestone] [label ...]"
 
 # Batch
 
+In this repository an MR is a GitHub pull request (PR).
+
 Land several milestone issues in one wave. Each issue gets its own worktree, its own
-delegated agent, and its own MR. You are the orchestrator: you choose the issues, brief
+delegated agent, and its own PR. You are the orchestrator: you choose the issues, brief
 the agents, verify what they actually produced, and report. You do **not** implement the
 issues yourself.
 
@@ -47,39 +49,44 @@ Ask both questions with `AskUserQuestion` in a **single call** (two questions, o
 trip). Do not guess either answer, and do not skip the ask because the answer looks
 obvious.
 
-1. **Which milestone?** Offer the active milestones
-   (`glab api "projects/:id/milestones?state=active"`), nearest due date first.
+1. **Which milestone?** Offer the open milestones, nearest due date first:
+   `gh api 'repos/{owner}/{repo}/milestones?state=open&sort=due_on&direction=asc' --jq '.[] | "\(.title)\t\(.due_on // "no due date")"'`
+   (`gh api` fills `{owner}/{repo}` from the `origin` remote).
 2. **Which labels to pull from?** Multi-select. Offer the commitment labels
-   (`release::committed`, `release::reserve`, `release::stretch`) and the domain labels
+   (`release:committed`, `release:reserve`, `release:stretch`) and the domain labels
    actually present on that milestone's open issues — read them, do not offer a
    hardcoded list.
 
 Also ask **wave size** if the user has not said one, defaulting to **5**.
 
-If the invocation names milestone and labels (`/batch 1.2 release::committed`), take them
+If the invocation names milestone and labels (`/batch 1.2 release:committed`), take them
 and skip the ask.
 
 ## Step 2 — Select the issues
 
 ```bash
-glab issue list --milestone <M> --label <L> --per-page 100
+gh issue list --milestone "<M>" --label "<L>" --state open --limit 100 \
+  --json number,title,labels
 ```
 
-`--per-page 100` is a first page, not a result set. A milestone with more issues than
-that truncates silently here, and the issues you never see are indistinguishable from
-issues that do not exist. When the count comes back at exactly the page size, re-read it
-with `glab api --paginate "projects/:id/issues?milestone=<M>&labels=<L>&state=opened&per_page=100"`
-— which emits one JSON array **per page, concatenated**, so decode it with a
-`raw_decode` loop rather than `json.load` (`/tracker-hygiene` Step 1 carries the reader).
+`--limit 100` is a cap, not a result set. A milestone with more issues than that
+truncates silently here, and the issues you never see are indistinguishable from
+issues that do not exist. When the count comes back at exactly the limit, re-read it
+with a larger `--limit` (gh pages through the API itself). Repeating `--label` means
+*all* of those labels, not any of them, so run one query per label when the user picked
+several.
 
 Then filter, in this order:
 
 1. **Drop anything already claimed** — an issue carrying the check-out label
-   (`status::wip` by default, `WT_LOCK_LABEL`), an issue number that already has an open
-   MR, or a worktree in `scripts/wt list`. `wt new` refuses a checked-out issue, and
-   `scripts/check-issue-collision.sh` blocks a duplicate MR at push time, but check first
-   so you are not selecting work you cannot start. `glab issue list` prints labels; to
-   exclude claimed issues up front, add `--not-label status::wip`. Read the check-out
+   (`status:wip` by default, `WT_LOCK_LABEL`), an issue number that already has an open
+   PR (`gh pr list --state open --json number,headRefName,closingIssuesReferences`), or
+   a worktree in `scripts/wt list`. `wt new` refuses a checked-out issue, and
+   `scripts/check-issue-collision.sh` blocks a duplicate PR at push time, but check first
+   so you are not selecting work you cannot start. The `--json labels` output above
+   shows the label; to exclude claimed issues up front, query with
+   `--search 'milestone:"<M>" label:"<L>" -label:"status:wip"'` instead of the
+   `--milestone`/`--label` flags. Read the check-out
    comment (`🔒 checked out …`) before assuming a label is stale: it names the branch and
    worktree holding the issue. A label with no live worktree behind it is a stale lock —
    ask the user before taking it over; never `--force` it on your own.
@@ -90,7 +97,7 @@ Then filter, in this order:
 4. **Prefer independent issues.** Two agents touching the same file collide on the merged
    tree even when both are green alone. Check the paths each issue implies before pairing
    them in one wave.
-5. **Respect `release::` ordering** — committed before reserve before stretch, unless the
+5. **Respect `release:` ordering** — committed before reserve before stretch, unless the
    user said otherwise.
 
 Report the selected list before spawning anything. One line per issue: number, title,
@@ -105,16 +112,16 @@ agent.
 scripts/wt new <issue>      # branch + worktree off the latest default branch; claims the issue
 ```
 
-`wt new` also **checks the issue out**: it applies the `status::wip` label and posts a
+`wt new` also **checks the issue out**: it applies the `status:wip` label and posts a
 check-out comment, so a second `/batch` wave or a parallel session sees the issue as
 taken. It refuses an issue that already carries the label. If it refuses, drop that
 issue from the wave and say so in the report — `--force` is the user's call, not
 yours. The label is released by `scripts/wt remove` (once the issue is closed) and
-`scripts/wt prune`; `scripts/wt release <issue>` clears it by hand. If no forge CLI is
-available `wt new` still creates the worktree and warns that no label was set.
+`scripts/wt prune`; `scripts/wt release <issue>` clears it by hand. If `gh` is missing or
+not authenticated, `wt new` still creates the worktree and warns that no label was set.
 
 - The WIP cap is `WT_CAP` (default 10). If the wave would exceed it, run
-  `scripts/wt prune` first (it reaps worktrees whose MRs already merged), then shrink the
+  `scripts/wt prune` first (it reaps worktrees whose PRs already merged), then shrink the
   wave or raise the cap deliberately (`WT_CAP=<n>`) — and say so in your report. Do
   **not** remove another session's worktree to make room.
 - Each worktree's `.envrc` sets an isolated `WT_TEST_DB` and its own E2E ports
@@ -146,8 +153,8 @@ report:
 "This issue is important" is not an escalation criterion. Neither is "it is a security
 fix" — a one-line permission fix with a named root cause is Sonnet work.
 
-**Read-only gates always run on Sonnet.** `regression-check`, `rbac-check`, `perf-check`,
-`security-review`, `schema-check` read a diff and report findings. Pass `model: "sonnet"`
+**Read-only gates always run on Sonnet.** `regression-check`, `security-review`,
+`generated-artifact-check` read a diff and report findings. Pass `model: "sonnet"`
 on the Agent call when you spawn them: the Agent tool's `model` parameter overrides the
 agent file's frontmatter, and `regression-check` and `security-review` carry `model: opus`
 there as their default for standalone use. The one exception is
@@ -161,7 +168,7 @@ Each agent's prompt must be **self-contained**. An agent that has to rediscover 
 spends its budget on cache reads of files you could have named. Include:
 
 - The issue number, title, the **full issue body**, and **its comments**
-  (`glab issue view N --comments`) — paste them; do not make the agent fetch them. Scope
+  (`gh issue view N --comments`) — paste them; do not make the agent fetch them. Scope
   corrections live in comments. An agent briefed from the body alone builds a requirement
   that may already have been superseded, and `completeness-check` then reports the branch
   as missing it.
@@ -217,21 +224,24 @@ Every agent finishes by, in order:
    a model, the affected test files if they touched a shared component) — not a blind
    re-run of the original scoped tests. A clean rebase is not evidence on its own: a
    textually clean merge can still combine two correct states into a wrong one.
-6. Push the branch, then **open the MR itself** by running `glab mr create` in the `/mr`
+6. Push the branch, then **open the PR itself** by running `gh pr create` in the `/mr`
    skill's format. `/mr` is `disable-model-invocation` — an agent cannot call it and must
-   not try.
-7. Include `Closes #NNN` in the MR description, the completeness-check `## Requirements`
+   not try. The pre-MR security hook denies the first `gh pr create` on a source-touching
+   branch. Once the gates have run, retry with the `SKIP_SECURITY_GATE=1` prefix, as its
+   deny reason says.
+7. Include `Closes #NNN` in the PR body, the completeness-check `## Requirements`
    table, and a `## Gates` section with one `gate: <name> — <N> findings` line per gate
    run — including `completeness-check — <N> findings (<model>; causes: …)`, plus either
    `completeness-check/fix-diff — <N> findings | n/a | skipped` or the round-2 line
    (`completeness-check — <N> findings (round 2; opus; causes: …; overlap k/N)`). `0
    findings` is a real outcome; never omit a zero, and never conflate `n/a` with
    `skipped`. If step 5 found a stale base, say what was rebased and re-verified in the
-   MR's `## Notes`.
-8. **Never merge.** Hand back the MR URL and stop.
+   PR's `## Notes`.
+8. **Never merge**, and never enable auto-merge (`gh pr merge --auto`). Hand back the PR
+   URL and stop.
 
 The agent reports back twice: after step 4 (commit SHA and the pre-MR gate ledger,
-unpushed), and at the end (MR URL, the full gate ledger, the commit SHA, and anything it
+unpushed), and at the end (PR URL, the full gate ledger, the commit SHA, and anything it
 deliberately left undone).
 
 ## Step 6 — Verify before you believe it
@@ -245,14 +255,15 @@ git -C <worktree> log origin/main..HEAD --oneline    # are there commits?
 git -C <worktree> status --porcelain                 # anything uncommitted?
 ```
 
-Then confirm the MR is real and points at the right code:
+Then confirm the PR is real and points at the right code:
 
 ```bash
-glab api "projects/:id/merge_requests/<iid>" \
-  | jq -r '"sha=\(.sha) pipeline=\(.head_pipeline.status) closes=\(.description|test("Closes #"))"'
+gh pr view <N> --json headRefOid,body,statusCheckRollup --jq '
+  "sha=\(.headRefOid) checks=\([.statusCheckRollup[] | (.conclusion // "") + (.state // "") | if . == "" then "PENDING" else . end] | unique | join(",")) closes=\(.body | test("Closes #"))"'
 ```
 
-`HEAD == MR sha == pipeline sha`. A worktree is not private — another session can commit
+`HEAD == PR head sha`, and the checks are those of that sha (`gh pr checks` reads the
+head commit). A worktree is not private — another session can commit
 and push from it mid-edit — so verify rather than assume the agent's summary describes
 what landed.
 
@@ -261,7 +272,7 @@ what was missing, or take the issue over yourself; do not report it as done.
 
 ## Step 7 — Report
 
-One table: issue, model used, MR, pipeline status, commits, gate findings. Then state
+One table: issue, model used, PR, check status, commits, gate findings. Then state
 plainly:
 
 - Which issues did **not** land, and why.
@@ -271,7 +282,7 @@ plainly:
 - Which branches ran a completeness-check fix-diff re-check or round 2, and whether any
   stopped on a residual BLOCKER for your decision.
 
-Remind the user that each worktree is reaped with `scripts/wt prune` after its MR
+Remind the user that each worktree is reaped with `scripts/wt prune` after its PR
 merges — nothing does that automatically. Do not merge anything. Do not start another
 wave without being asked.
 
@@ -299,9 +310,11 @@ Cache reads were 95.9% of the measured spend. Each of these cuts
 
 ## Rules
 
-- **Never merge.** Not after a green pipeline, not for a docs-only branch.
-- **Never infer a `release::` label.** If an issue enters a dated milestone during this
-  wave, ask which of committed/reserve/stretch applies.
+- **Never merge.** Not after green checks, not for a docs-only branch.
+- **Never infer a `release:` label.** If an issue enters a dated milestone during this
+  wave, ask which of committed/reserve/stretch applies. GitHub labels are not scoped, so
+  apply the answer and remove the other two in the same call:
+  `gh issue edit <N> --add-label release:committed --remove-label release:reserve,release:stretch`.
 - **Never commit to the default branch**; `wt new` branches from its latest tip.
 - **Never bare `git stash`** in a worktree. `scripts/wt stash`.
 - If the user says to skip a gate, skip it and record it as `skipped` with their reason —

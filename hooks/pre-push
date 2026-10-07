@@ -1,7 +1,8 @@
 #!/bin/sh
 # Pre-push hook: run only checks that require full codebase state and are NOT
 # covered by the commit-time hook (lint, format, typecheck run there).
-# Examples: missing migrations, stale API schema, contract test drift.
+# Examples: a duplicate PR for the same issue, a stale TODO(#N) reference, a
+# deleted load-bearing call site, a gate whose --self-test no longer fails.
 # Delegates to `make pre-push-checks` — no-op if the target is not defined.
 # Skip with: git push --no-verify
 

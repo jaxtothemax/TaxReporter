@@ -1,6 +1,6 @@
 # 1. Record architecture decisions
 
-**Date:** [YYYY-MM-DD]
+**Date:** 2026-10-06
 **Status:** Accepted
 
 ## Context
