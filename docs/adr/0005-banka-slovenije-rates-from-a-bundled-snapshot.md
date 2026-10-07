@@ -3,9 +3,14 @@
 **Date:** 2026-10-07
 **Status:** Accepted (2026-10-07)
 
-> **Implementation status (2026-10-07):** decided during project setup; nothing ships with
-> this ADR yet beyond the package skeleton. Remove this note when the first implementation
-> merges.
+> **Implementation status (2026-10-07):** the snapshot and the lookup ship in
+> `packages/fx`: `data/bsi-daily.csv`, `data/bsi-monthly.csv` and `data/snapshot.json`
+> (built by `scripts/build-snapshot.mjs`, attribution in `data/DATA-NOTICE.md`), read by
+> `RateTable` with the 10-day lookback, the monthly fallback, the euro changeover rates,
+> minor-unit quotes (GBX and the like) and a warning on the six known BSI≠ECB values. Not
+> yet built: the scheduled refresh and ECB cross-check in CI, the app downloading a newer
+> snapshot, and the InforEuro rate for RUB and BYN. Until then a RUB amount after
+> 2022-03-01 gets `noRate`, which the pipeline must report as a blocking diagnostic.
 
 ## Context
 
