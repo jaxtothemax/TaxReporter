@@ -23,23 +23,41 @@ except Exception:
 
 messages = []
 
-# ── Agent reminders for sensitive file types ──────────────────────────────────
-# CUSTOMIZE: Add patterns for your project's sensitive file types.
+# ── Agent reminders for this repo's sensitive paths ──────────────────────────
 
-# Untrusted-input handling changed → check security
-# Examples: parser.py (Python), importer.ts (TypeScript) — parsers/importers of
-# foreign-broker exports, file upload handling, XML/CSV readers and writers,
-# CLI argument handling.
-if re.search(r"(parsers?|importers?|readers?|writers?|uploads?)(/|\.|_)|xml|cli\.", file_path):
-    messages.append("input/output handling modified — use the security-review agent")
+# Untrusted input: broker adapters parse hostile files, the rate-snapshot
+# builder parses XML downloaded from Banka Slovenije, and the CLI reads any
+# path it is given.
+if re.search(r"packages/brokers/src/|packages/fx/(src|scripts)/|apps/cli/src/", file_path):
+    messages.append(
+        "untrusted-input handling modified — run the security-review agent\n"
+        "   (size limits, no DTD/external entities, no eval, ReDoS-safe regexes)"
+    )
 
-# Auth/permission logic changed → check security
-if re.search(r"permissions?\.py$|auth\.|middleware", file_path):
-    messages.append("auth/permissions modified — use the security-review agent")
+# Generated output that FURS ingests.
+if re.search(r"packages/furs/src/", file_path):
+    messages.append(
+        "FURS XML generation modified — update the golden files, validate them against\n"
+        "   packages/furs/schemas/, and run the security-review agent"
+    )
+
+# Vendored FURS schemas: FURS edits them in place, so a schema change is a
+# tax-rule change, and the bytes must stay exactly what FURS published.
+if re.search(r"packages/furs/schemas/", file_path):
+    messages.append(
+        "vendored FURS schema modified — re-vendor it byte for byte, update the SHA-256\n"
+        "   table in packages/furs/schemas/README.md, and treat it as a tax-rule change"
+    )
+
+# Tax, rate and lot logic: a changed rule changes people's returns.
+if re.search(r"packages/(core|fx|furs)/src/", file_path) and not re.search(r"\.test\.tsx?$", file_path):
+    messages.append(
+        "tax/rate/lot logic modified — cite the primary source in docs/research/, and if any\n"
+        "   figure can change, add a `changed` changelog fragment naming the affected returns"
+    )
 
 # UI surface changed → remind about VoC (before design) and accessibility (after)
-# Examples: components/, pages/, features/ with *.tsx/*.jsx/*.vue/*.svelte
-if re.search(r"(components?|pages?|screens?|features?|views?)/.*\.(tsx|jsx|vue|svelte)$", file_path):
+if re.search(r"apps/web/src/.*\.(tsx|jsx)$", file_path) and not re.search(r"\.test\.tsx?$", file_path):
     messages.append(
         "🎤 UI surface changed — for a new user-facing flow, run /voc before design;\n"
         "   after implementing, run the ux-review and accessibility agents."
