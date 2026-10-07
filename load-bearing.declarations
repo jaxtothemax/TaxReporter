@@ -95,7 +95,3 @@ why:  The only focus move after a screen change. Without it keyboard and screen-
 path: apps/web/src/screens/FilesStep.tsx
 call: listHeading.current?.focus();
 why:  Keeps focus in the file list after a removal deletes the focused button. Delete it and focus falls to the page body with every test still green.
-
-path: apps/web/src/ui/bits.tsx
-call: viewport.tabIndex = 0;
-why:  The only thing that lets a keyboard scroll a table wider than the screen (Radix's scroll viewport is not focusable). Server-rendered tests never run the effect, so its removal goes unnoticed.

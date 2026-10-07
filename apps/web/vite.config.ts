@@ -10,8 +10,9 @@ import { defineConfig, type Plugin } from "vite";
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
   "script-src 'self'",
-  // Radix positions popovers and tooltips with inline style attributes.
-  "style-src 'self' 'unsafe-inline'",
+  // No 'unsafe-inline': React applies the style prop through the CSSOM, which
+  // a policy does not restrict, and no markup carries a style attribute.
+  "style-src 'self'",
   "img-src 'self' data:",
   "font-src 'self'",
   "connect-src 'self'",

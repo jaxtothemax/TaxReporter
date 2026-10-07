@@ -80,8 +80,42 @@ describe("App", () => {
 
   it("keeps each form name on one line in the hero headline", () => {
     const html = render(initialWizardState, "sl");
-    expect(html).toContain('<span class="nowrap">Doh-KDVP</span>');
-    expect(html).toContain('<span class="nowrap">Doh-Div</span>');
+    expect(html).toMatch(/<span class="[^"]*\bnowrap\b[^"]*">Doh-KDVP<\/span>/);
+    expect(html).toMatch(/<span class="[^"]*\bnowrap\b[^"]*">Doh-Div<\/span>/);
+  });
+
+  it("starts dark, with a light theme behind a pressed-state toggle", () => {
+    const dark = render(initialWizardState);
+    expect(dark).toMatch(/<div class="app" data-theme="dark">/);
+    expect(dark).toMatch(
+      /aria-label="Light theme"[^>]*aria-pressed="false"|aria-pressed="false"[^>]*aria-label="Light theme"/,
+    );
+    const light = renderToStaticMarkup(
+      <App initialState={initialWizardState} initialTheme="light" />,
+    );
+    expect(light).toMatch(/data-theme="light"/);
+    expect(light).toMatch(/aria-pressed="true"/);
+  });
+
+  it("offers the languages as native radio buttons named in their own language", () => {
+    const html = render(initialWizardState, "sl");
+    const radios = html.match(/<input type="radio" name="ui-language"[^>]*>/g);
+    expect(radios).toHaveLength(2);
+    expect(radios?.[0]).toContain('value="sl"');
+    expect(radios?.[0]).toContain("checked");
+    expect(radios?.[1]).not.toContain("checked");
+    expect(html).toMatch(
+      /<span class="visually-hidden" lang="en">[^<]*English<\/span>/,
+    );
+  });
+
+  it("renders the review as tabs, with every panel present and only one shown", () => {
+    const html = render(screens[3]?.[1] ?? demo, "en");
+    expect(html).toContain('role="tablist"');
+    expect(html.match(/role="tab"/g)).toHaveLength(3);
+    expect(html.match(/aria-selected="true"/g)).toHaveLength(1);
+    expect(html.match(/role="tabpanel"/g)).toHaveLength(3);
+    expect(html.match(/role="tabpanel"[^>]*hidden=""/g)).toHaveLength(2);
   });
 
   it("marks every flow screen of the demo as demo data", () => {

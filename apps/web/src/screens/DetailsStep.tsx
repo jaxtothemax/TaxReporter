@@ -5,15 +5,10 @@
  * field, which then announces its error through that description.
  */
 import {
-  Box,
-  Button,
-  Flex,
-  Grid,
-  Heading,
-  Text,
-  TextField,
-} from "@radix-ui/themes";
-
+  ArrowRightIcon,
+  InfoIcon,
+  WarningCircleIcon,
+} from "@phosphor-icons/react";
 import { useRef, type Ref } from "react";
 
 import { useI18n } from "../i18n/i18n";
@@ -22,6 +17,7 @@ import {
   type Details,
   type WizardState,
 } from "../state/wizard";
+import { Button, cx } from "../ui/kit";
 
 function Field({
   id,
@@ -34,6 +30,7 @@ function Field({
   autoComplete,
   maxLength,
   required = false,
+  wide = false,
   inputRef,
 }: {
   readonly id: keyof Details;
@@ -46,6 +43,8 @@ function Field({
   readonly autoComplete: string;
   readonly maxLength?: number;
   readonly required?: boolean;
+  /** Spans both columns of the form grid. */
+  readonly wide?: boolean;
   readonly inputRef?: Ref<HTMLInputElement>;
 }) {
   const inputId = `details-${id}`;
@@ -58,37 +57,37 @@ function Field({
     .filter(Boolean)
     .join(" ");
   return (
-    <Flex direction="column" gap="1">
-      <Text as="label" htmlFor={inputId} size="2" weight="medium">
+    <div className={cx("field", wide && "span-2")}>
+      <label htmlFor={inputId} className="field-label">
         {label}
-      </Text>
-      <TextField.Root
+      </label>
+      <input
         ref={inputRef}
         id={inputId}
+        className={cx("input", error && "is-invalid")}
         aria-required={required || undefined}
-        size="3"
         value={value}
         inputMode={inputMode ?? "text"}
         autoComplete={autoComplete}
         maxLength={maxLength}
         aria-invalid={error ? true : undefined}
         aria-describedby={describedBy === "" ? undefined : describedBy}
-        color={error ? "red" : undefined}
         onChange={(event) => {
           onChange(event.currentTarget.value);
         }}
       />
       {help === undefined ? null : (
-        <Text id={helpId} size="1" color="gray">
+        <p id={helpId} className="field-help">
           {help}
-        </Text>
+        </p>
       )}
       {error ? (
-        <Text id={errorId} size="2" color="red">
+        <p id={errorId} className="field-error">
+          <WarningCircleIcon size={16} weight="bold" aria-hidden />
           {error}
-        </Text>
+        </p>
       ) : null}
-    </Flex>
+    </div>
   );
 }
 
@@ -125,27 +124,22 @@ export function DetailsStep({
   return (
     <form
       noValidate
+      className="screen"
       onSubmit={(event) => {
         event.preventDefault();
         submit();
       }}
     >
-      <Flex direction="column" gap="6">
-        <Box className="measure">
-          <Heading as="h1" size="7" mb="2" tabIndex={-1}>
-            {t.details.title}
-          </Heading>
-          <Text as="p" size="3" color="gray">
-            {t.details.intro}
-          </Text>
-          <Text as="p" size="2" weight="medium" mt="2">
-            {state.mode === "demo"
-              ? t.details.demoNote
-              : t.details.requiredNote}
-          </Text>
-        </Box>
+      <header className="screen-head">
+        <h1 tabIndex={-1}>{t.details.title}</h1>
+        <p className="lead">{t.details.intro}</p>
+        <p className="strong small">
+          {state.mode === "demo" ? t.details.demoNote : t.details.requiredNote}
+        </p>
+      </header>
 
-        <Grid columns={{ initial: "1", sm: "2" }} gap="5" className="form-grid">
+      <div className="card form-card">
+        <div className="form-grid">
           <Field
             id="taxNumber"
             label={
@@ -170,15 +164,14 @@ export function DetailsStep({
             onChange={set("name")}
             autoComplete="name"
           />
-          <Box gridColumn={{ initial: "1", sm: "1 / -1" }}>
-            <Field
-              id="address"
-              label={t.details.addressLabel}
-              value={details.address}
-              onChange={set("address")}
-              autoComplete="street-address"
-            />
-          </Box>
+          <Field
+            id="address"
+            label={t.details.addressLabel}
+            value={details.address}
+            onChange={set("address")}
+            autoComplete="street-address"
+            wide
+          />
           <Field
             id="postCode"
             label={t.details.postCodeLabel}
@@ -202,28 +195,25 @@ export function DetailsStep({
             help={t.details.emailHelp}
             inputMode="email"
             autoComplete="email"
+            wide
           />
-        </Grid>
+        </div>
+      </div>
 
-        <Text as="p" size="2" color="gray">
-          {t.details.residentNote}
-        </Text>
+      <p className="with-icon muted small">
+        <InfoIcon size={16} weight="bold" aria-hidden />
+        {t.details.residentNote}
+      </p>
 
-        <Flex gap="3">
-          <Button
-            size="3"
-            variant="soft"
-            color="gray"
-            type="button"
-            onClick={onBack}
-          >
-            {t.nav.back}
-          </Button>
-          <Button size="3" type="submit">
-            {t.details.next}
-          </Button>
-        </Flex>
-      </Flex>
+      <div className="actions-row">
+        <Button size="lg" onClick={onBack}>
+          {t.nav.back}
+        </Button>
+        <Button variant="primary" size="lg" type="submit">
+          {t.details.next}
+          <ArrowRightIcon size={18} weight="bold" aria-hidden />
+        </Button>
+      </div>
     </form>
   );
 }

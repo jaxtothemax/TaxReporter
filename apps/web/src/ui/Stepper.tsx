@@ -1,11 +1,11 @@
 /**
- * Where the user is in the flow. Steps are named by what happens in them, not
- * numbered; reachable earlier steps are buttons, the current one is marked
- * with aria-current="step" for screen readers.
+ * Where the user is in the flow. Steps are named by what happens in them;
+ * reachable earlier steps are buttons, the current one is marked with
+ * aria-current="step" for screen readers. The numbers are decoration.
  */
-import { CheckCircleIcon } from "@phosphor-icons/react";
-import { Text } from "@radix-ui/themes";
+import { CheckIcon } from "@phosphor-icons/react";
 
+import { formatNumber } from "../i18n/format";
 import { useI18n } from "../i18n/i18n";
 import {
   canEnter,
@@ -13,6 +13,7 @@ import {
   type FlowStep,
   type WizardState,
 } from "../state/wizard";
+import { cx } from "./kit";
 
 export function Stepper({
   state,
@@ -21,7 +22,7 @@ export function Stepper({
   readonly state: WizardState;
   readonly onGoTo: (step: FlowStep) => void;
 }) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const current =
     state.screen === "start" ? -1 : FLOW_STEPS.indexOf(state.screen);
   return (
@@ -30,37 +31,48 @@ export function Stepper({
         {FLOW_STEPS.map((step, index) => {
           const isCurrent = index === current;
           const isDone = index < current;
-          const label = t.stepper[step];
+          const marker = (
+            <span className="step-marker" aria-hidden>
+              {isDone ? (
+                <CheckIcon size={12} weight="bold" />
+              ) : (
+                formatNumber(String(index + 1), locale)
+              )}
+            </span>
+          );
+          const label = <span className="step-label">{t.stepper[step]}</span>;
           return (
-            <li key={step} className={isCurrent ? "is-current" : undefined}>
+            <li
+              key={step}
+              className={cx(
+                "step",
+                isCurrent && "is-current",
+                isDone && "is-done",
+              )}
+            >
               {isCurrent ? (
-                <span aria-current="step" className="stepper-item">
-                  <Text weight="bold">{label}</Text>
+                <span aria-current="step" className="step-item">
+                  {marker}
+                  {label}
                 </span>
               ) : canEnter(state, step) ? (
                 <button
                   type="button"
-                  className="stepper-item"
+                  className="step-item"
                   onClick={() => {
                     onGoTo(step);
                   }}
                 >
-                  {isDone ? (
-                    <CheckCircleIcon
-                      size={16}
-                      weight="fill"
-                      aria-hidden
-                      className="accent-icon"
-                    />
-                  ) : null}
-                  <Text color={isDone ? undefined : "gray"}>{label}</Text>
+                  {marker}
+                  {label}
                   {isDone ? (
                     <span className="visually-hidden">, {t.stepper.done}</span>
                   ) : null}
                 </button>
               ) : (
-                <span className="stepper-item">
-                  <Text color="gray">{label}</Text>
+                <span className="step-item">
+                  {marker}
+                  {label}
                 </span>
               )}
             </li>

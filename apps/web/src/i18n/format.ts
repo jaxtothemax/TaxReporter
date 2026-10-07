@@ -53,12 +53,10 @@ export function formatNumber(
   }).format(numeric(value));
 }
 
-/** A euro amount at cent precision, e.g. "1.770,04 €" or "€1,770.04". */
-export function formatEur(
-  value: string,
+function eurFormat(
   locale: Locale,
-  options: { readonly signed?: boolean } = {},
-): string {
+  options: { readonly signed?: boolean },
+): Intl.NumberFormat {
   return new Intl.NumberFormat(TAG[locale], {
     style: "currency",
     currency: "EUR",
@@ -66,7 +64,51 @@ export function formatEur(
     maximumFractionDigits: 2,
     roundingMode: "halfExpand",
     signDisplay: options.signed === true ? "exceptZero" : "auto",
-  }).format(numeric(value));
+  });
+}
+
+/** A euro amount at cent precision, e.g. "1.770,04 €" or "€1,770.04". */
+export function formatEur(
+  value: string,
+  locale: Locale,
+  options: { readonly signed?: boolean } = {},
+): string {
+  return eurFormat(locale, options).format(numeric(value));
+}
+
+/** One run of a formatted euro amount, tagged so it can be styled apart. */
+export interface AmountPart {
+  /** "main": sign and whole units; "cents": separator and cents; "currency": symbol and its spacing. */
+  readonly role: "main" | "cents" | "currency";
+  readonly text: string;
+}
+
+/**
+ * formatEur in runs, so a headline figure can set its cents and currency
+ * smaller than the whole units. The runs keep the locale's own order, and
+ * joined they are exactly formatEur's output.
+ */
+export function formatEurParts(
+  value: string,
+  locale: Locale,
+  options: { readonly signed?: boolean } = {},
+): AmountPart[] {
+  const runs: AmountPart[] = [];
+  for (const part of eurFormat(locale, options).formatToParts(numeric(value))) {
+    const role =
+      part.type === "decimal" || part.type === "fraction"
+        ? "cents"
+        : part.type === "currency" || part.type === "literal"
+          ? "currency"
+          : "main";
+    const last = runs.at(-1);
+    if (last?.role === role) {
+      runs[runs.length - 1] = { role, text: last.text + part.value };
+    } else {
+      runs.push({ role, text: part.value });
+    }
+  }
+  return runs;
 }
 
 /** An amount in its own currency, as the broker reported it. */
@@ -132,6 +174,28 @@ export function formatDate(iso: string, locale: Locale): string {
     day: "numeric",
     month: locale === "sl" ? "numeric" : "short",
     year: "numeric",
+    timeZone: "UTC",
+  }).format(date);
+}
+
+const ISO_MONTH = /^(\d{4})-(\d{2})$/;
+
+/**
+ * A calendar month such as "2026-03": "m" or "marec" in Slovenian, "M" or
+ * "March" in English. The narrow form labels a chart axis.
+ */
+export function formatMonth(
+  month: string,
+  locale: Locale,
+  width: "narrow" | "long",
+): string {
+  const match = ISO_MONTH.exec(month);
+  if (match === null) {
+    throw new RangeError(`Not an ISO month: "${month}"`);
+  }
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, 1));
+  return new Intl.DateTimeFormat(TAG[locale], {
+    month: width,
     timeZone: "UTC",
   }).format(date);
 }

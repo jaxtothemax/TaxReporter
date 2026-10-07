@@ -3,8 +3,6 @@
  * was withheld and the part of it that can be credited (capped by the treaty
  * rate and by the Slovenian tax; docs/research/04-si-tax-rules.md).
  */
-import { Flex, Table, Text } from "@radix-ui/themes";
-
 import {
   formatCountry,
   formatDate,
@@ -13,14 +11,8 @@ import {
 } from "../../i18n/format";
 import { useI18n } from "../../i18n/i18n";
 import type { DividendRow, DividendsEstimate } from "../../model/preview";
-import {
-  BrokerName,
-  Eur,
-  Note,
-  RateText,
-  SourceText,
-  useScrollRegion,
-} from "../../ui/bits";
+import { BrokerName, Eur, RateText, SourceText } from "../../ui/bits";
+import { DataTable, Note, Ticker } from "../../ui/kit";
 
 function isCapped(row: DividendRow): boolean {
   return row.creditEur !== row.foreignTaxEur;
@@ -34,98 +26,99 @@ export function DividendsPanel({
   readonly totals: DividendsEstimate;
 }) {
   const { locale, t } = useI18n();
-  const region = useScrollRegion(t.review.tabDividends);
   if (dividends.length === 0) {
-    return <Note tone="gray">{t.review.noDividends}</Note>;
+    return <Note tone="neutral">{t.review.noDividends}</Note>;
   }
   // Date order, as on a broker statement, whatever order the files came in.
   const rows = [...dividends].sort(
     (a, b) => a.date.localeCompare(b.date) || a.payer.localeCompare(b.payer),
   );
   return (
-    <Table.Root size="2" variant="surface" className="data-table" ref={region}>
-      <caption className="visually-hidden">{t.review.tabDividends}</caption>
-      <Table.Header>
-        <Table.Row>
-          <Table.ColumnHeaderCell>{t.review.colDate}</Table.ColumnHeaderCell>
-          <Table.ColumnHeaderCell>{t.review.colPayer}</Table.ColumnHeaderCell>
-          <Table.ColumnHeaderCell>{t.review.colCountry}</Table.ColumnHeaderCell>
-          <Table.ColumnHeaderCell justify="end">
+    <DataTable caption={t.review.tabDividends}>
+      <thead>
+        <tr>
+          <th scope="col">{t.review.colDate}</th>
+          <th scope="col">{t.review.colPayer}</th>
+          <th scope="col">{t.review.colCountry}</th>
+          <th scope="col" className="end">
             {t.review.colGross}
-          </Table.ColumnHeaderCell>
-          <Table.ColumnHeaderCell justify="end">
+          </th>
+          <th scope="col" className="end">
             {t.review.colForeignTax}
-          </Table.ColumnHeaderCell>
-          <Table.ColumnHeaderCell justify="end">
+          </th>
+          <th scope="col" className="end">
             {t.review.colCredit}
-          </Table.ColumnHeaderCell>
-          <Table.ColumnHeaderCell>{t.review.colRate}</Table.ColumnHeaderCell>
-        </Table.Row>
-      </Table.Header>
-      <Table.Body>
+          </th>
+          <th scope="col">{t.review.colRate}</th>
+        </tr>
+      </thead>
+      <tbody>
         {rows.map((row) => (
-          <Table.Row key={`${row.source.file}:${String(row.source.row)}`}>
-            <Table.RowHeaderCell className="num nowrap">
+          <tr key={`${row.source.file}:${String(row.source.row)}`}>
+            <th scope="row" className="num nowrap">
               {formatDate(row.date, locale)}
-            </Table.RowHeaderCell>
-            <Table.Cell>
-              <Flex direction="column" gap="1">
-                <Text weight="medium">{row.payer}</Text>
-                <Text size="1" color="gray">
-                  <BrokerName broker={row.broker} />
-                </Text>
-                <SourceText source={row.source} />
-              </Flex>
-            </Table.Cell>
-            <Table.Cell className="nowrap">
-              {formatCountry(row.country, locale)}
-            </Table.Cell>
-            <Table.Cell justify="end">
-              <Flex direction="column" gap="1" align="end">
+            </th>
+            <td>
+              <span className="payer">
+                <Ticker symbol={row.symbol} />
+                <span className="stack-tight">
+                  <span className="strong">{row.payer}</span>
+                  <span className="muted small">
+                    <BrokerName broker={row.broker} />
+                  </span>
+                  <SourceText source={row.source} />
+                </span>
+              </span>
+            </td>
+            <td className="nowrap">{formatCountry(row.country, locale)}</td>
+            <td className="end">
+              <span className="stack-tight align-end">
                 <Eur value={row.grossEur} />
                 {row.gross.currency === "EUR" ? null : (
-                  <Text size="1" color="gray" className="num">
+                  <span className="muted small num nowrap">
                     {formatMoney(row.gross.amount, row.gross.currency, locale)}
-                  </Text>
+                  </span>
                 )}
-              </Flex>
-            </Table.Cell>
-            <Table.Cell justify="end">
+              </span>
+            </td>
+            <td className="end">
               <Eur value={row.foreignTaxEur} />
-            </Table.Cell>
-            <Table.Cell justify="end">
-              <Flex direction="column" gap="1" align="end">
+            </td>
+            <td className="end">
+              <span className="stack-tight align-end">
                 <Eur value={row.creditEur} />
                 {isCapped(row) && row.treatyRate !== null ? (
-                  <Text size="2" color="amber" className="cap-note">
+                  <span className="cap-note">
                     {t.review.creditCapped(
                       formatPercent(row.treatyRate, locale),
                     )}
-                  </Text>
+                  </span>
                 ) : null}
-              </Flex>
-            </Table.Cell>
-            <Table.Cell>
+              </span>
+            </td>
+            <td>
               <RateText rate={row.rate} />
-            </Table.Cell>
-          </Table.Row>
+            </td>
+          </tr>
         ))}
-        <Table.Row className="total-row">
-          <Table.RowHeaderCell colSpan={3}>
-            <Text weight="bold">{t.review.dividendsTotal}</Text>
-          </Table.RowHeaderCell>
-          <Table.Cell justify="end">
+      </tbody>
+      <tfoot>
+        <tr>
+          <th scope="row" colSpan={3}>
+            {t.review.dividendsTotal}
+          </th>
+          <td className="end">
             <Eur value={totals.grossEur} strong />
-          </Table.Cell>
-          <Table.Cell justify="end">
+          </td>
+          <td className="end">
             <Eur value={totals.foreignTaxEur} strong />
-          </Table.Cell>
-          <Table.Cell justify="end">
+          </td>
+          <td className="end">
             <Eur value={totals.creditEur} strong />
-          </Table.Cell>
-          <Table.Cell />
-        </Table.Row>
-      </Table.Body>
-    </Table.Root>
+          </td>
+          <td />
+        </tr>
+      </tfoot>
+    </DataTable>
   );
 }

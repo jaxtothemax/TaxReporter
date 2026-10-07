@@ -201,12 +201,29 @@ export interface DividendsEstimate {
   readonly taxDueEur: DecimalString;
 }
 
+/** Totals over every matched lot, for the headline figures. */
+export interface GainsTotals {
+  readonly proceedsEur: DecimalString;
+  readonly costEur: DecimalString;
+  /** proceedsEur minus costEur, before normed costs. */
+  readonly gainEur: DecimalString;
+}
+
+/** Gross dividends per calendar month of the tax year ("2026-03"). */
+export interface MonthlyAmount {
+  readonly month: string;
+  readonly grossEur: DecimalString;
+}
+
 export interface ReturnPreview {
   readonly taxYear: number;
   readonly files: readonly ImportedFile[];
   readonly securities: readonly SecurityResult[];
   readonly dividends: readonly DividendRow[];
   readonly diagnostics: readonly Diagnostic[];
+  readonly gainsTotals: GainsTotals;
   readonly gainsEstimate: GainsEstimate;
   readonly dividendsEstimate: DividendsEstimate;
+  /** All twelve months, zero where nothing was paid. */
+  readonly dividendsByMonth: readonly MonthlyAmount[];
 }

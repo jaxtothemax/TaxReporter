@@ -4,175 +4,163 @@
  * the estimate is built. Native <details> keeps the disclosure accessible.
  */
 import { CaretDownIcon } from "@phosphor-icons/react";
-import {
-  Badge,
-  Box,
-  DataList,
-  Flex,
-  Heading,
-  Table,
-  Text,
-} from "@radix-ui/themes";
 
 import {
   formatDate,
   formatMoney,
   formatNumber,
-  formatPercent,
   plural,
 } from "../../i18n/format";
 import { useI18n } from "../../i18n/i18n";
 import {
   HOLDING_BUCKETS,
   type GainsEstimate,
-  type HoldingBucket,
   type SecurityResult,
 } from "../../model/preview";
 import {
   BrokerName,
+  bucketLabel,
   Eur,
-  Note,
   RateText,
   SourceText,
-  useScrollRegion,
 } from "../../ui/bits";
-
-/** "25" → "25 %" in Slovenian, "25%" in English. */
-function bucketLabel(bucket: HoldingBucket, locale: "sl" | "en"): string {
-  return formatPercent(`0.${bucket.padStart(2, "0")}`, locale);
-}
+import {
+  Amount,
+  Chip,
+  cx,
+  DataTable,
+  DeltaPill,
+  Note,
+  Ticker,
+} from "../../ui/kit";
 
 function InventoryTable({ security }: { readonly security: SecurityResult }) {
   const { locale, t } = useI18n();
-  const caption = `${security.symbol}: ${t.review.rowsTitle}`;
-  const region = useScrollRegion(caption);
   return (
-    <Table.Root size="1" variant="surface" className="data-table" ref={region}>
-      <caption className="visually-hidden">{caption}</caption>
-      <Table.Header>
-        <Table.Row>
-          <Table.ColumnHeaderCell>{t.review.colDate}</Table.ColumnHeaderCell>
-          <Table.ColumnHeaderCell>{t.review.colType}</Table.ColumnHeaderCell>
-          <Table.ColumnHeaderCell justify="end">
+    <DataTable caption={`${security.symbol}: ${t.review.rowsTitle}`}>
+      <thead>
+        <tr>
+          <th scope="col">{t.review.colDate}</th>
+          <th scope="col">{t.review.colType}</th>
+          <th scope="col" className="end">
             {t.review.colQuantity}
-          </Table.ColumnHeaderCell>
-          <Table.ColumnHeaderCell justify="end">
+          </th>
+          <th scope="col" className="end">
             {t.review.colPrice}
-          </Table.ColumnHeaderCell>
-          <Table.ColumnHeaderCell>{t.review.colRate}</Table.ColumnHeaderCell>
-          <Table.ColumnHeaderCell justify="end">
+          </th>
+          <th scope="col">{t.review.colRate}</th>
+          <th scope="col" className="end">
             {t.review.colEurPerUnit}
-          </Table.ColumnHeaderCell>
-          <Table.ColumnHeaderCell>{t.review.colSource}</Table.ColumnHeaderCell>
-        </Table.Row>
-      </Table.Header>
-      <Table.Body>
+          </th>
+          <th scope="col">{t.review.colSource}</th>
+        </tr>
+      </thead>
+      <tbody>
         {security.rows.map((row) => (
-          <Table.Row key={`${row.source.file}:${String(row.source.row)}`}>
-            <Table.RowHeaderCell className="num nowrap">
+          <tr key={`${row.source.file}:${String(row.source.row)}`}>
+            <th scope="row" className="num nowrap">
               {formatDate(row.date, locale)}
-            </Table.RowHeaderCell>
-            <Table.Cell>
-              <Flex direction="column" gap="1">
-                <Text weight={row.kind === "sale" ? "medium" : "regular"}>
-                  {row.kind === "sale" ? t.review.sale : t.review.purchase}
-                </Text>
+            </th>
+            <td>
+              <span className="stack-tight">
+                <span>
+                  <Chip tone={row.kind === "sale" ? "accent" : "neutral"}>
+                    {row.kind === "sale" ? t.review.sale : t.review.purchase}
+                  </Chip>
+                </span>
                 {row.splitAdjusted === undefined ? null : (
-                  <Text size="2" color="gray">
+                  <span className="muted small">
                     {t.review.splitNote(
                       row.splitAdjusted.ratio,
                       formatDate(row.splitAdjusted.date, locale),
                     )}
-                  </Text>
+                  </span>
                 )}
-              </Flex>
-            </Table.Cell>
-            <Table.Cell justify="end" className="num">
+              </span>
+            </td>
+            <td className="end num">
               {formatNumber(row.quantity, locale, { maxFraction: 8 })}
-            </Table.Cell>
-            <Table.Cell justify="end" className="num nowrap">
+            </td>
+            <td className="end num nowrap">
               {formatMoney(row.price.amount, row.price.currency, locale)}
-            </Table.Cell>
-            <Table.Cell>
+            </td>
+            <td>
               <RateText rate={row.rate} />
-            </Table.Cell>
-            <Table.Cell justify="end" className="num">
+            </td>
+            <td className="end num">
               {formatNumber(row.priceEur, locale, {
                 minFraction: 2,
                 maxFraction: 8,
               })}
-            </Table.Cell>
-            <Table.Cell>
-              <Flex direction="column" gap="1">
-                <Text size="1">
+            </td>
+            <td>
+              <span className="stack-tight">
+                <span className="small">
                   <BrokerName broker={row.broker} />
-                </Text>
+                </span>
                 <SourceText source={row.source} />
-              </Flex>
-            </Table.Cell>
-          </Table.Row>
+              </span>
+            </td>
+          </tr>
         ))}
-      </Table.Body>
-    </Table.Root>
+      </tbody>
+    </DataTable>
   );
 }
 
 function LotsTable({ security }: { readonly security: SecurityResult }) {
   const { locale, t } = useI18n();
-  const caption = `${security.symbol}: ${t.review.lotsTitle}`;
-  const region = useScrollRegion(caption);
   return (
-    <Table.Root size="1" variant="surface" className="data-table" ref={region}>
-      <caption className="visually-hidden">{caption}</caption>
-      <Table.Header>
-        <Table.Row>
-          <Table.ColumnHeaderCell>{t.review.colBought}</Table.ColumnHeaderCell>
-          <Table.ColumnHeaderCell justify="end">
+    <DataTable caption={`${security.symbol}: ${t.review.lotsTitle}`}>
+      <thead>
+        <tr>
+          <th scope="col">{t.review.colBought}</th>
+          <th scope="col" className="end">
             {t.review.colQuantity}
-          </Table.ColumnHeaderCell>
-          <Table.ColumnHeaderCell justify="end">
+          </th>
+          <th scope="col" className="end">
             {t.review.colAcquisition}
-          </Table.ColumnHeaderCell>
-          <Table.ColumnHeaderCell justify="end">
+          </th>
+          <th scope="col" className="end">
             {t.review.colDisposal}
-          </Table.ColumnHeaderCell>
-          <Table.ColumnHeaderCell justify="end">
+          </th>
+          <th scope="col" className="end">
             {t.review.colGain}
-          </Table.ColumnHeaderCell>
-          <Table.ColumnHeaderCell>{t.review.colHeld}</Table.ColumnHeaderCell>
-          <Table.ColumnHeaderCell justify="end">
+          </th>
+          <th scope="col">{t.review.colHeld}</th>
+          <th scope="col" className="end">
             {t.review.colBucket}
-          </Table.ColumnHeaderCell>
-        </Table.Row>
-      </Table.Header>
-      <Table.Body>
+          </th>
+        </tr>
+      </thead>
+      <tbody>
         {security.lots.map((lot) => (
-          <Table.Row key={`${lot.purchaseDate}:${lot.saleDate}`}>
-            <Table.RowHeaderCell className="num nowrap">
+          <tr key={`${lot.purchaseDate}:${lot.saleDate}`}>
+            <th scope="row" className="num nowrap">
               {formatDate(lot.purchaseDate, locale)}
-            </Table.RowHeaderCell>
-            <Table.Cell justify="end" className="num">
+            </th>
+            <td className="end num">
               {formatNumber(lot.quantity, locale, { maxFraction: 8 })}
-            </Table.Cell>
-            <Table.Cell justify="end">
+            </td>
+            <td className="end">
               <Eur value={lot.acquisitionEur} />
-            </Table.Cell>
-            <Table.Cell justify="end">
+            </td>
+            <td className="end">
               <Eur value={lot.disposalEur} />
-            </Table.Cell>
-            <Table.Cell justify="end">
-              <Eur value={lot.gainEur} signed />
-            </Table.Cell>
-            <Table.Cell className="nowrap">
+            </td>
+            <td className="end">
+              <Eur value={lot.gainEur} signed strong />
+            </td>
+            <td className="nowrap">
               {plural(lot.yearsHeld, locale, t.review.years)}
-            </Table.Cell>
-            <Table.Cell justify="end" className="num">
-              {bucketLabel(lot.bucket, locale)}
-            </Table.Cell>
-          </Table.Row>
+            </td>
+            <td className="end">
+              <Chip>{bucketLabel(lot.bucket, locale)}</Chip>
+            </td>
+          </tr>
         ))}
-      </Table.Body>
-    </Table.Root>
+      </tbody>
+    </DataTable>
   );
 }
 
@@ -188,49 +176,38 @@ function SecurityItem({ security }: { readonly security: SecurityResult }) {
         >
           {t.review.showDetails(security.symbol)}
         </span>
-        <span className="security-head">
-          <span className="security-id">
-            <Text weight="bold" className="mono">
-              {security.symbol}
-            </Text>
-            <Text size="2" color="gray" className="security-name">
-              {security.name}
-            </Text>
-          </span>
-          <span className="security-brokers">
-            {security.brokers.map((broker) => (
-              <Badge key={broker} variant="soft" color="gray">
-                <BrokerName broker={broker} />
-              </Badge>
-            ))}
+        <span className="security-id">
+          <Ticker symbol={security.symbol} />
+          <span className="security-names">
+            <span className="security-symbol">{security.symbol}</span>
+            <span className="security-name">{security.name}</span>
           </span>
         </span>
+        <span className="security-brokers">
+          {security.brokers.map((broker) => (
+            <Chip key={broker}>
+              <BrokerName broker={broker} />
+            </Chip>
+          ))}
+        </span>
         <span className="security-figures">
-          <span>
-            <Text size="1" color="gray">
-              {t.review.colSold}
-            </Text>
-            <Text className="num">
+          <span className="fig">
+            <span className="fig-label">{t.review.colSold}</span>
+            <span className="num">
               {formatNumber(security.quantitySold, locale, { maxFraction: 8 })}
-            </Text>
+            </span>
           </span>
-          <span>
-            <Text size="1" color="gray">
-              {t.review.colProceeds}
-            </Text>
+          <span className="fig">
+            <span className="fig-label">{t.review.colProceeds}</span>
             <Eur value={security.proceedsEur} />
           </span>
-          <span>
-            <Text size="1" color="gray">
-              {t.review.colCost}
-            </Text>
+          <span className="fig">
+            <span className="fig-label">{t.review.colCost}</span>
             <Eur value={security.costEur} />
           </span>
-          <span>
-            <Text size="1" color="gray">
-              {t.review.colGain}
-            </Text>
-            <Eur value={security.gainEur} signed strong />
+          <span className="fig">
+            <span className="fig-label">{t.review.colGain}</span>
+            <DeltaPill value={security.gainEur} />
           </span>
         </span>
         <CaretDownIcon
@@ -240,16 +217,12 @@ function SecurityItem({ security }: { readonly security: SecurityResult }) {
           className="security-caret"
         />
       </summary>
-      <Box className="security-body">
-        <Heading as="h3" size="2" mb="2">
-          {t.review.rowsTitle}
-        </Heading>
+      <div className="security-body">
+        <h3 className="sub-title">{t.review.rowsTitle}</h3>
         <InventoryTable security={security} />
-        <Heading as="h3" size="2" mt="5" mb="2">
-          {t.review.lotsTitle}
-        </Heading>
+        <h3 className="sub-title">{t.review.lotsTitle}</h3>
         <LotsTable security={security} />
-      </Box>
+      </div>
     </details>
   );
 }
@@ -259,60 +232,50 @@ function EstimateBreakdown({ estimate }: { readonly estimate: GainsEstimate }) {
   const used = HOLDING_BUCKETS.filter(
     (b) => estimate.positiveByBucket[b] !== "0.00",
   );
+  const row = (
+    key: string,
+    label: string,
+    value: string,
+    kind?: "subtotal",
+  ) => (
+    <div key={key} className={cx("ledger-row", kind && `is-${kind}`)}>
+      <dt>{label}</dt>
+      <dd>
+        <Eur value={value} strong={kind === "subtotal"} />
+      </dd>
+    </div>
+  );
   return (
-    <Box className="estimate">
-      <Heading as="h3" size="4" mb="4">
-        {t.review.estimateTitle}
-      </Heading>
-      <DataList.Root orientation={{ initial: "vertical", sm: "horizontal" }}>
-        {used.map((b) => (
-          <DataList.Item key={`positive-${b}`}>
-            <DataList.Label minWidth={{ initial: "0", sm: "320px" }}>
-              {t.review.positiveBucket(bucketLabel(b, locale))}
-            </DataList.Label>
-            <DataList.Value>
-              <Eur value={estimate.positiveByBucket[b]} />
-            </DataList.Value>
-          </DataList.Item>
-        ))}
-        <DataList.Item>
-          <DataList.Label minWidth={{ initial: "0", sm: "320px" }}>
-            {t.review.losses}
-          </DataList.Label>
-          <DataList.Value>
-            <Eur value={estimate.lossesEur} />
-          </DataList.Value>
-        </DataList.Item>
-        <DataList.Item>
-          <DataList.Label minWidth={{ initial: "0", sm: "320px" }}>
-            {t.review.netBase}
-          </DataList.Label>
-          <DataList.Value>
-            <Eur value={estimate.netBaseEur} strong />
-          </DataList.Value>
-        </DataList.Item>
-        {used.map((b) => (
-          <DataList.Item key={`allocated-${b}`}>
-            <DataList.Label minWidth={{ initial: "0", sm: "320px" }}>
-              {t.review.allocatedBucket(bucketLabel(b, locale))}
-            </DataList.Label>
-            <DataList.Value>
-              <Eur value={estimate.allocatedByBucket[b]} />
-            </DataList.Value>
-          </DataList.Item>
-        ))}
-        <DataList.Item>
-          <DataList.Label minWidth={{ initial: "0", sm: "320px" }}>
-            {t.review.estimatedTax}
-          </DataList.Label>
-          <DataList.Value>
-            <Text size="4">
-              <Eur value={estimate.taxEur} strong />
-            </Text>
-          </DataList.Value>
-        </DataList.Item>
-      </DataList.Root>
-    </Box>
+    <div className="card ledger-card">
+      <div className="ledger-head">
+        <h3>{t.review.estimateTitle}</h3>
+        <Chip>{t.review.estimateChip}</Chip>
+      </div>
+      <dl className="ledger">
+        {used.map((b) =>
+          row(
+            `positive-${b}`,
+            t.review.positiveBucket(bucketLabel(b, locale)),
+            estimate.positiveByBucket[b],
+          ),
+        )}
+        {row("losses", t.review.losses, estimate.lossesEur)}
+        {row("net", t.review.netBase, estimate.netBaseEur, "subtotal")}
+        {used.map((b) =>
+          row(
+            `allocated-${b}`,
+            t.review.allocatedBucket(bucketLabel(b, locale)),
+            estimate.allocatedByBucket[b],
+          ),
+        )}
+        <div className="ledger-row is-total">
+          <dt>{t.review.estimatedTax}</dt>
+          <dd>
+            <Amount value={estimate.taxEur} size="md" />
+          </dd>
+        </div>
+      </dl>
+    </div>
   );
 }
 
@@ -325,16 +288,16 @@ export function GainsPanel({
 }) {
   const { t } = useI18n();
   if (securities.length === 0) {
-    return <Note tone="gray">{t.review.noSales}</Note>;
+    return <Note tone="neutral">{t.review.noSales}</Note>;
   }
   return (
-    <Flex direction="column" gap="7">
+    <div className="panel-stack">
       <div className="security-list">
         {securities.map((security) => (
           <SecurityItem key={security.isin} security={security} />
         ))}
       </div>
       <EstimateBreakdown estimate={estimate} />
-    </Flex>
+    </div>
   );
 }

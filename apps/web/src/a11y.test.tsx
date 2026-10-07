@@ -4,7 +4,6 @@
  * the regressions a static read can see: dangling ARIA references, unnamed
  * tables, skipped heading levels, and labels that hide visible content.
  */
-import { Theme } from "@radix-ui/themes";
 import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -50,13 +49,11 @@ const SCREENS: [string, WizardState][] = [
   ],
 ];
 
-/** The review's inactive tabs are not rendered by Radix, so render them too. */
+/** The review panels on their own, as the review's tabs hold them. */
 function panels(locale: Locale): string {
   const wrap = (node: ReactNode) =>
     renderToStaticMarkup(
-      <I18nProvider initialLocale={locale}>
-        <Theme>{node}</Theme>
-      </I18nProvider>,
+      <I18nProvider initialLocale={locale}>{node}</I18nProvider>,
     );
   return [
     wrap(
@@ -98,6 +95,15 @@ for (const locale of ["sl", "en"] as const) {
         }
       });
 
+      it(`${name}: every aria-controls target exists and ids are unique`, () => {
+        const all = [...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]);
+        expect(new Set(all).size, "duplicate id").toBe(all.length);
+        const known = ids(html);
+        for (const m of html.matchAll(/aria-controls="([^"]+)"/g)) {
+          expect(known.has(m[1] ?? ""), `missing #${m[1] ?? ""}`).toBe(true);
+        }
+      });
+
       it(`${name}: one h1, and no heading level is skipped`, () => {
         const levels = headingLevels(html);
         expect(levels.filter((l) => l === 1)).toHaveLength(1);
@@ -117,6 +123,14 @@ for (const locale of ["sl", "en"] as const) {
       const captions = html.match(/<table[^>]*>\s*<caption/g) ?? [];
       expect(tables.length).toBeGreaterThan(0);
       expect(captions).toHaveLength(tables.length);
+      // A table wider than a phone scrolls sideways, and only a focusable
+      // scroller can be scrolled from the keyboard (WCAG 2.1.1): each one sits
+      // in a named region that takes focus.
+      const scrollers =
+        html.match(
+          /<div class="table-scroll" role="region" aria-label="[^"]+" tabindex="0"><table/g,
+        ) ?? [];
+      expect(scrollers).toHaveLength(tables.length);
       expect(html).not.toMatch(/<summary[^>]*aria-label=/);
       const known = ids(html);
       for (const m of html.matchAll(/aria-describedby="([^"]+)"/g)) {

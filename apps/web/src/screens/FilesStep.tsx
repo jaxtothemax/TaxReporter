@@ -3,37 +3,38 @@
  * here reads their contents, because the parsers are not built yet.
  */
 import {
+  ArrowRightIcon,
   FileCodeIcon,
   FileCsvIcon,
   FileXIcon,
   TrashIcon,
   UploadSimpleIcon,
+  WarningCircleIcon,
 } from "@phosphor-icons/react";
-import {
-  Badge,
-  Box,
-  Button,
-  Flex,
-  Heading,
-  IconButton,
-  Text,
-} from "@radix-ui/themes";
 import { useRef, useState, type DragEvent } from "react";
 
 import { demoPreview } from "../demo/demoPreview";
-import { formatDate, formatKilobytes, plural } from "../i18n/format";
+import {
+  formatDate,
+  formatKilobytes,
+  formatNumber,
+  plural,
+} from "../i18n/format";
 import { useI18n } from "../i18n/i18n";
 import type { AddedFile, WizardState } from "../state/wizard";
-import { BrokerName, Note } from "../ui/bits";
+import { BrokerName } from "../ui/bits";
+import { Button, Chip, cx, IconButton, Note } from "../ui/kit";
+
+function isRefused(file: AddedFile): boolean {
+  return file.kind === "own" && !file.supported;
+}
 
 function FileIcon({ file }: { readonly file: AddedFile }) {
-  if (file.kind === "own" && !file.supported) {
-    return <FileXIcon size={22} weight="bold" aria-hidden />;
-  }
+  if (isRefused(file)) return <FileXIcon size={20} weight="bold" />;
   return file.name.toLowerCase().endsWith(".xml") ? (
-    <FileCodeIcon size={22} weight="bold" aria-hidden />
+    <FileCodeIcon size={20} weight="bold" />
   ) : (
-    <FileCsvIcon size={22} weight="bold" aria-hidden />
+    <FileCsvIcon size={20} weight="bold" />
   );
 }
 
@@ -41,24 +42,22 @@ function FileDetail({ file }: { readonly file: AddedFile }) {
   const { locale, t } = useI18n();
   if (file.kind === "own") {
     return file.supported ? (
-      <Text size="2" color="gray">
+      <p className="file-detail">
         {t.files.ownFileDetail(formatKilobytes(file.size, locale))}
-      </Text>
+      </p>
     ) : (
-      <Text size="2" color="red">
-        {t.files.unsupported}
-      </Text>
+      <p className="file-detail is-error">{t.files.unsupported}</p>
     );
   }
   return (
-    <Text size="2" color="gray">
+    <p className="file-detail">
       {t.files.coverage(
         t.brokers[file.broker],
         formatDate(file.firstDate, locale),
         formatDate(file.lastDate, locale),
         plural(file.rowsRead, locale, t.files.rows),
       )}
-    </Text>
+    </p>
   );
 }
 
@@ -89,9 +88,7 @@ export function FilesStep({
   // moves no focus, so the change would otherwise go unannounced.
   const [announcement, setAnnouncement] = useState("");
   const hasOwnFiles = state.files.some((f) => f.kind === "own");
-  const hasUnsupported = state.files.some(
-    (f) => f.kind === "own" && !f.supported,
-  );
+  const hasUnsupported = state.files.some(isRefused);
   const error = !state.showErrors
     ? null
     : state.files.length === 0
@@ -135,23 +132,17 @@ export function FilesStep({
   }
 
   return (
-    <Flex direction="column" gap="6">
-      <Box className="measure">
-        <Flex align="center" gap="3" mb="2" wrap="wrap">
-          <Heading as="h1" size="7" tabIndex={-1}>
-            {t.files.title}
-          </Heading>
-          <Badge size="2" variant="soft" color="gray">
-            {t.files.taxYear(String(taxYear))}
-          </Badge>
-        </Flex>
-        <Text as="p" size="3" color="gray">
-          {t.files.intro}
-        </Text>
-      </Box>
+    <div className="screen">
+      <header className="screen-head">
+        <div className="screen-title-row">
+          <h1 tabIndex={-1}>{t.files.title}</h1>
+          <Chip tone="accent">{t.files.taxYear(String(taxYear))}</Chip>
+        </div>
+        <p className="lead">{t.files.intro}</p>
+      </header>
 
       <div
-        className={dragging ? "dropzone is-dragging" : "dropzone"}
+        className={cx("dropzone", dragging && "is-dragging")}
         onDragOver={(event) => {
           event.preventDefault();
           setDragging(true);
@@ -167,22 +158,14 @@ export function FilesStep({
         }}
         onDrop={onDrop}
       >
-        <UploadSimpleIcon
-          size={28}
-          weight="bold"
-          aria-hidden
-          className="accent-icon"
-        />
-        <Text as="p" size="4" weight="medium">
-          {t.files.dropTitle}
-        </Text>
-        <Text as="p" size="2" color="gray">
-          {t.files.dropBody}
-        </Text>
-        <Flex gap="3" wrap="wrap" justify="center" pt="2">
+        <span className="drop-icon" aria-hidden>
+          <UploadSimpleIcon size={26} weight="bold" />
+        </span>
+        <p className="drop-title">{t.files.dropTitle}</p>
+        <p className="muted">{t.files.dropBody}</p>
+        <div className="drop-actions">
           <Button
-            size="2"
-            variant="soft"
+            variant="primary"
             onClick={() => {
               input.current?.click();
             }}
@@ -190,9 +173,7 @@ export function FilesStep({
             {t.files.chooseButton}
           </Button>
           <Button
-            size="2"
             variant="ghost"
-            color="gray"
             onClick={() => {
               onUseDemoFiles();
               announce(t.files.announceDemo, demoPreview.files.length);
@@ -200,7 +181,7 @@ export function FilesStep({
           >
             {t.files.demoButton}
           </Button>
-        </Flex>
+        </div>
         <input
           ref={input}
           type="file"
@@ -217,47 +198,46 @@ export function FilesStep({
         />
       </div>
 
-      <Box>
-        <Heading as="h2" size="5" mb="3" ref={listHeading} tabIndex={-1}>
-          {t.files.listTitle}
-        </Heading>
+      <div className="card list-card">
+        <div className="card-head">
+          <h2 ref={listHeading} tabIndex={-1}>
+            {t.files.listTitle}
+          </h2>
+          {state.files.length === 0 ? null : (
+            <span className="count" aria-hidden>
+              {formatNumber(String(state.files.length), locale)}
+            </span>
+          )}
+        </div>
         {state.files.length === 0 ? (
-          <Text as="p" size="2" color="gray" className="empty-hint">
-            {t.files.emptyList}
-          </Text>
+          <p className="empty-hint">{t.files.emptyList}</p>
         ) : (
           <ul className="file-list" role="list">
             {state.files.map((file) => (
-              <li key={file.id}>
-                <span className="file-icon">
+              <li
+                key={file.id}
+                className={cx("file-row", isRefused(file) && "is-invalid")}
+              >
+                <span className="file-tile" aria-hidden>
                   <FileIcon file={file} />
                 </span>
-                <Box className="file-text">
-                  <Text
-                    as="p"
-                    size="3"
-                    weight="medium"
-                    className="file-name mono"
-                  >
-                    {file.name}
-                  </Text>
+                <div className="file-text">
+                  <p className="file-name mono">{file.name}</p>
                   <FileDetail file={file} />
-                </Box>
+                </div>
                 {file.kind === "demo" ? (
                   // Demo files are fixed: removing one would not change the demo review.
-                  <Badge variant="soft" color="gray">
+                  <Chip>
                     <BrokerName broker={file.broker} />
-                  </Badge>
+                  </Chip>
                 ) : (
                   <IconButton
-                    variant="ghost"
-                    color="gray"
-                    aria-label={t.files.remove(file.name)}
+                    label={t.files.remove(file.name)}
                     onClick={() => {
                       remove(file);
                     }}
                   >
-                    <TrashIcon size={18} weight="bold" aria-hidden />
+                    <TrashIcon size={17} weight="bold" aria-hidden />
                   </IconButton>
                 )}
               </li>
@@ -267,25 +247,29 @@ export function FilesStep({
         <p className="visually-hidden" aria-live="polite">
           {announcement}
         </p>
-      </Box>
+      </div>
 
-      {hasOwnFiles ? <Note tone="gray">{t.files.ownFilesNotice}</Note> : null}
+      {hasOwnFiles ? (
+        <Note tone="neutral">{t.files.ownFilesNotice}</Note>
+      ) : null}
 
-      <Flex direction="column" gap="2" align="start">
-        <Flex gap="3">
-          <Button size="3" variant="soft" color="gray" onClick={onBack}>
+      <div className="actions">
+        <div className="actions-row">
+          <Button size="lg" onClick={onBack}>
             {t.nav.back}
           </Button>
-          <Button size="3" onClick={onNext}>
+          <Button variant="primary" size="lg" onClick={onNext}>
             {t.nav.next}
+            <ArrowRightIcon size={18} weight="bold" aria-hidden />
           </Button>
-        </Flex>
+        </div>
         {error === null ? null : (
-          <Text size="2" color="red" role="alert">
+          <p className="field-error" role="alert">
+            <WarningCircleIcon size={16} weight="bold" aria-hidden />
             {error}
-          </Text>
+          </p>
         )}
-      </Flex>
-    </Flex>
+      </div>
+    </div>
   );
 }

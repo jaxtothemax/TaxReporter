@@ -1,8 +1,7 @@
 /**
- * The review tabs render only the active panel, so the dividends and notes
- * panels are rendered directly here, inside the providers the app gives them.
+ * The review panels rendered on their own, inside the provider the app gives
+ * them, so each can be checked with edge-case data.
  */
-import { Theme } from "@radix-ui/themes";
 import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -20,9 +19,7 @@ import { diagnosticText, NotesPanel } from "./NotesPanel";
 
 function render(node: ReactNode, locale: Locale = "en"): string {
   return renderToStaticMarkup(
-    <I18nProvider initialLocale={locale}>
-      <Theme>{node}</Theme>
-    </I18nProvider>,
+    <I18nProvider initialLocale={locale}>{node}</I18nProvider>,
   );
 }
 

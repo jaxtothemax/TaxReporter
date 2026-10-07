@@ -1,15 +1,27 @@
 /** Small presentational pieces shared by the start screen, the flow and the review. */
-import {
-  InfoIcon,
-  WarningIcon,
-  WarningOctagonIcon,
-} from "@phosphor-icons/react";
-import { Callout, Text } from "@radix-ui/themes";
-import { useEffect, useRef, type ReactNode } from "react";
+import { ArrowsLeftRightIcon } from "@phosphor-icons/react";
 
-import { formatDate, formatEur, formatRate, isNegative } from "../i18n/format";
+import {
+  formatDate,
+  formatEur,
+  formatPercent,
+  formatRate,
+  isNegative,
+  type Locale,
+} from "../i18n/format";
 import { useI18n } from "../i18n/i18n";
-import type { BrokerId, RateProvenance, SourceRef } from "../model/preview";
+import type {
+  BrokerId,
+  HoldingBucket,
+  RateProvenance,
+  SourceRef,
+} from "../model/preview";
+import { cx } from "./kit";
+
+/** A holding-period bucket as a rate: "25" is "25 %" in Slovenian, "25%" in English. */
+export function bucketLabel(bucket: HoldingBucket, locale: Locale): string {
+  return formatPercent(`0.${bucket.padStart(2, "0")}`, locale);
+}
 
 /** A euro amount; losses are red and carry a real minus sign, not color alone. */
 export function Eur({
@@ -23,13 +35,16 @@ export function Eur({
 }) {
   const { locale } = useI18n();
   return (
-    <Text
-      className="num"
-      weight={strong ? "medium" : "regular"}
-      color={isNegative(value) ? "red" : undefined}
+    <span
+      className={cx(
+        "num",
+        "nowrap",
+        strong && "is-strong",
+        isNegative(value) && "is-loss",
+      )}
     >
       {formatEur(value, locale, { signed })}
-    </Text>
+    </span>
   );
 }
 
@@ -37,20 +52,32 @@ export function Eur({
 export function RateText({ rate }: { readonly rate: RateProvenance | null }) {
   const { locale, t } = useI18n();
   if (rate === null) {
-    return (
-      <Text size="1" color="gray">
-        {t.review.rateInEur}
-      </Text>
-    );
+    return <span className="muted small">{t.review.rateInEur}</span>;
   }
   return (
     <span className="stack-tight">
-      <Text size="2" className="num">
+      <span className="num nowrap">
         {t.review.rate(formatRate(rate.rate, locale), rate.currency)}
-      </Text>
-      <Text size="1" color="gray">
+      </span>
+      <span className="muted small">
         {t.review.rateList(formatDate(rate.listDate, locale))}
-      </Text>
+      </span>
+    </span>
+  );
+}
+
+/** The rate as a chip, for the places that show one conversion on its own. */
+export function RateChip({ rate }: { readonly rate: RateProvenance }) {
+  const { locale, t } = useI18n();
+  return (
+    <span className="rate-chip">
+      <ArrowsLeftRightIcon size={14} weight="bold" aria-hidden />
+      <span className="num">
+        {t.review.rate(formatRate(rate.rate, locale), rate.currency)}
+      </span>
+      <span className="rate-chip-list">
+        {t.review.rateList(formatDate(rate.listDate, locale))}
+      </span>
     </span>
   );
 }
@@ -59,9 +86,9 @@ export function RateText({ rate }: { readonly rate: RateProvenance | null }) {
 export function SourceText({ source }: { readonly source: SourceRef }) {
   const { t } = useI18n();
   return (
-    <Text size="1" color="gray" className="mono">
+    <span className="mono muted small">
       {t.review.source(source.file, String(source.row))}
-    </Text>
+    </span>
   );
 }
 
@@ -70,69 +97,15 @@ export function BrokerName({ broker }: { readonly broker: BrokerId }) {
   return <>{t.brokers[broker]}</>;
 }
 
-const NOTE_TONES = {
-  gray: { Icon: InfoIcon, strong: false },
-  amber: { Icon: WarningIcon, strong: true },
-  red: { Icon: WarningOctagonIcon, strong: true },
-} as const;
-
-/**
- * The one callout recipe: an icon, role="note", and step-12 text on amber and
- * red, where Radix's default step-11 text measured below WCAG AA.
- */
-export function Note({
-  tone,
-  id,
-  children,
-}: {
-  readonly tone: keyof typeof NOTE_TONES;
-  readonly id?: string;
-  readonly children: ReactNode;
-}) {
-  const { Icon, strong } = NOTE_TONES[tone];
-  return (
-    <Callout.Root
-      color={tone}
-      variant="surface"
-      role="note"
-      id={id}
-      className={strong ? "callout-strong" : undefined}
-    >
-      <Callout.Icon>
-        <Icon size={18} weight="bold" aria-hidden />
-      </Callout.Icon>
-      <Callout.Text>{children}</Callout.Text>
-    </Callout.Root>
-  );
-}
-
-/**
- * Makes a Radix table's scroll container reachable by keyboard and named.
- * Table.Root wraps <table> in a ScrollArea whose viewport has no tabindex, so
- * a table wider than a phone screen could not be scrolled without a pointer in
- * browsers that do not focus scrollers by themselves (WCAG 2.1.1). Table.Root
- * forwards its ref to that wrapper; the viewport is found inside it.
- */
-export function useScrollRegion(label: string) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const viewport = ref.current?.querySelector<HTMLElement>(
-      "[data-radix-scroll-area-viewport]",
-    );
-    if (viewport === null || viewport === undefined) return;
-    viewport.tabIndex = 0;
-    viewport.setAttribute("role", "region");
-    viewport.setAttribute("aria-label", label);
-  }, [label]);
-  return ref;
-}
-
 /** Shown on every flow screen while the data on it is made up. */
 export function DemoBanner() {
   const { t } = useI18n();
   return (
-    <Note tone="amber">
-      <Text weight="bold">{t.demoBanner.title}</Text> {t.demoBanner.body}
-    </Note>
+    <div role="note" className="demo-banner">
+      <span className="demo-dot" aria-hidden />
+      <p>
+        <strong>{t.demoBanner.title}</strong> {t.demoBanner.body}
+      </p>
+    </div>
   );
 }

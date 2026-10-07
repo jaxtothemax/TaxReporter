@@ -2,8 +2,7 @@
  * The app root: theme, language, and the flow from the start screen to the
  * download. All state lives in memory; nothing is stored or sent anywhere.
  */
-import { Container, Flex, Section, Theme } from "@radix-ui/themes";
-import { useEffect, useReducer, useRef } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 
 import { demoPreview } from "./demo/demoPreview";
 import type { Locale } from "./i18n/format";
@@ -19,21 +18,37 @@ import {
   wizardReducer,
   type WizardState,
 } from "./state/wizard";
-import { AppFooter, AppHeader, Main, SkipLink } from "./ui/AppChrome";
+import {
+  AppFooter,
+  AppHeader,
+  Main,
+  SkipLink,
+  type Theme,
+} from "./ui/AppChrome";
 import { DemoBanner } from "./ui/bits";
 import { Stepper } from "./ui/Stepper";
-import { useSystemAppearance } from "./ui/useSystemAppearance";
 
-function Frame({ initialState }: { readonly initialState: WizardState }) {
-  const appearance = useSystemAppearance();
+function Frame({
+  initialState,
+  initialTheme,
+}: {
+  readonly initialState: WizardState;
+  readonly initialTheme: Theme;
+}) {
   const { locale, t } = useI18n();
   const [state, dispatch] = useReducer(wizardReducer, initialState);
+  const [theme, setTheme] = useState<Theme>(initialTheme);
   const previousScreen = useRef(state.screen);
   const preview = state.mode === "demo" ? demoPreview : null;
 
   useEffect(() => {
     document.documentElement.lang = locale;
   }, [locale]);
+
+  // The page behind the app (overscroll, scrollbars) follows the theme too.
+  useEffect(() => {
+    document.documentElement.dataset["theme"] = theme;
+  }, [theme]);
 
   // The tab title names the screen, so history entries and screen readers can
   // tell the steps apart.
@@ -68,17 +83,15 @@ function Frame({ initialState }: { readonly initialState: WizardState }) {
   };
 
   return (
-    <Theme
-      appearance={appearance}
-      accentColor="jade"
-      grayColor="sage"
-      radius="medium"
-      panelBackground="solid"
-    >
+    <div className="app" data-theme={theme}>
       <SkipLink />
       <AppHeader
         onHome={() => {
           dispatch({ type: "restart" });
+        }}
+        theme={theme}
+        onToggleTheme={() => {
+          setTheme(theme === "dark" ? "light" : "dark");
         }}
       />
       <Main>
@@ -90,87 +103,85 @@ function Frame({ initialState }: { readonly initialState: WizardState }) {
             }}
           />
         ) : (
-          <Section size="2">
-            <Container size="4" px={{ initial: "4", md: "6" }}>
-              <Flex direction="column" gap="6">
-                <Stepper
-                  state={state}
-                  onGoTo={(screen) => {
-                    dispatch({ type: "goTo", screen });
+          <div className="container flow">
+            <Stepper
+              state={state}
+              onGoTo={(screen) => {
+                dispatch({ type: "goTo", screen });
+              }}
+            />
+            {state.mode === "demo" ? <DemoBanner /> : null}
+            {state.screen === "files" ? (
+              <FilesStep
+                state={state}
+                taxYear={TAX_YEAR}
+                onAddFiles={(files) => {
+                  dispatch({ type: "addFiles", files });
+                }}
+                onRemoveFile={(id) => {
+                  dispatch({ type: "removeFile", id });
+                }}
+                onUseDemoFiles={() => {
+                  dispatch({ type: "useDemoFiles" });
+                }}
+                onBack={back}
+                onNext={next}
+              />
+            ) : null}
+            {state.screen === "details" ? (
+              <DetailsStep
+                state={state}
+                onChange={(field, value) => {
+                  dispatch({ type: "setDetail", field, value });
+                }}
+                onBack={back}
+                onNext={next}
+              />
+            ) : null}
+            {state.screen === "review" ? (
+              <ReviewStep
+                preview={preview}
+                onBack={back}
+                onNext={next}
+                onStartDemo={startDemo}
+              />
+            ) : null}
+            {state.screen === "download" ? (
+              preview === null ? (
+                // Unreachable through the flow (own files block at the
+                // review), but never render a blank screen.
+                <EmptyReview onStartDemo={startDemo} />
+              ) : (
+                <DownloadStep
+                  preview={preview}
+                  onBack={back}
+                  onRestart={() => {
+                    dispatch({ type: "restart" });
                   }}
                 />
-                {state.mode === "demo" ? <DemoBanner /> : null}
-                {state.screen === "files" ? (
-                  <FilesStep
-                    state={state}
-                    taxYear={TAX_YEAR}
-                    onAddFiles={(files) => {
-                      dispatch({ type: "addFiles", files });
-                    }}
-                    onRemoveFile={(id) => {
-                      dispatch({ type: "removeFile", id });
-                    }}
-                    onUseDemoFiles={() => {
-                      dispatch({ type: "useDemoFiles" });
-                    }}
-                    onBack={back}
-                    onNext={next}
-                  />
-                ) : null}
-                {state.screen === "details" ? (
-                  <DetailsStep
-                    state={state}
-                    onChange={(field, value) => {
-                      dispatch({ type: "setDetail", field, value });
-                    }}
-                    onBack={back}
-                    onNext={next}
-                  />
-                ) : null}
-                {state.screen === "review" ? (
-                  <ReviewStep
-                    preview={preview}
-                    onBack={back}
-                    onNext={next}
-                    onStartDemo={startDemo}
-                  />
-                ) : null}
-                {state.screen === "download" ? (
-                  preview === null ? (
-                    // Unreachable through the flow (own files block at the
-                    // review), but never render a blank screen.
-                    <EmptyReview onStartDemo={startDemo} />
-                  ) : (
-                    <DownloadStep
-                      preview={preview}
-                      onBack={back}
-                      onRestart={() => {
-                        dispatch({ type: "restart" });
-                      }}
-                    />
-                  )
-                ) : null}
-              </Flex>
-            </Container>
-          </Section>
+              )
+            ) : null}
+          </div>
         )}
       </Main>
       <AppFooter />
-    </Theme>
+    </div>
   );
 }
 
 export function App({
   initialLocale = "sl",
   initialState = initialWizardState,
+  initialTheme = "dark",
 }: {
   readonly initialLocale?: Locale;
   /** Lets tests render any screen without simulating clicks. */
   readonly initialState?: WizardState;
+  readonly initialTheme?: Theme;
 }) {
   return (
     <I18nProvider initialLocale={initialLocale}>
-      <Frame initialState={initialState} />
+      <Frame initialState={initialState} initialTheme={initialTheme} />
     </I18nProvider>
   );
 }

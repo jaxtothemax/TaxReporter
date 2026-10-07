@@ -24,6 +24,7 @@ export interface Messages {
     readonly footerSource: string;
     readonly footerRates: string;
     readonly opensInNewTab: string;
+    readonly themeLight: string;
   };
   readonly brokers: { readonly trading212: string; readonly ibkr: string };
   readonly start: {
@@ -32,6 +33,7 @@ export interface Messages {
     readonly subtitle: string;
     readonly primaryCta: string;
     readonly secondaryCta: string;
+    readonly highlights: readonly string[];
     readonly previewCaption: string;
     readonly previewSaleOn: (date: string) => string;
     readonly howTitle: string;
@@ -43,8 +45,10 @@ export interface Messages {
     readonly privacyBody: string;
     readonly privacyLlm: string;
     readonly brokersTitle: string;
-    readonly brokersNow: string;
-    readonly brokersNext: string;
+    readonly brokersNowLabel: string;
+    readonly brokersNextLabel: string;
+    readonly brokersNextNames: readonly string[];
+    readonly brokersOthers: string;
   };
   readonly stepper: {
     readonly label: string;
@@ -111,9 +115,21 @@ export interface Messages {
     readonly dividendsLabel: string;
     readonly dividendsTaxLabel: string;
     readonly estimateNote: string;
+    readonly estimateChip: string;
+    readonly bucketsTitle: string;
+    readonly byMonthTitle: string;
+    readonly monthAmount: (month: string, amount: string) => string;
+    readonly creditLabel: string;
+    readonly dividendSplitTitle: string;
+    readonly stillDue: string;
+    readonly showNotes: string;
+    readonly tabsLabel: string;
     readonly tabGains: string;
+    readonly tabGainsShort: string;
     readonly tabDividends: string;
+    readonly tabDividendsShort: string;
     readonly tabNotes: (count: string) => string;
+    readonly tabNotesShort: string;
     readonly colSecurity: string;
     readonly colSold: string;
     readonly colProceeds: string;
@@ -202,6 +218,8 @@ export interface Messages {
   readonly download: {
     readonly title: string;
     readonly intro: (deadline: string) => string;
+    readonly due: (deadline: string) => string;
+    readonly notBuiltChip: string;
     readonly kdvpTitle: string;
     readonly kdvpBody: PluralForms;
     readonly divTitle: string;
@@ -227,6 +245,7 @@ export const en: Messages = {
     footerSource: "Source code (AGPL-3.0)",
     footerRates: "Exchange rates: Banka Slovenije, CC BY 4.0",
     opensInNewTab: "(opens in a new tab)",
+    themeLight: "Light theme",
   },
   brokers: { trading212: "Trading 212", ibkr: "Interactive Brokers" },
   start: {
@@ -236,6 +255,11 @@ export const en: Messages = {
       "Converted at Banka Slovenije rates, matched first in, first out across brokers, and prepared on your own computer.",
     primaryCta: "Explore the demo",
     secondaryCta: "Use my files",
+    highlights: [
+      "Banka Slovenije rates",
+      "FIFO across brokers",
+      "Files never leave this device",
+    ],
     previewCaption:
       "Every converted amount shows the Banka Slovenije rate behind it.",
     previewSaleOn: (date) => `Sale, ${date}`,
@@ -264,8 +288,10 @@ export const en: Messages = {
     privacyLlm:
       "An optional AI check is planned. It will only run with your own API key, after you have seen exactly what it sends.",
     brokersTitle: "Brokers",
-    brokersNow: "Being built for v0.1: Trading 212 and Interactive Brokers.",
-    brokersNext: "Planned next: eToro, Robinhood, Revolut, DEGIRO and others.",
+    brokersNowLabel: "Being built for v0.1",
+    brokersNextLabel: "Planned next",
+    brokersNextNames: ["eToro", "Robinhood", "Revolut", "DEGIRO"],
+    brokersOthers: "and others",
   },
   stepper: {
     label: "Progress",
@@ -342,9 +368,21 @@ export const en: Messages = {
     dividendsTaxLabel: "Estimated tax still due on dividends",
     estimateNote:
       "Estimates only. The tax in your assessment comes from eDavki.",
+    estimateChip: "Estimate",
+    bucketsTitle: "Net taxable gain by tax rate",
+    byMonthTitle: "Dividends by month",
+    monthAmount: (month, amount) => `${month}: ${amount}`,
+    creditLabel: "Foreign tax credit",
+    dividendSplitTitle: "Slovenian tax at 25%",
+    stillDue: "Still due",
+    showNotes: "Show notes",
+    tabsLabel: "Forms and notes",
     tabGains: "Gains (Doh-KDVP)",
+    tabGainsShort: "Gains",
     tabDividends: "Dividends (Doh-Div)",
+    tabDividendsShort: "Dividends",
     tabNotes: (count) => `Notes (${count})`,
+    tabNotesShort: "Notes",
     colSecurity: "Security",
     colSold: "Sold",
     colProceeds: "Proceeds",
@@ -422,6 +460,8 @@ export const en: Messages = {
     title: "Download and import",
     intro: (deadline) =>
       `Import each file into eDavki, check the form, and submit it by ${deadline}.`,
+    due: (deadline) => `Due ${deadline}`,
+    notBuiltChip: "Not built yet",
     kdvpTitle: "Doh-KDVP",
     kdvpBody: {
       one: "Gains from selling securities: {n} inventory list.",
@@ -459,6 +499,7 @@ export const sl: Messages = {
     footerSource: "Izvorna koda (AGPL-3.0)",
     footerRates: "Tečaji: Banka Slovenije, CC BY 4.0",
     opensInNewTab: "(odpre se v novem zavihku)",
+    themeLight: "Svetla tema",
   },
   brokers: { trading212: "Trading 212", ibkr: "Interactive Brokers" },
   start: {
@@ -468,6 +509,11 @@ export const sl: Messages = {
       "Preračunano po tečaju Banke Slovenije, po metodi FIFO prek vseh posrednikov in pripravljeno na vašem računalniku.",
     primaryCta: "Preizkusi demo",
     secondaryCta: "Uporabi svoje datoteke",
+    highlights: [
+      "Tečaji Banke Slovenije",
+      "FIFO prek vseh posrednikov",
+      "Datoteke ne zapustijo naprave",
+    ],
     previewCaption:
       "Pri vsakem preračunanem znesku je viden tečaj Banke Slovenije, ki je bil uporabljen.",
     previewSaleOn: (date) => `Prodaja, ${date}`,
@@ -496,8 +542,10 @@ export const sl: Messages = {
     privacyLlm:
       "Načrtujemo izbirno preverjanje z umetno inteligenco. Delovalo bo le z vašim ključem API in šele, ko boste videli, kaj točno pošlje.",
     brokersTitle: "Borzni posredniki",
-    brokersNow: "V izdelavi za v0.1: Trading 212 in Interactive Brokers.",
-    brokersNext: "Nato: eToro, Robinhood, Revolut, DEGIRO in drugi.",
+    brokersNowLabel: "V izdelavi za v0.1",
+    brokersNextLabel: "Sledijo",
+    brokersNextNames: ["eToro", "Robinhood", "Revolut", "DEGIRO"],
+    brokersOthers: "in drugi",
   },
   stepper: {
     label: "Napredek",
@@ -585,9 +633,21 @@ export const sl: Messages = {
     dividendsLabel: "Prejete dividende",
     dividendsTaxLabel: "Ocena doplačila davka od dividend",
     estimateNote: "Le ocena. Davek v odločbi izračunajo eDavki.",
+    estimateChip: "Ocena",
+    bucketsTitle: "Neto davčna osnova po stopnjah",
+    byMonthTitle: "Dividende po mesecih",
+    monthAmount: (month, amount) => `${month}: ${amount}`,
+    creditLabel: "Odbitek tujega davka",
+    dividendSplitTitle: "Slovenski davek po stopnji 25 %",
+    stillDue: "Za doplačilo",
+    showNotes: "Pokaži opombe",
+    tabsLabel: "Obrazca in opombe",
     tabGains: "Dobiček (Doh-KDVP)",
+    tabGainsShort: "Dobiček",
     tabDividends: "Dividende (Doh-Div)",
+    tabDividendsShort: "Dividende",
     tabNotes: (count) => `Opombe (${count})`,
+    tabNotesShort: "Opombe",
     colSecurity: "Vrednostni papir",
     colSold: "Prodano",
     colProceeds: "Vrednost ob odsvojitvi",
@@ -673,6 +733,8 @@ export const sl: Messages = {
     title: "Prenos in uvoz",
     intro: (deadline) =>
       `Vsako datoteko uvozite v eDavke, preverite obrazec in ga oddajte do ${deadline}.`,
+    due: (deadline) => `Rok: ${deadline}`,
+    notBuiltChip: "Še ni izdelano",
     kdvpTitle: "Doh-KDVP",
     kdvpBody: {
       one: "Dobiček od odsvojitve vrednostnih papirjev: {n} popisni list.",

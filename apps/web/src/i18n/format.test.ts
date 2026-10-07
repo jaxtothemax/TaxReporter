@@ -4,8 +4,10 @@ import {
   formatCountry,
   formatDate,
   formatEur,
+  formatEurParts,
   formatKilobytes,
   formatMoney,
+  formatMonth,
   formatNumber,
   formatPercent,
   isNegative,
@@ -86,6 +88,55 @@ describe("currency, percent and size formatting", () => {
     expect(isNegative("-0.01")).toBe(true);
     expect(isNegative("-0.00")).toBe(false);
     expect(isNegative("12")).toBe(false);
+  });
+});
+
+describe("formatEurParts", () => {
+  const cases: [string, "sl" | "en", boolean][] = [
+    ["1770.04", "sl", false],
+    ["1770.04", "en", false],
+    ["16706.51", "sl", false],
+    ["-427.50", "sl", false],
+    ["-427.50", "en", false],
+    ["8304.21", "en", true],
+    ["0.00", "sl", true],
+  ];
+
+  it("joins back to exactly what formatEur shows, in every locale", () => {
+    for (const [value, locale, signed] of cases) {
+      const runs = formatEurParts(value, locale, { signed });
+      expect(runs.map((r) => r.text).join(""), `${value} ${locale}`).toBe(
+        formatEur(value, locale, { signed }),
+      );
+    }
+  });
+
+  it("separates whole units, cents and the currency in the locale's order", () => {
+    expect(
+      formatEurParts("16706.51", "sl").map((r) => [r.role, plain(r.text)]),
+    ).toEqual([
+      ["main", "16.706"],
+      ["cents", ",51"],
+      ["currency", " €"],
+    ]);
+    expect(formatEurParts("-427.50", "en").map((r) => r.role)).toEqual([
+      "main",
+      "currency",
+      "main",
+      "cents",
+    ]);
+  });
+});
+
+describe("formatMonth", () => {
+  it("names a month for a chart axis and for screen readers", () => {
+    expect(formatMonth("2026-03", "sl", "long")).toBe("marec");
+    expect(formatMonth("2026-03", "en", "long")).toBe("March");
+    expect(formatMonth("2026-05", "en", "narrow")).toBe("M");
+  });
+
+  it("rejects anything but an ISO month", () => {
+    expect(() => formatMonth("2026-3", "en", "long")).toThrow(RangeError);
   });
 });
 

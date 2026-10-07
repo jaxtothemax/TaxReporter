@@ -176,6 +176,37 @@ describe("demo securities", () => {
   }
 });
 
+describe("demo totals", () => {
+  it("sums the gains of every security", () => {
+    const s = demoPreview.securities;
+    const t = demoPreview.gainsTotals;
+    expect(same(t.proceedsEur, r2(sum(s.map((x) => q(x.proceedsEur)))))).toBe(
+      true,
+    );
+    expect(same(t.costEur, r2(sum(s.map((x) => q(x.costEur)))))).toBe(true);
+    expect(same(t.gainEur, r2(sub(q(t.proceedsEur), q(t.costEur))))).toBe(true);
+  });
+
+  it("sums dividends per month, for all twelve months of the tax year", () => {
+    const months = demoPreview.dividendsByMonth;
+    expect(months.map((m) => m.month)).toEqual(
+      Array.from(
+        { length: 12 },
+        (_, i) => `2026-${String(i + 1).padStart(2, "0")}`,
+      ),
+    );
+    for (const m of months) {
+      const paid = demoPreview.dividends.filter((d) =>
+        d.date.startsWith(m.month),
+      );
+      expect(
+        same(m.grossEur, r2(sum(paid.map((d) => q(d.grossEur))))),
+        m.month,
+      ).toBe(true);
+    }
+  });
+});
+
 describe("demo gains estimate", () => {
   const lots = demoPreview.securities.flatMap((s) => s.lots);
   const bases = lots.map((l) => ({
@@ -258,6 +289,19 @@ describe("demo dividends", () => {
       ),
     );
     expect(same(d.taxDueEur, r2(due))).toBe(true);
+  });
+
+  it("splits the 25% Slovenian tax into the credit and the tax still due", () => {
+    // The review charts the two as shares of the Slovenian tax, which only
+    // holds while no credit exceeds the tax on its own payment.
+    const rows = demoPreview.dividends;
+    const d = demoPreview.dividendsEstimate;
+    for (const r of rows) {
+      const siTax = q(r2(mul(q("0.25"), q(r.grossEur))));
+      expect(cmp(siTax, q(r.creditEur)), r.payer).toBeGreaterThanOrEqual(0);
+    }
+    const siTax = sum(rows.map((r) => q(r2(mul(q("0.25"), q(r.grossEur))))));
+    expect(r2(siTax)).toBe(r2(add(q(d.creditEur), q(d.taxDueEur))));
   });
 });
 

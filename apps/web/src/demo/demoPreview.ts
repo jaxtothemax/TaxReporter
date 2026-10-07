@@ -630,6 +630,11 @@ export const demoPreview: ReturnPreview = {
     },
     { severity: "info", code: "foreignTaxProof", params: {} },
   ],
+  gainsTotals: {
+    proceedsEur: "16706.51",
+    costEur: "8402.30",
+    gainEur: "8304.21",
+  },
   gainsEstimate: {
     positiveByBucket: {
       "25": "3013.97",
@@ -653,4 +658,18 @@ export const demoPreview: ReturnPreview = {
     creditEur: "24.33",
     taxDueEur: "21.33",
   },
+  dividendsByMonth: [
+    { month: "2026-01", grossEur: "2.78" },
+    { month: "2026-02", grossEur: "14.76" },
+    { month: "2026-03", grossEur: "22.97" },
+    { month: "2026-04", grossEur: "0.00" },
+    { month: "2026-05", grossEur: "139.74" },
+    { month: "2026-06", grossEur: "0.00" },
+    { month: "2026-07", grossEur: "0.00" },
+    { month: "2026-08", grossEur: "2.34" },
+    { month: "2026-09", grossEur: "0.00" },
+    { month: "2026-10", grossEur: "0.00" },
+    { month: "2026-11", grossEur: "0.00" },
+    { month: "2026-12", grossEur: "0.00" },
+  ],
 };

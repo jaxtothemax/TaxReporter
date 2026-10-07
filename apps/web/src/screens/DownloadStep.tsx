@@ -5,23 +5,15 @@
  */
 import {
   ArrowCounterClockwiseIcon,
+  CalendarBlankIcon,
   DownloadSimpleIcon,
+  FileCodeIcon,
 } from "@phosphor-icons/react";
-import {
-  Box,
-  Button,
-  Card,
-  Code,
-  Flex,
-  Grid,
-  Heading,
-  Text,
-} from "@radix-ui/themes";
 
-import { formatDate, plural } from "../i18n/format";
+import { formatDate, formatNumber, plural } from "../i18n/format";
 import { useI18n } from "../i18n/i18n";
 import type { ReturnPreview } from "../model/preview";
-import { Note } from "../ui/bits";
+import { Button, Chip, Note } from "../ui/kit";
 
 /**
  * 28 February, moved to the next working day when it is not one (ZDavP-2
@@ -47,25 +39,21 @@ function FormCard({
 }) {
   const { t } = useI18n();
   return (
-    <Card size="3" variant="surface">
-      <Flex direction="column" gap="3" height="100%">
-        <Heading as="h2" size="5">
-          {form}
-        </Heading>
-        <Text as="p" size="3" color="gray">
-          {body}
-        </Text>
-        <Code variant="ghost" size="2">
-          {fileName}
-        </Code>
-        <Box mt="auto" pt="2">
-          <Button size="3" disabled aria-describedby="download-not-built">
-            <DownloadSimpleIcon size={18} weight="bold" aria-hidden />
-            {t.download.downloadButton(form)}
-          </Button>
-        </Box>
-      </Flex>
-    </Card>
+    <div className="card form-file-card">
+      <div className="form-file-top">
+        <span className="icon-tile" aria-hidden>
+          <FileCodeIcon size={22} weight="bold" />
+        </span>
+        <Chip tone="warn">{t.download.notBuiltChip}</Chip>
+      </div>
+      <h2 className="form-file-title">{form}</h2>
+      <p className="muted">{body}</p>
+      <p className="file-chip mono">{fileName}</p>
+      <Button variant="primary" disabled aria-describedby="download-not-built">
+        <DownloadSimpleIcon size={18} weight="bold" aria-hidden />
+        {t.download.downloadButton(form)}
+      </Button>
+    </div>
   );
 }
 
@@ -82,17 +70,17 @@ export function DownloadStep({
   const deadline = formatDate(filingDeadline(preview.taxYear), locale);
   const year = String(preview.taxYear);
   return (
-    <Flex direction="column" gap="6">
-      <Box className="measure">
-        <Heading as="h1" size="7" mb="2" tabIndex={-1}>
-          {t.download.title}
-        </Heading>
-        <Text as="p" size="3" color="gray">
-          {t.download.intro(deadline)}
-        </Text>
-      </Box>
+    <div className="screen">
+      <header className="screen-head">
+        <h1 tabIndex={-1}>{t.download.title}</h1>
+        <p className="lead">{t.download.intro(deadline)}</p>
+        <p className="due-chip">
+          <CalendarBlankIcon size={16} weight="bold" aria-hidden />
+          {t.download.due(deadline)}
+        </p>
+      </header>
 
-      <Grid columns={{ initial: "1", sm: "2" }} gap="4">
+      <div className="form-cards">
         {preview.securities.length === 0 ? null : (
           <FormCard
             form={t.download.kdvpTitle}
@@ -111,34 +99,35 @@ export function DownloadStep({
             fileName={`Doh-Div-${year}.xml`}
           />
         )}
-      </Grid>
+      </div>
 
-      <Note tone="gray" id="download-not-built">
+      <Note tone="neutral" id="download-not-built">
         {t.download.notBuilt}
       </Note>
 
-      <Box className="measure">
-        <Heading as="h2" size="5" mb="3">
-          {t.download.importTitle}
-        </Heading>
-        <ol className="import-steps">
-          {t.download.importSteps(deadline).map((step) => (
+      <div className="card import-card">
+        <h2>{t.download.importTitle}</h2>
+        <ol className="timeline" role="list">
+          {t.download.importSteps(deadline).map((step, i) => (
             <li key={step}>
-              <Text size="3">{step}</Text>
+              <span className="timeline-dot num" aria-hidden>
+                {formatNumber(String(i + 1), locale)}
+              </span>
+              <p>{step}</p>
             </li>
           ))}
         </ol>
-      </Box>
+      </div>
 
-      <Flex gap="3">
-        <Button size="3" variant="soft" color="gray" onClick={onBack}>
+      <div className="actions-row">
+        <Button size="lg" onClick={onBack}>
           {t.nav.back}
         </Button>
-        <Button size="3" variant="soft" color="gray" onClick={onRestart}>
+        <Button variant="ghost" size="lg" onClick={onRestart}>
           <ArrowCounterClockwiseIcon size={18} weight="bold" aria-hidden />
           {t.download.startOver}
         </Button>
-      </Flex>
-    </Flex>
+      </div>
+    </div>
   );
 }
