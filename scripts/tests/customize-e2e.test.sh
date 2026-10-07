@@ -25,15 +25,21 @@
 # this checkout, and is torn down on exit.
 #
 # Cases:
-#   1. A fresh, uncustomized clone (this repo's own HEAD — Blueprint never
-#      "kickoffs" itself) — customize.sh must report outstanding TODOs.
+#   1. A clone of this repo's own HEAD. While HEAD is still the uncustomized
+#      template, customize.sh must report outstanding TODOs. Once the project
+#      has run /kickoff, HEAD is no longer a "just cloned" tree, so only the
+#      state-independent checks run (GitHub checklist, no GitLab leftovers) and
+#      Case 3 carries the placeholder-detection proof.
 #   2. A simulated completed /kickoff — customize.sh must report all clear,
 #      no placeholder token survives in the templated files, CLAUDE.md still
 #      reads as sane markdown, and doctor.sh runs to completion (exit 0, git
 #      hooks installed, minimum prerequisites present).
 #   3. Negative control (the FAILS-if-a-placeholder-survives proof, run
 #      automatically rather than by hand-and-restore): starting from the
-#      Case 2 tree, put ONE placeholder back — customize.sh must catch it.
+#      Case 2 tree, inject ONE placeholder — customize.sh must catch it. It is
+#      injected (appended), not restored by swapping a filled-in value back,
+#      so the control still bites after a real /kickoff replaced every
+#      placeholder with project-specific text.
 
 set -euo pipefail
 
@@ -247,10 +253,12 @@ run_doctor() { # <dir> -> prints combined stdout+stderr, returns doctor.sh's exi
 
 # ─── Case 1: a fresh, uncustomized clone reports outstanding TODOs ────────────
 #
-# This is the baseline negative control: this repo IS the template, it never
-# runs its own /kickoff, so its own HEAD is always in the "just cloned" state.
-# If this ever silently passes (Remaining: 0), customize.sh stopped detecting
-# the very placeholders it ships with.
+# While HEAD is still the template, this is the baseline negative control: a
+# "just cloned" tree must report TODOs, and if it ever silently passes
+# (Remaining: 0), customize.sh stopped detecting the very placeholders it ships
+# with. After /kickoff, HEAD is customized on purpose, so those two assertions
+# would test the project's progress rather than the script; Case 3's injected
+# placeholders prove detection instead.
 
 D1="$TMP/fresh"
 build_scratch_clone "$D1"
@@ -259,15 +267,19 @@ set +e
 out_fresh="$(run_customize "$D1")"; rc_fresh=$?
 set -e
 
-r=1; [[ "$rc_fresh" -ne 0 ]] && r=0
-check "fresh clone: customize.sh exits non-zero (outstanding TODOs)" "$r"
+if grep -qF '[PROJECT NAME]' "$D1/CLAUDE.md"; then
+  r=1; [[ "$rc_fresh" -ne 0 ]] && r=0
+  check "fresh clone: customize.sh exits non-zero (outstanding TODOs)" "$r"
 
-r=1
-case "$out_fresh" in
-  *"Remaining: 0"*) ;;
-  *"Remaining: "*) r=0 ;;
-esac
-check "fresh clone: at least one [ ] TODO item reported" "$r"
+  r=1
+  case "$out_fresh" in
+    *"Remaining: 0"*) ;;
+    *"Remaining: "*) r=0 ;;
+  esac
+  check "fresh clone: at least one [ ] TODO item reported" "$r"
+else
+  echo "SKIP: fresh clone TODO assertions — HEAD has run /kickoff (no [PROJECT NAME] left); Case 3 proves detection."
+fi
 
 # The project is hosted on GitHub: the manual-settings checklist and the next
 # steps must be GitHub's, and nothing may still point a new adopter at GitLab.
@@ -330,7 +342,7 @@ check "customized clone: doctor.sh smoke run exits 0 (git/make/python3 present, 
 
 D3="$TMP/regressed"
 cp -R "$D2" "$D3"
-replace_first "$D3/CLAUDE.md" 'Acme Widget' '[PROJECT NAME]'
+printf '\n[PROJECT NAME]\n' >> "$D3/CLAUDE.md"
 
 set +e
 out_regressed="$(run_customize "$D3")"; rc_regressed=$?
@@ -349,7 +361,7 @@ check "negative control: customize.sh names the specific regression" "$r"
 # control isn't just proving one grep still works.
 D4="$TMP/regressed-personas"
 cp -R "$D2" "$D4"
-replace_first "$D4/.claude/personas.md" '## Priya Shah —' '## Alex —'
+printf '\n## Alex — Solo Developer\n' >> "$D4/.claude/personas.md"
 
 set +e
 out_regressed2="$(run_customize "$D4")"; rc_regressed2=$?
