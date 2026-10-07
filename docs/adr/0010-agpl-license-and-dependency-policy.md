@@ -19,6 +19,9 @@ hosted service must publish their changes.
   GPL-2.0-or-later, GPL-3.0, AGPL-3.0).
   Not allowed: GPL-2.0-only, SSPL, BUSL, Commons Clause, non-commercial licenses, proprietary
   or unknown licenses.
+- **Fonts are the one OFL exception.** Font packages under SIL OFL-1.1 are allowed by name in
+  the license gate's reasoned-exceptions table. Fonts are separate works served as assets, and
+  OFL-1.1 permits bundling them with any software. OFL code packages are not allowed.
 - **Enforced twice.** The `dependency` agent checks before a package is added, and a CI
   license gate checks the installed tree.
 - **No copying from non-compatible projects.** Code is never copied from them. MIT-licensed

@@ -1,0 +1,1 @@
+- **Web app preview**: the browser app now walks the whole flow (add exports, details, review, download) in Slovenian and English, light and dark, using clearly marked demo data with real Banka Slovenije rates. Reading your own files and writing the XML are not built yet, so the download stays disabled.

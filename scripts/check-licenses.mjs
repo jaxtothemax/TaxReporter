@@ -101,7 +101,18 @@ const KNOWN_INCOMPATIBLE = [
 // version that changes its license is checked again instead of inheriting the
 // waiver. `reason` is required: an unexplained entry is how a list like this
 // rots, one good reason nobody wrote down at a time.
-const EXCEPTIONS = [];
+const EXCEPTIONS = [
+  {
+    name: '@fontsource-variable/geist',
+    license: 'OFL-1.1',
+    reason: 'Font files under the SIL Open Font License 1.1, self-hosted so the web app makes no third-party font request. Fonts are separate works served as assets, and OFL-1.1 explicitly permits bundling them with any software; only selling the fonts on their own is restricted (ADR 0010).',
+  },
+  {
+    name: '@fontsource-variable/geist-mono',
+    license: 'OFL-1.1',
+    reason: 'Font files under the SIL Open Font License 1.1, self-hosted so the web app makes no third-party font request. Fonts are separate works served as assets, and OFL-1.1 explicitly permits bundling them with any software; only selling the fonts on their own is restricted (ADR 0010).',
+  },
+];
 
 // ─── SPDX expressions ───────────────────────────────────────────────────────
 
