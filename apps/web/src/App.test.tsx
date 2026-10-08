@@ -9,12 +9,22 @@ import { describe, expect, it } from "vitest";
 import { App } from "./App";
 import type { Locale } from "./i18n/format";
 import { en, sl } from "./i18n/messages";
+import type { ReadReply } from "./engine/protocol";
 import {
   initialWizardState,
   wizardReducer,
   type WizardAction,
   type WizardState,
 } from "./state/wizard";
+import {
+  engineReplies,
+  ownState,
+  preparedState,
+  TAXPAYER,
+} from "./testing/ownFiles";
+
+// The user's own files, as the engine reads and prepares them.
+const { read, prepared } = await engineReplies();
 
 function stateAfter(...actions: WizardAction[]): WizardState {
   return actions.reduce(wizardReducer, initialWizardState);
@@ -126,9 +136,8 @@ describe("App", () => {
   });
 
   it("previews the XML header from the details as they are typed", () => {
-    const state = stateAfter(
-      { type: "startOwn" },
-      { type: "addFiles", files: [{ name: "a.csv", size: 1 }] },
+    const state = ownState(
+      read,
       { type: "next" },
       { type: "setDetail", field: "taxNumber", value: "1234 5678" },
       { type: "setDetail", field: "name", value: "Ana <&> Novak" },
@@ -157,54 +166,128 @@ describe("App", () => {
     expect(html).toContain("Apple Inc.");
   });
 
-  it("shows an empty review, not made-up numbers, for the user's own files", () => {
-    const own = stateAfter(
-      { type: "startOwn" },
-      { type: "addFiles", files: [{ name: "export.csv", size: 2048 }] },
+  it("prepares the review of own files, and shows no made-up numbers meanwhile", () => {
+    const own = ownState(
+      read,
       { type: "setDetail", field: "taxNumber", value: "12345678" },
       { type: "goTo", screen: "review" },
     );
     expect(own.screen).toBe("review");
     const html = text(render(own));
-    expect(html).toContain(en.review.emptyTitle);
+    expect(html).toContain(en.review.preparing);
     expect(html).not.toContain("€1,770.04");
+    expect(html).not.toContain(en.demoBanner.body);
   });
 
-  it("lists the user's own files as not read yet", () => {
-    const own = stateAfter(
+  it("lists own files as being read, then by broker and the days they cover", () => {
+    const added = stateAfter(
       { type: "startOwn" },
-      { type: "addFiles", files: [{ name: "export.csv", size: 2048 }] },
+      {
+        type: "addFiles",
+        files: [{ id: "file-1", name: "export.csv", size: 2048 }],
+      },
     );
-    const html = text(render(own));
-    expect(html).toContain("export.csv");
-    expect(html).toContain("not read yet");
-    expect(html).toContain(en.files.ownFilesNotice);
+    const reading = text(render(added));
+    expect(reading).toContain("export.csv");
+    expect(reading).toContain(`2 kB, ${en.files.reading}`);
+    expect(reading).toContain(en.files.ownFilesNotice);
+
+    const done = text(render(ownState(read)));
+    // From the first dated event to the last: a deposit has no tax date.
+    expect(done).toContain("Trading 212, 6 Jan 2026 to 10 Sept 2026, 10 rows");
+    expect(done).toMatch(/Interactive Brokers, [^,]+ to [^,]+, \d+ rows/);
+    expect(done).not.toContain(en.files.reading);
+  });
+
+  it("asks whether the Trading 212 files are one account, preset to one", () => {
+    const html = render(ownState(read));
+    expect(text(html)).toContain(en.files.accountsTitle);
+    const radios =
+      html.match(/<input type="radio" name="trading212-accounts"[^>]*>/g) ?? [];
+    expect(radios).toHaveLength(2);
+    expect(radios[0]).toContain('value="same"');
+    expect(radios[0]).toContain("checked");
+    expect(radios[1]).not.toContain("checked");
+  });
+
+  it("says why a file cannot be read, beside it, and stops there", () => {
+    const refused: ReadReply = {
+      ...read,
+      files: [
+        ...read.files.slice(0, 2),
+        {
+          status: "refused",
+          broker: null,
+          firstDate: null,
+          lastDate: null,
+          rows: 0,
+          sameAs: null,
+          unnamedAccount: false,
+          findings: [
+            { severity: "blocking", code: "unknownFormat", params: {} },
+          ],
+        },
+      ],
+    };
+    const state = ownState(refused, { type: "next" });
+    expect(state.screen).toBe("files");
+    const html = text(render(state));
+    expect(html).toContain("TaxReporter does not recognize this export.");
+    expect(html).toContain(en.files.unsupportedBlocked);
+  });
+
+  it("asks for each dividend payer, preset from the export", () => {
+    const html = render(ownState(read, { type: "next" }));
+    expect(text(html)).toContain(en.details.payersTitle);
+    expect(html).toMatch(/<legend[^>]*>.*KO.*US1912161007/);
+    expect(html).toMatch(/id="payer-US1912161007-name"[^>]*value="Coca-Cola"/);
+    expect(html).toMatch(/<option value="US" selected="">/);
+    expect(text(html)).toContain(
+      "1 payer still needs its details. Until then, Doh-Div is not written; Doh-KDVP is.",
+    );
+  });
+
+  it("shows the review of own files as the engine prepared it", () => {
+    const html = text(render(preparedState(read, prepared)));
+    expect(html).toContain("Review tax year 2026");
+    expect(html).toContain("US1912161007");
+    expect(html).not.toContain(en.review.preparing);
+    expect(html).not.toContain(en.demoBanner.body);
+  });
+
+  it("offers own returns for download at once, with the user's details in them", () => {
+    const state = preparedState(read, prepared, { type: "next" });
+    expect(state.screen).toBe("download");
+    const html = render(state);
+    const buttons =
+      html.match(/<button[^>]*>[^]*?Download Doh-(?:KDVP|Div)/g) ?? [];
+    expect(buttons).toHaveLength(2);
+    for (const button of buttons) expect(button).not.toContain("disabled");
+    expect(text(html)).toContain(en.download.ownFiles);
+    expect(text(html)).not.toContain(en.download.demoFiles);
+    expect(prepared.kdvp.xml).toContain(
+      `<edp:taxNumber>${TAXPAYER.taxNumber}</edp:taxNumber>`,
+    );
   });
 
   it("explains a missing file and a missing tax number inline", () => {
     const noFile = stateAfter({ type: "startOwn" }, { type: "next" });
     expect(text(render(noFile))).toContain(en.files.needFiles);
 
-    const badTaxNumber = stateAfter(
-      { type: "startOwn" },
-      { type: "addFiles", files: [{ name: "a.csv", size: 1 }] },
-      { type: "next" },
-      { type: "next" },
-    );
+    const badTaxNumber = ownState(read, { type: "next" }, { type: "next" });
     const html = render(badTaxNumber);
     expect(text(html)).toContain(en.details.taxNumberError);
     expect(html).toContain('aria-invalid="true"');
     expect(html).toMatch(/aria-describedby="[^"]*details-taxNumber-error/);
   });
 
-  it("never shows a blank Download screen for unread own files", () => {
-    const own = stateAfter(
-      { type: "startOwn" },
-      { type: "addFiles", files: [{ name: "export.csv", size: 2048 }] },
+  it("never shows a blank Download screen before own returns are prepared", () => {
+    const own = ownState(
+      read,
       { type: "setDetail", field: "taxNumber", value: "12345678" },
       { type: "goTo", screen: "download" },
     );
-    // Own files block at the review, so the jump is refused...
+    // The review is not prepared, so the jump is refused...
     expect(own.screen).toBe("files");
     // ...and even a forced download state renders a message, not nothing.
     const forced = text(render({ ...own, screen: "download" }));
@@ -214,7 +297,10 @@ describe("App", () => {
   it("refuses files that are not CSV or XML, and says so", () => {
     const state = stateAfter(
       { type: "startOwn" },
-      { type: "addFiles", files: [{ name: "statement.pdf", size: 9000 }] },
+      {
+        type: "addFiles",
+        files: [{ id: "file-1", name: "statement.pdf", size: 9000 }],
+      },
       { type: "next" },
     );
     const html = text(render(state));
@@ -225,7 +311,7 @@ describe("App", () => {
 
   it("points out the demo's warning above the review tabs", () => {
     const html = text(render(screens[3]?.[1] ?? demo, "en"));
-    expect(html).toContain("1 note needs your attention before you download.");
+    expect(html).toContain("2 notes need your attention before you download.");
   });
 
   it("keeps the download buttons disabled while the files are written, and says so", () => {

@@ -580,56 +580,52 @@ export const demoPreview: ReturnPreview = {
       source: { file: "ibkr-flex-2019-2026.xml", row: 219 },
     },
   ],
-  diagnostics: [
+  // The engine's own findings for these files, as the review words them.
+  findings: [
     {
       severity: "warning",
       code: "excessWithholding",
       params: {
-        payer: "Allianz SE",
+        isin: "DE0008404005",
+        date: "2026-05-08",
         country: "DE",
         withheldEur: "32.49",
-        withheldRate: "0.26375",
         treatyRate: "0.15",
         creditEur: "18.48",
         excessEur: "14.01",
       },
     },
     {
-      severity: "info",
-      code: "splitAdjusted",
-      params: { symbol: "AAPL", ratio: "4:1", date: "2020-08-31" },
+      severity: "warning",
+      code: "interestNotCovered",
+      params: { broker: "trading212", count: 6 },
     },
     {
       severity: "info",
       code: "splitAdjusted",
-      params: { symbol: "NVDA", ratio: "10:1", date: "2024-06-10" },
+      params: { isin: "US0378331005", date: "2020-08-31", ratio: "4:1" },
+    },
+    {
+      severity: "info",
+      code: "splitAdjusted",
+      params: { isin: "US67066G1040", date: "2024-06-10", ratio: "10:1" },
     },
     {
       severity: "info",
       code: "lossCounts",
-      params: { symbol: "ASML", saleDate: "2026-08-04" },
+      params: { isin: "NL0010273215", date: "2026-08-04" },
     },
-    {
-      severity: "info",
-      code: "holidayRate",
-      params: {
-        payer: "AT&T Inc.",
-        date: "2026-05-01",
-        listDate: "2026-04-30",
-      },
-    },
-    {
-      severity: "info",
-      code: "rowsSetAside",
-      params: {
-        file: DEMO_TRADING212_FILE,
-        deposits: 5,
-        interest: 6,
-        conversions: 1,
-      },
-    },
-    { severity: "info", code: "foreignTaxProof", params: {} },
   ],
+  symbols: {
+    US0378331005: "AAPL",
+    US67066G1040: "NVDA",
+    IE00BK5BQT80: "VWCE",
+    NL0010273215: "ASML",
+    US7561091049: "O",
+    US00206R1023: "T",
+    GB00B10RZP78: "ULVR",
+    DE0008404005: "ALV",
+  },
   gainsTotals: {
     proceedsEur: "16706.51",
     costEur: "8402.30",

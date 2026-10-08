@@ -2,12 +2,23 @@
  * The import → details → review → download flow as a pure reducer, so every
  * navigation rule is unit-testable without a DOM.
  *
- * Two modes: "demo" walks the flow on the bundled demo data, "own" holds the
- * user's own files. Reading broker files is not built yet, so in "own" mode the
- * files are kept as names and sizes only, never read, and the review shows an
- * empty state that points to the demo.
+ * Two modes: "demo" walks the flow on the bundled demo data, "own" reads the
+ * user's own files in the engine worker (ADR 0013). The reducer holds what
+ * the engine answered, never the files themselves: their bytes live with the
+ * app, outside any state that could be logged or kept. Each answer carries
+ * the number of the request it answers, and an answer to any but the latest
+ * request is dropped, so a slow read can never overwrite a newer one.
  */
+import type { AccountChoice } from "@taxreporter/pipeline";
+
 import { demoPreview } from "../demo/demoPreview";
+import type {
+  FailedReply,
+  FileSummary,
+  PayerDetails,
+  PrepareReply,
+  ReadReply,
+} from "../engine/protocol";
 import type { BrokerId, IsoDate } from "../model/preview";
 
 /** The tax year v0.1 prepares returns for (filed by 1 March 2027). */
@@ -46,15 +57,52 @@ export interface Details {
   readonly email: string;
 }
 
+/** A dividend payer's details as the user types them, by ISIN. */
+export type PayerDraft = Omit<PayerDetails, "isin">;
+
+/** The engine's reading of the own files, for the files it was asked about. */
+export type Reading =
+  | { readonly status: "idle" }
+  | {
+      readonly status: "reading" | "failed";
+      readonly request: number;
+      /** The files read, by id, in the order the request named them. */
+      readonly fileIds: readonly string[];
+    }
+  | {
+      readonly status: "read";
+      readonly request: number;
+      readonly fileIds: readonly string[];
+      readonly reply: ReadReply;
+    };
+
+/** The returns the engine prepared from the files and the details. */
+export type Preparing =
+  | { readonly status: "idle" }
+  | {
+      readonly status: "preparing" | "failed";
+      readonly request: number;
+      readonly fileIds: readonly string[];
+    }
+  | {
+      readonly status: "prepared";
+      readonly request: number;
+      readonly fileIds: readonly string[];
+      readonly reply: PrepareReply;
+    };
+
 export interface WizardState {
   readonly screen: Screen;
   readonly mode: Mode;
   readonly files: readonly AddedFile[];
   readonly details: Details;
+  /** Whether Trading 212 files, which do not name their account, are one. */
+  readonly accounts: AccountChoice;
+  readonly payers: Readonly<Record<string, PayerDraft>>;
+  readonly reading: Reading;
+  readonly preparing: Preparing;
   /** Set when the user tried to move on past a step that still has errors. */
   readonly showErrors: boolean;
-  /** Source of ids for the user's own files; ids only need to be unique here. */
-  readonly nextFileId: number;
 }
 
 export type WizardAction =
@@ -63,16 +111,45 @@ export type WizardAction =
   | { readonly type: "useDemoFiles" }
   | {
       readonly type: "addFiles";
+      /** Each with an id unique in the session, under which the app keeps its bytes. */
       readonly files: readonly {
+        readonly id: string;
         readonly name: string;
         readonly size: number;
       }[];
     }
   | { readonly type: "removeFile"; readonly id: string }
+  | { readonly type: "setAccounts"; readonly accounts: AccountChoice }
   | {
       readonly type: "setDetail";
       readonly field: keyof Details;
       readonly value: string;
+    }
+  | {
+      readonly type: "setPayer";
+      readonly isin: string;
+      readonly field: keyof PayerDraft;
+      readonly value: string;
+    }
+  | {
+      readonly type: "readStarted";
+      readonly request: number;
+      readonly fileIds: readonly string[];
+    }
+  | {
+      readonly type: "readDone";
+      readonly request: number;
+      readonly reply: ReadReply | FailedReply;
+    }
+  | {
+      readonly type: "prepareStarted";
+      readonly request: number;
+      readonly fileIds: readonly string[];
+    }
+  | {
+      readonly type: "prepareDone";
+      readonly request: number;
+      readonly reply: PrepareReply | FailedReply;
     }
   | { readonly type: "next" }
   | { readonly type: "back" }
@@ -88,13 +165,18 @@ const EMPTY_DETAILS: Details = {
   email: "",
 };
 
+const IDLE = { status: "idle" } as const;
+
 export const initialWizardState: WizardState = {
   screen: "start",
   mode: "own",
   files: [],
   details: EMPTY_DETAILS,
+  accounts: "same",
+  payers: {},
+  reading: IDLE,
+  preparing: IDLE,
   showErrors: false,
-  nextFileId: 1,
 };
 
 /** Spaces are allowed while typing ("1234 5678") and dropped before checking. */
@@ -115,6 +197,84 @@ export function isSupportedFile(name: string): boolean {
   return /\.(csv|xml)$/i.test(name);
 }
 
+/**
+ * Each file's name as findings and the engine know it: unique in the
+ * session, "name (2)" for a second file of one name, so a finding about one
+ * of them says which.
+ */
+export function labelsOf(
+  files: readonly AddedFile[],
+): ReadonlyMap<string, string> {
+  const used = new Set<string>();
+  const labels = new Map<string, string>();
+  for (const file of files) {
+    let label = file.name;
+    for (let n = 2; used.has(label); n += 1) {
+      label = `${file.name} (${String(n)})`;
+    }
+    used.add(label);
+    labels.set(file.id, label);
+  }
+  return labels;
+}
+
+/** The own files the engine is asked to read: those that can be. */
+export function readableFiles(state: WizardState): readonly AddedFile[] {
+  return state.files.filter((f) => f.kind === "own" && f.supported);
+}
+
+/** The engine's summary of a file, once the latest reading names it. */
+export function summaryOf(
+  state: WizardState,
+  id: string,
+): FileSummary | undefined {
+  if (state.reading.status !== "read") return undefined;
+  const position = state.reading.fileIds.indexOf(id);
+  return position < 0 ? undefined : state.reading.reply.files[position];
+}
+
+/** Whether to ask if the Trading 212 files are one account: two or more. */
+export function asksAccounts(state: WizardState): boolean {
+  if (state.reading.status !== "read") return false;
+  return (
+    state.reading.reply.files.filter(
+      (f) => f.status === "read" && f.unnamedAccount,
+    ).length >= 2
+  );
+}
+
+/** The payer drafts the review is prepared with, one per payer asked about. */
+export function payerDetails(state: WizardState): PayerDetails[] {
+  if (state.reading.status !== "read") return [];
+  return state.reading.reply.payers.flatMap((prompt) => {
+    const draft = state.payers[prompt.isin];
+    return draft === undefined ? [] : [{ isin: prompt.isin, ...draft }];
+  });
+}
+
+/** A payer still missing what Doh-Div needs of every payer. */
+export function isPayerIncomplete(
+  draft: PayerDraft | undefined,
+  isinCountry: string,
+): boolean {
+  return (
+    draft === undefined ||
+    draft.name.trim() === "" ||
+    draft.address.trim() === "" ||
+    draft.country === "" ||
+    (isinCountry === "" && draft.sourceCountry === "")
+  );
+}
+
+/** Whether the prepared returns hold a form to download, or need none. */
+function hasDownload(reply: PrepareReply): boolean {
+  const forms = [reply.kdvp, reply.div];
+  return (
+    forms.some((form) => form.xml !== null) ||
+    forms.every((form) => !form.needed)
+  );
+}
+
 function demoFiles(): AddedFile[] {
   return demoPreview.files.map((file) => ({
     kind: "demo",
@@ -128,19 +288,35 @@ function demoFiles(): AddedFile[] {
 }
 
 export type BlockingReason =
-  "needFiles" | "unsupportedFile" | "taxNumber" | "noResults";
+  | "needFiles"
+  | "unsupportedFile"
+  | "stillReading"
+  | "readFailed"
+  | "unreadableFile"
+  | "taxNumber"
+  | "notPrepared"
+  | "nothingWritten";
+
+const UNREADABLE = new Set(["refused", "clash", "notRead"]);
 
 /** Why a step cannot be left forward, or null when it can. */
 export function blockingReason(
   state: WizardState,
   step: FlowStep,
 ): BlockingReason | null {
-  if (step === "files" && state.files.length === 0) return "needFiles";
-  if (
-    step === "files" &&
-    state.files.some((f) => f.kind === "own" && !f.supported)
-  ) {
-    return "unsupportedFile";
+  if (step === "files") {
+    if (state.files.length === 0) return "needFiles";
+    if (state.files.some((f) => f.kind === "own" && !f.supported)) {
+      return "unsupportedFile";
+    }
+    if (state.mode === "demo") return null;
+    const { reading } = state;
+    if (reading.status === "failed") return "readFailed";
+    if (reading.status !== "read") return "stillReading";
+    if (reading.reply.files.some((f) => UNREADABLE.has(f.status))) {
+      return "unreadableFile";
+    }
+    return null;
   }
   // The demo needs no personal data; a real return cannot be built without it.
   if (
@@ -150,8 +326,10 @@ export function blockingReason(
   ) {
     return "taxNumber";
   }
-  // Own files are not read yet, so there is nothing to download from them.
-  if (step === "review" && state.mode === "own") return "noResults";
+  if (step === "review" && state.mode === "own") {
+    if (state.preparing.status !== "prepared") return "notPrepared";
+    if (!hasDownload(state.preparing.reply)) return "nothingWritten";
+  }
   return null;
 }
 
@@ -169,6 +347,29 @@ function neighbor(screen: Screen, offset: 1 | -1): Screen {
   return FLOW_STEPS[FLOW_STEPS.indexOf(screen) + offset] ?? "start";
 }
 
+/** Anything that changes what the engine would read starts it over. */
+function filesChanged(state: WizardState): WizardState {
+  return { ...state, reading: IDLE, preparing: IDLE };
+}
+
+/** New payers get their details preset from the export; typed ones stay. */
+function presetPayers(
+  payers: Readonly<Record<string, PayerDraft>>,
+  reply: ReadReply,
+): Readonly<Record<string, PayerDraft>> {
+  const next = { ...payers };
+  for (const prompt of reply.payers) {
+    next[prompt.isin] ??= {
+      name: prompt.name,
+      address: "",
+      country: prompt.isinCountry,
+      id: "",
+      sourceCountry: "",
+    };
+  }
+  return next;
+}
+
 export function wizardReducer(
   state: WizardState,
   action: WizardAction,
@@ -184,38 +385,109 @@ export function wizardReducer(
     case "startOwn":
       return { ...initialWizardState, screen: "files", mode: "own" };
     case "useDemoFiles":
-      // Switching to the demo replaces the user's unread files: mixing made-up
-      // and real data in one review would be meaningless.
+      // Switching to the demo replaces the user's files and what was typed
+      // for them: mixing made-up and real data in one review would be
+      // meaningless.
       return {
-        ...state,
+        ...initialWizardState,
+        screen: state.screen,
         mode: "demo",
         files: demoFiles(),
-        showErrors: false,
       };
     case "addFiles": {
       if (action.files.length === 0) return state;
-      const added: AddedFile[] = action.files.map((file, i) => ({
+      const added: AddedFile[] = action.files.map((file) => ({
         kind: "own",
-        id: `file-${String(state.nextFileId + i)}`,
+        id: file.id,
         name: file.name,
         size: file.size,
         supported: isSupportedFile(file.name),
       }));
-      return {
+      return filesChanged({
         ...state,
         mode: "own",
         files: [...state.files.filter((f) => f.kind === "own"), ...added],
-        nextFileId: state.nextFileId + added.length,
         showErrors: false,
-      };
+      });
     }
-    case "removeFile":
-      return { ...state, files: state.files.filter((f) => f.id !== action.id) };
+    case "removeFile": {
+      const files = state.files.filter((f) => f.id !== action.id);
+      return files.length === state.files.length
+        ? state
+        : filesChanged({ ...state, files });
+    }
+    case "setAccounts":
+      return action.accounts === state.accounts
+        ? state
+        : filesChanged({ ...state, accounts: action.accounts });
     case "setDetail":
       return {
         ...state,
         details: { ...state.details, [action.field]: action.value },
+        preparing: IDLE,
       };
+    case "setPayer": {
+      const draft = state.payers[action.isin];
+      if (draft === undefined) return state;
+      return {
+        ...state,
+        payers: {
+          ...state.payers,
+          [action.isin]: { ...draft, [action.field]: action.value },
+        },
+        preparing: IDLE,
+      };
+    }
+    case "readStarted":
+      return {
+        ...state,
+        reading: {
+          status: "reading",
+          request: action.request,
+          fileIds: action.fileIds,
+        },
+      };
+    case "readDone": {
+      const { reading } = state;
+      if (reading.status !== "reading" || reading.request !== action.request) {
+        return state;
+      }
+      const { fileIds, request } = reading;
+      if (action.reply.kind === "failed") {
+        return { ...state, reading: { status: "failed", request, fileIds } };
+      }
+      return {
+        ...state,
+        reading: { status: "read", request, fileIds, reply: action.reply },
+        payers: presetPayers(state.payers, action.reply),
+      };
+    }
+    case "prepareStarted":
+      return {
+        ...state,
+        preparing: {
+          status: "preparing",
+          request: action.request,
+          fileIds: action.fileIds,
+        },
+      };
+    case "prepareDone": {
+      const { preparing } = state;
+      if (
+        preparing.status !== "preparing" ||
+        preparing.request !== action.request
+      ) {
+        return state;
+      }
+      const { fileIds, request } = preparing;
+      return {
+        ...state,
+        preparing:
+          action.reply.kind === "failed"
+            ? { status: "failed", request, fileIds }
+            : { status: "prepared", request, fileIds, reply: action.reply },
+      };
+    }
     case "next": {
       if (
         state.screen !== "start" &&
@@ -230,6 +502,8 @@ export function wizardReducer(
         ...state,
         screen: neighbor(state.screen, -1),
         showErrors: false,
+        // A failed preparation is tried again when the review next opens.
+        ...(state.preparing.status === "failed" ? { preparing: IDLE } : {}),
       };
     case "goTo":
       return canEnter(state, action.screen)

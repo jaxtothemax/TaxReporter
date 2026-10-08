@@ -21,10 +21,14 @@ import {
   type WizardAction,
   type WizardState,
 } from "./state/wizard";
+import { engineReplies, ownState, preparedState } from "./testing/ownFiles";
 
 function stateAfter(...actions: WizardAction[]): WizardState {
   return actions.reduce(wizardReducer, initialWizardState);
 }
+
+// The user's own files, as the engine reads and prepares them.
+const { read, prepared } = await engineReplies();
 
 const SCREENS: [string, WizardState][] = [
   ["start", initialWizardState],
@@ -38,15 +42,11 @@ const SCREENS: [string, WizardState][] = [
     "download",
     stateAfter({ type: "startDemo" }, { type: "goTo", screen: "download" }),
   ],
-  [
-    "details with an error",
-    stateAfter(
-      { type: "startOwn" },
-      { type: "addFiles", files: [{ name: "a.csv", size: 1 }] },
-      { type: "next" },
-      { type: "next" },
-    ),
-  ],
+  ["files, own files read", ownState(read)],
+  ["details, own files with dividend payers", ownState(read, { type: "next" })],
+  ["details with an error", ownState(read, { type: "next" }, { type: "next" })],
+  ["review, own files", preparedState(read, prepared)],
+  ["download, own files", preparedState(read, prepared, { type: "next" })],
 ];
 
 /** The review panels on their own, as the review's tabs hold them. */
@@ -68,7 +68,13 @@ function panels(locale: Locale): string {
         totals={demoPreview.dividendsEstimate}
       />,
     ),
-    wrap(<NotesPanel diagnostics={demoPreview.diagnostics} />),
+    wrap(
+      <NotesPanel
+        findings={prepared.preview.findings}
+        symbols={prepared.preview.symbols}
+        fileNames={["t212-2025.csv", "t212-2026.csv", "ibkr.xml"]}
+      />,
+    ),
   ].join("\n");
 }
 

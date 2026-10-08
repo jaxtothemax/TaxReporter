@@ -72,7 +72,22 @@ export interface Messages {
     readonly listTitle: string;
     readonly emptyList: string;
     readonly remove: (name: string) => string;
-    readonly ownFileDetail: (size: string) => string;
+    readonly reading: string;
+    readonly readFailed: string;
+    readonly readOnce: (name: string) => string;
+    readonly clashed: string;
+    readonly notRead: string;
+    readonly noDatedRows: (broker: string, rows: string) => string;
+    readonly stillReading: string;
+    readonly problemsTitle: string;
+    readonly problemsBody: string;
+    readonly accountsTitle: string;
+    readonly accountsBody: string;
+    readonly accountsSame: string;
+    readonly accountsSeparate: string;
+    readonly announceReading: string;
+    readonly announceRead: string;
+    readonly announceFailed: string;
     readonly unsupported: string;
     readonly unsupportedBlocked: string;
     readonly announceAdded: PluralForms;
@@ -111,6 +126,18 @@ export interface Messages {
     readonly asidePoints: readonly string[];
     readonly previewTitle: string;
     readonly previewBody: string;
+    readonly payersTitle: string;
+    readonly payersIntro: string;
+    readonly payments: PluralForms;
+    readonly payerName: string;
+    readonly payerAddress: string;
+    readonly payerCountry: string;
+    readonly payerId: string;
+    readonly payerIdHelp: string;
+    readonly sourceCountry: string;
+    readonly sourceCountryHelp: string;
+    readonly countryChoose: string;
+    readonly payersMissing: PluralForms;
   };
   readonly review: {
     readonly title: (year: string) => string;
@@ -187,37 +214,11 @@ export interface Messages {
     readonly noDividends: string;
     readonly attention: PluralForms;
     readonly blocked: string;
-  };
-  readonly diagnostics: {
-    readonly excessWithholding: (p: {
-      readonly payer: string;
-      readonly country: string;
-      readonly withheldRate: string;
-      readonly treatyRate: string;
-      readonly creditEur: string;
-      readonly excessEur: string;
-    }) => string;
-    readonly splitAdjusted: (p: {
-      readonly symbol: string;
-      readonly ratio: string;
-      readonly date: string;
-    }) => string;
-    readonly lossCounts: (p: {
-      readonly symbol: string;
-      readonly saleDate: string;
-    }) => string;
-    readonly holidayRate: (p: {
-      readonly payer: string;
-      readonly date: string;
-      readonly listDate: string;
-    }) => string;
-    readonly rowsSetAside: (p: {
-      readonly file: string;
-      readonly deposits: string;
-      readonly interest: string;
-      readonly conversions: string;
-    }) => string;
-    readonly foreignTaxProof: () => string;
+    readonly blockedOne: (form: string) => string;
+    readonly preparing: string;
+    readonly prepareFailed: string;
+    readonly unnamedFile: string;
+    readonly foreignTaxProof: string;
   };
   readonly download: {
     readonly title: string;
@@ -233,6 +234,7 @@ export interface Messages {
     readonly downloadButton: (form: string) => string;
     readonly preparing: string;
     readonly demoFiles: string;
+    readonly ownFiles: string;
     readonly notWritten: PluralForms;
     readonly failed: string;
     readonly importTitle: string;
@@ -298,7 +300,7 @@ export const en: Messages = {
     ],
     privacyTitle: "What happens to your files",
     privacyBody:
-      "They will be read in this browser tab and never uploaded. There is no account and no tracking. Closing the tab clears everything.",
+      "They are read in this browser tab and never uploaded. There is no account and no tracking. Closing the tab clears everything.",
     privacyLlm:
       "An optional AI check is planned. It will only run with your own API key, after you have seen exactly what it sends.",
     brokersTitle: "Brokers",
@@ -317,7 +319,7 @@ export const en: Messages = {
   },
   demoBanner: {
     title: "Demo data.",
-    body: "These trades and dividends are made up, but the exchange rates are real Banka Slovenije rates. Reading your own files is not built yet.",
+    body: "These trades and dividends are made up, but the exchange rates are real Banka Slovenije rates.",
   },
   nav: { next: "Continue", back: "Back" },
   files: {
@@ -333,7 +335,27 @@ export const en: Messages = {
     listTitle: "Added files",
     emptyList: "No files added yet.",
     remove: (name) => `Remove ${name}`,
-    ownFileDetail: (size) => `${size}, not read yet`,
+    reading: "Reading the file",
+    readFailed:
+      "Your files could not be read. Remove the last file you added, or reload the page; nothing was sent anywhere.",
+    readOnce: (name) => `The same file as ${name}, so it is read once.`,
+    clashed:
+      "Has the fingerprint of another file but different contents, so neither is read.",
+    notRead:
+      "Not read: your files hold more transactions than TaxReporter reads at once.",
+    noDatedRows: (broker, rows) => `${broker}, ${rows}`,
+    stillReading: "Wait until your files are read.",
+    problemsTitle: "Problems in your files",
+    problemsBody:
+      "Until these are fixed, the returns are not written. You can still continue and look at the review.",
+    accountsTitle: "Are these Trading 212 files from one account?",
+    accountsBody:
+      "Trading 212 exports do not say which account they come from. Overlapping files of one account are read once; files of separate accounts are all counted.",
+    accountsSame: "Yes, one account",
+    accountsSeparate: "No, separate accounts",
+    announceReading: "Reading your files.",
+    announceRead: "Your files are read.",
+    announceFailed: "Your files could not be read.",
     unsupported: "Not a CSV or XML export. Remove it to continue.",
     unsupportedBlocked: "Remove the files TaxReporter cannot read to continue.",
     announceAdded: { one: "{n} file added.", other: "{n} files added." },
@@ -351,7 +373,7 @@ export const en: Messages = {
     coverage: (broker, from, to, rows) =>
       `${broker}, ${from} to ${to}, ${rows}`,
     ownFilesNotice:
-      "Reading broker files is not built yet, so your files stay unread. Use the demo files to try the rest of the flow.",
+      "Your files are read in this browser tab and never uploaded.",
     needFiles: "Add at least one file to continue.",
   },
   details: {
@@ -383,6 +405,27 @@ export const en: Messages = {
     previewTitle: "In the XML file",
     previewBody:
       "The header of each return, as you type. Empty fields are left out.",
+    payersTitle: "Who paid your dividends",
+    payersIntro:
+      "Doh-Div needs each payer's name, address and country. TaxReporter does not look them up online, as that would tell a server what you own: the company's annual report or website gives its address.",
+    payments: {
+      one: "{n} payment this year",
+      other: "{n} payments this year",
+    },
+    payerName: "Payer's name",
+    payerAddress: "Payer's address",
+    payerCountry: "Payer's country",
+    payerId: "Payer's tax ID (optional)",
+    payerIdHelp:
+      "Left empty, the ISIN is written in its place, which eDavki accepts.",
+    sourceCountry: "Country the income comes from",
+    sourceCountryHelp: "The ISIN does not say.",
+    countryChoose: "Choose a country",
+    payersMissing: {
+      one: "{n} payer still needs its details. Until then, Doh-Div is not written; Doh-KDVP is.",
+      other:
+        "{n} payers still need their details. Until then, Doh-Div is not written; Doh-KDVP is.",
+    },
   },
   review: {
     title: (year) => `Review tax year ${year}`,
@@ -457,7 +500,7 @@ export const en: Messages = {
     },
     emptyTitle: "Nothing to review yet",
     emptyBody:
-      "Reading broker files is not built yet. Explore the review with the demo data instead.",
+      "Add your broker exports to see your returns here, or explore the review with the demo data.",
     noSales:
       "No securities were sold in this tax year, so there is no Doh-KDVP to file.",
     noDividends: "No dividends were paid in this tax year.",
@@ -465,20 +508,15 @@ export const en: Messages = {
       one: "{n} note needs your attention before you download.",
       other: "{n} notes need your attention before you download.",
     },
-    blocked: "Fix the notes that block the download before you continue.",
-  },
-  diagnostics: {
-    excessWithholding: (p) =>
-      `${p.payer}: ${p.withheldRate} was withheld in ${p.country}, but the tax treaty allows a credit of at most ${p.treatyRate}. Only ${p.creditEur} counts against Slovenian tax. You can reclaim the extra ${p.excessEur} from that country's tax authority.`,
-    splitAdjusted: (p) =>
-      `${p.symbol}: quantities and prices before ${p.date} are adjusted for the ${p.ratio} split. Purchase dates stay the same.`,
-    lossCounts: (p) =>
-      `${p.symbol}: the loss from the sale on ${p.saleDate} reduces your gains, because you bought no ${p.symbol} in the 30 days before or after it.`,
-    holidayRate: (p) =>
-      `${p.payer}, ${p.date}: Banka Slovenije published no exchange rate list that day, so the list of ${p.listDate} was used.`,
-    rowsSetAside: (p) =>
-      `${p.file}: rows that are neither trades nor dividends were set aside (deposits: ${p.deposits}, interest: ${p.interest}, currency conversions: ${p.conversions}). Interest belongs on Doh-Obr, which TaxReporter will support later.`,
-    foreignTaxProof: () =>
+    blocked: "Fix the notes that stop the returns before you continue.",
+    blockedOne: (form) =>
+      `${form} is not written until the notes that stop it are fixed. You can continue with the other return.`,
+    preparing:
+      "Working out your returns from your files, at Banka Slovenije rates.",
+    prepareFailed:
+      "Your returns could not be worked out. Go back and continue again, or reload the page; nothing was sent anywhere.",
+    unnamedFile: "a file",
+    foreignTaxProof:
       "FURS can ask for proof that foreign tax was finally paid. Keep your brokers' annual statements.",
   },
   download: {
@@ -503,7 +541,9 @@ export const en: Messages = {
     preparing:
       "Writing the files from the trades and dividends, at Banka Slovenije rates.",
     demoFiles:
-      "These files hold the demo's made-up trades for a made-up taxpayer, tax number 12345678. They are written exactly as yours will be, so you can see what eDavki receives, but do not import them into eDavki.",
+      "These files hold the demo's made-up trades for a made-up taxpayer, tax number 12345678. They are written exactly as yours are, so you can see what eDavki receives, but do not import them into eDavki.",
+    ownFiles:
+      "Check each form against the review before you submit it in eDavki. TaxReporter prepares the returns; filing them is up to you.",
     notWritten: {
       one: "Not written: {n} problem in the review must be fixed first.",
       other: "Not written: {n} problems in the review must be fixed first.",
@@ -578,7 +618,7 @@ export const sl: Messages = {
     ],
     privacyTitle: "Kaj se zgodi z datotekami",
     privacyBody:
-      "Prebrane bodo v tem zavihku brskalnika in se nikamor ne bodo naložile. Ni računa in ni sledenja. Ko zaprete zavihek, se vse izbriše.",
+      "Preberejo se v tem zavihku brskalnika in se nikamor ne naložijo. Ni računa in ni sledenja. Ko zaprete zavihek, se vse izbriše.",
     privacyLlm:
       "Načrtujemo izbirno preverjanje z umetno inteligenco. Delovalo bo le z vašim ključem API in šele, ko boste videli, kaj točno pošlje.",
     brokersTitle: "Borzni posredniki",
@@ -597,7 +637,7 @@ export const sl: Messages = {
   },
   demoBanner: {
     title: "Demo podatki.",
-    body: "Posli in dividende so izmišljeni, tečaji pa so pravi tečaji Banke Slovenije. Branje vaših datotek še ni izdelano.",
+    body: "Posli in dividende so izmišljeni, tečaji pa so pravi tečaji Banke Slovenije.",
   },
   nav: { next: "Naprej", back: "Nazaj" },
   files: {
@@ -613,7 +653,27 @@ export const sl: Messages = {
     listTitle: "Dodane datoteke",
     emptyList: "Dodali še niste nobene datoteke.",
     remove: (name) => `Odstrani ${name}`,
-    ownFileDetail: (size) => `${size}, še ni prebrana`,
+    reading: "Branje datoteke",
+    readFailed:
+      "Datotek ni bilo mogoče prebrati. Odstranite zadnjo dodano datoteko ali znova naložite stran; nič ni bilo nikamor poslano.",
+    readOnce: (name) => `Ista datoteka kot ${name}, zato je prebrana enkrat.`,
+    clashed:
+      "Ima prstni odtis druge datoteke, a drugačno vsebino, zato ni prebrana nobena.",
+    notRead:
+      "Ni prebrana: datoteke vsebujejo več transakcij, kot jih TaxReporter prebere naenkrat.",
+    noDatedRows: (broker, rows) => `${broker}, ${rows}`,
+    stillReading: "Počakajte, da bodo datoteke prebrane.",
+    problemsTitle: "Težave v vaših datotekah",
+    problemsBody:
+      "Dokler niso odpravljene, napovedi niso zapisane. Pregled si lahko vseeno ogledate.",
+    accountsTitle: "Ali so te datoteke Trading 212 iz enega računa?",
+    accountsBody:
+      "Izvozi Trading 212 ne navajajo, iz katerega računa so. Datoteke istega računa, ki se prekrivajo, so prebrane enkrat; datoteke ločenih računov se upoštevajo vse.",
+    accountsSame: "Da, en račun",
+    accountsSeparate: "Ne, ločeni računi",
+    announceReading: "Branje datotek.",
+    announceRead: "Datoteke so prebrane.",
+    announceFailed: "Datotek ni bilo mogoče prebrati.",
     unsupported: "To ni izvoz CSV ali XML. Za nadaljevanje ga odstranite.",
     unsupportedBlocked:
       "Za nadaljevanje odstranite datoteke, ki jih TaxReporter ne more prebrati.",
@@ -646,7 +706,7 @@ export const sl: Messages = {
     coverage: (broker, from, to, rows) =>
       `${broker}, od ${from} do ${to}, ${rows}`,
     ownFilesNotice:
-      "Branje datotek še ni izdelano, zato vaše datoteke ostanejo neprebrane. Preostanek postopka lahko preizkusite z demo datotekami.",
+      "Datoteke se berejo v tem zavihku brskalnika in se nikamor ne naložijo.",
     needFiles: "Za nadaljevanje dodajte vsaj eno datoteko.",
   },
   details: {
@@ -677,6 +737,31 @@ export const sl: Messages = {
     previewTitle: "V datoteki XML",
     previewBody:
       "Glava vsake napovedi, sproti med vnosom. Prazna polja so izpuščena.",
+    payersTitle: "Kdo vam je izplačal dividende",
+    payersIntro:
+      "Za Doh-Div so potrebni ime, naslov in država vsakega izplačevalca. TaxReporter jih ne išče na spletu, saj bi s tem strežniku razkril, kaj imate: naslov družbe najdete v njenem letnem poročilu ali na njeni spletni strani.",
+    payments: {
+      one: "{n} izplačilo letos",
+      two: "{n} izplačili letos",
+      few: "{n} izplačila letos",
+      other: "{n} izplačil letos",
+    },
+    payerName: "Ime izplačevalca",
+    payerAddress: "Naslov izplačevalca",
+    payerCountry: "Država izplačevalca",
+    payerId: "Davčna številka izplačevalca (neobvezno)",
+    payerIdHelp:
+      "Če polje pustite prazno, je namesto nje vpisana koda ISIN, kar eDavki sprejmejo.",
+    sourceCountry: "Država, iz katere je dohodek",
+    sourceCountryHelp: "Koda ISIN je ne navaja.",
+    countryChoose: "Izberite državo",
+    payersMissing: {
+      one: "Še {n} izplačevalec potrebuje podatke. Do takrat Doh-Div ni zapisan, Doh-KDVP pa je.",
+      two: "Še {n} izplačevalca potrebujeta podatke. Do takrat Doh-Div ni zapisan, Doh-KDVP pa je.",
+      few: "Še {n} izplačevalci potrebujejo podatke. Do takrat Doh-Div ni zapisan, Doh-KDVP pa je.",
+      other:
+        "Še {n} izplačevalcev potrebuje podatke. Do takrat Doh-Div ni zapisan, Doh-KDVP pa je.",
+    },
   },
   review: {
     title: (year) => `Pregled za davčno leto ${year}`,
@@ -756,7 +841,7 @@ export const sl: Messages = {
     },
     emptyTitle: "Ni še česa pregledati",
     emptyBody:
-      "Branje datotek še ni izdelano. Pregled lahko preizkusite z demo podatki.",
+      "Dodajte izvoze posrednikov, da tu vidite svoje napovedi, ali preizkusite pregled z demo podatki.",
     noSales:
       "V tem davčnem letu niste prodali vrednostnih papirjev, zato napovedi Doh-KDVP ni treba oddati.",
     noDividends: "V tem davčnem letu niste prejeli dividend.",
@@ -766,20 +851,15 @@ export const sl: Messages = {
       few: "{n} opombe zahtevajo vašo pozornost pred prenosom.",
       other: "{n} opomb zahteva vašo pozornost pred prenosom.",
     },
-    blocked: "Pred nadaljevanjem odpravite opombe, ki preprečujejo prenos.",
-  },
-  diagnostics: {
-    excessWithholding: (p) =>
-      `${p.payer}: država ${p.country} je odtegnila ${p.withheldRate}, pogodba o izogibanju dvojnega obdavčevanja pa dovoljuje odbitek največ ${p.treatyRate}. Pri slovenskem davku se upošteva le ${p.creditEur}. Presežek ${p.excessEur} lahko zahtevate nazaj od davčnega organa te države.`,
-    splitAdjusted: (p) =>
-      `${p.symbol}: količine in cene pred ${p.date} so prilagojene za delitev delnic ${p.ratio}. Datumi nakupa ostanejo enaki.`,
-    lossCounts: (p) =>
-      `${p.symbol}: izguba pri prodaji ${p.saleDate} zmanjša dobiček, ker v 30 dneh pred prodajo ali po njej niste kupili ${p.symbol}.`,
-    holidayRate: (p) =>
-      `${p.payer}, ${p.date}: Banka Slovenije ta dan ni objavila tečajnice, zato je uporabljena tečajnica z dne ${p.listDate}.`,
-    rowsSetAside: (p) =>
-      `${p.file}: vrstice, ki niso posli ali dividende, so izločene (pologi: ${p.deposits}, obresti: ${p.interest}, menjave valut: ${p.conversions}). Obresti sodijo v napoved Doh-Obr, ki jo bo TaxReporter podpiral pozneje.`,
-    foreignTaxProof: () =>
+    blocked: "Pred nadaljevanjem odpravite opombe, ki ustavijo napovedi.",
+    blockedOne: (form) =>
+      `${form} ni zapisan, dokler niso odpravljene opombe, ki ga ustavijo. Z drugo napovedjo lahko nadaljujete.`,
+    preparing:
+      "Napovedi se pripravljajo iz vaših datotek, po tečajih Banke Slovenije.",
+    prepareFailed:
+      "Napovedi ni bilo mogoče pripraviti. Vrnite se in nadaljujte znova ali znova naložite stran; nič ni bilo nikamor poslano.",
+    unnamedFile: "datoteka",
+    foreignTaxProof:
       "FURS lahko zahteva dokazilo, da je bil tuji davek dokončno plačan. Shranite letna poročila borznih posrednikov.",
   },
   download: {
@@ -809,6 +889,8 @@ export const sl: Messages = {
       "Datoteke nastajajo iz poslov in dividend, po tečajih Banke Slovenije.",
     demoFiles:
       "Datoteki vsebujeta izmišljene posle iz demonstracije za izmišljenega zavezanca z davčno številko 12345678. Zapisani sta natanko tako kot vaše, zato vidite, kaj prejmejo eDavki, vendar ju v eDavke ne uvažajte.",
+    ownFiles:
+      "Pred oddajo v eDavkih vsak obrazec primerjajte s pregledom. TaxReporter napovedi pripravi, oddate jih vi.",
     notWritten: {
       one: "Ni zapisano: najprej je treba odpraviti {n} težavo v pregledu.",
       two: "Ni zapisano: najprej je treba odpraviti {n} težavi v pregledu.",

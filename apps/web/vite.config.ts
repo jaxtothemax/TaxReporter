@@ -53,4 +53,7 @@ export default defineConfig({
   // The workspace packages export their TypeScript sources under the
   // "source" condition, so the app bundles the engine from src/ directly.
   resolve: { conditions: ["source", ...defaultClientConditions] },
+  // The engine worker loads the rate snapshot with import() when first
+  // needed (ADR 0013), which only a module worker can split out.
+  worker: { format: "es" },
 });

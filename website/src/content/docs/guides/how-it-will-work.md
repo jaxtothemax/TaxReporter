@@ -44,6 +44,16 @@ You will be able to use TaxReporter in two ways:
 You will also enter your tax number (*davčna številka*) and your name, because eDavki expects
 them in the file. They stay on your device as well.
 
+Trading 212 exports do not say which account they come from. If you add more than one,
+TaxReporter will ask whether they are from one account (it assumes so until you say otherwise),
+so that overlapping exports of one account are read once and separate accounts are all counted.
+
+For Doh-Div, eDavki needs the name, address and country of every company or fund that paid you
+a dividend. TaxReporter will fill in the name and the country from your export where it can,
+and you will type in the address. It will not look these details up online: that would tell a
+server which securities you own. Until a payer's details are complete, Doh-Div waits, while
+Doh-KDVP can still be downloaded.
+
 ## 3. Review what TaxReporter found
 
 Before you download anything, TaxReporter will show you what it read and how it arrived at

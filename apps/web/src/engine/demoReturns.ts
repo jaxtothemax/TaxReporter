@@ -12,7 +12,7 @@ import {
   writeDohDiv,
   writeDohKdvp,
 } from "@taxreporter/furs";
-import { RateTable } from "@taxreporter/fx";
+import type { RateTable } from "@taxreporter/fx";
 
 import {
   DEMO_COVERAGE_END,
@@ -21,6 +21,7 @@ import {
   DEMO_TAXPAYER,
   demoLedgerEvents,
 } from "../demo/demoLedger";
+import { loadRates } from "./rates";
 
 /** One return as the download step offers it. */
 export interface BuiltForm {
@@ -38,19 +39,6 @@ export interface BuiltReturns {
 }
 
 const isBlocking = (d: Diagnostic) => d.severity === "blocking";
-
-/** The rate snapshot @taxreporter/fx ships, bundled as text, never fetched. */
-async function loadRates(): Promise<RateTable> {
-  const [daily, monthly, snapshot] = await Promise.all([
-    import("@taxreporter/fx/data/bsi-daily.csv?raw"),
-    import("@taxreporter/fx/data/bsi-monthly.csv?raw"),
-    import("@taxreporter/fx/data/snapshot.json?raw"),
-  ]);
-  const { completeThrough } = JSON.parse(snapshot.default) as {
-    readonly completeThrough: string;
-  };
-  return RateTable.fromCsv(daily.default, monthly.default, completeThrough);
-}
 
 /** Both returns over the demo's ledger, at the given rates. */
 export function demoReturns(rates: RateTable): BuiltReturns {

@@ -1,6 +1,7 @@
 /**
- * Download and import. The returns are written when this step opens, by the
- * same engine and writers as the command line's (ADR 0011), and saved on the
+ * Download and import. The returns are written by the same engine and
+ * writers as the command line's (ADR 0011, ADR 0013): the demo's when this
+ * step opens, the user's own already with the review. They are saved on the
  * user's device. A button that cannot save yet stays visible, disabled, with
  * the reason next to it. A form with nothing in it gets no card: there is
  * nothing to file.
@@ -111,21 +112,35 @@ export function FormCard({
 
 export function DownloadStep({
   preview,
-  writeReturns,
+  demo,
+  returns: source,
   onBack,
   onRestart,
 }: {
   readonly preview: ReturnPreview;
-  /** Writes the returns the preview shows; awaited when the step opens. */
-  readonly writeReturns: () => Promise<BuiltReturns>;
+  /** Whether these are the demo's files, which must never be imported. */
+  readonly demo: boolean;
+  /**
+   * The returns the preview shows: written already (the user's own, with
+   * the review), or a writer awaited when the step opens (the demo's).
+   */
+  readonly returns: BuiltReturns | (() => Promise<BuiltReturns>);
   readonly onBack: () => void;
   readonly onRestart: () => void;
 }) {
   const { locale, t } = useI18n();
-  const [writing, setWriting] = useState<Writing>({ status: "preparing" });
+  const [writing, setWriting] = useState<Writing>(
+    typeof source === "function"
+      ? { status: "preparing" }
+      : { status: "ready", returns: source },
+  );
   useEffect(() => {
+    if (typeof source !== "function") {
+      setWriting({ status: "ready", returns: source });
+      return;
+    }
     let current = true;
-    writeReturns().then(
+    source().then(
       (returns) => {
         if (current) setWriting({ status: "ready", returns });
       },
@@ -136,7 +151,7 @@ export function DownloadStep({
     return () => {
       current = false;
     };
-  }, [writeReturns]);
+  }, [source]);
   const returns = writing.status === "ready" ? writing.returns : null;
   const deadline = formatDate(filingDeadline(preview.taxYear), locale);
   const year = String(preview.taxYear);
@@ -193,8 +208,10 @@ export function DownloadStep({
             <Note tone="danger" id={STATUS_NOTE}>
               {t.download.failed}
             </Note>
-          ) : (
+          ) : demo ? (
             <Note tone="warn">{t.download.demoFiles}</Note>
+          ) : (
+            <Note tone="neutral">{t.download.ownFiles}</Note>
           )}
 
           <div className="card import-card">

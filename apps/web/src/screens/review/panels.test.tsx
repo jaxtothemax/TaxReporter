@@ -15,7 +15,7 @@ import { DownloadStep, filingDeadline, FormCard } from "../DownloadStep";
 import { ReviewStep } from "../ReviewStep";
 import { DividendsPanel } from "./DividendsPanel";
 import { GainsPanel } from "./GainsPanel";
-import { diagnosticText, NotesPanel } from "./NotesPanel";
+import { NotesPanel } from "./NotesPanel";
 
 function render(node: ReactNode, locale: Locale = "en"): string {
   return renderToStaticMarkup(
@@ -97,25 +97,35 @@ describe("DividendsPanel", () => {
 });
 
 describe("NotesPanel", () => {
+  const notes = (findings = demoPreview.findings, locale: Locale = "en") =>
+    text(
+      render(
+        <NotesPanel
+          findings={findings}
+          symbols={demoPreview.symbols}
+          fileNames={["trading212-2026.csv", "ibkr.xml"]}
+        />,
+        locale,
+      ),
+    );
+
   it("groups notes by severity and confirms nothing blocks the download", () => {
-    const html = render(<NotesPanel diagnostics={demoPreview.diagnostics} />);
-    expect(text(html)).toContain(en.review.noneBlocking);
-    expect(text(html)).toContain(en.review.severity.warning);
-    expect(text(html)).toContain(en.review.severity.info);
-    expect(text(html)).not.toContain(en.review.severity.blocking);
+    const html = notes();
+    expect(html).toContain(en.review.noneBlocking);
+    expect(html).toContain(en.review.severity.warning);
+    expect(html).toContain(en.review.severity.info);
+    expect(html).not.toContain(en.review.severity.blocking);
   });
 
   it("puts a blocking note first and drops the all-clear", () => {
-    const html = text(
-      render(
-        <NotesPanel
-          diagnostics={[
-            { severity: "blocking", code: "foreignTaxProof", params: {} },
-            ...demoPreview.diagnostics,
-          ]}
-        />,
-      ),
-    );
+    const html = notes([
+      {
+        severity: "blocking",
+        code: "payerUnknown",
+        params: { isin: "US1912161007" },
+      },
+      ...demoPreview.findings,
+    ]);
     expect(html).not.toContain(en.review.noneBlocking);
     expect(html.indexOf(en.review.severity.blocking)).toBeLessThan(
       html.indexOf(en.review.severity.warning),
@@ -123,19 +133,24 @@ describe("NotesPanel", () => {
   });
 
   it("writes every demo note as a full sentence in both languages", () => {
-    for (const d of demoPreview.diagnostics) {
-      for (const [locale, t] of [
-        ["en", en],
-        ["sl", sl],
-      ] as const) {
-        const sentence = diagnosticText(d, locale, t);
-        expect(sentence).toMatch(/\.$/);
-        expect(sentence).not.toMatch(/undefined|NaN|\{|\}/);
-      }
+    for (const locale of ["en", "sl"] as const) {
+      const html = notes(demoPreview.findings, locale);
+      expect(html).not.toMatch(/undefined|NaN|\{|\}/);
     }
-    const excess = demoPreview.diagnostics[0];
-    if (excess === undefined) throw new Error("no notes");
-    expect(diagnosticText(excess, "sl", sl)).toContain("Nemčija");
+    expect(notes(demoPreview.findings, "sl")).toContain("Nemčija");
+    expect(notes()).toContain("ALV (DE0008404005), 8 May 2026:");
+  });
+
+  it("names the file and row a note comes from", () => {
+    const html = notes([
+      {
+        severity: "blocking",
+        code: "duplicateKeyInFile",
+        params: {},
+        source: { file: 1, row: 42 },
+      },
+    ]);
+    expect(html).toContain("ibkr.xml, row 42");
   });
 });
 
@@ -163,7 +178,8 @@ describe("empty and edge states", () => {
       render(
         <DownloadStep
           preview={{ ...demoPreview, dividends: [] }}
-          writeReturns={() => new Promise(() => undefined)}
+          demo
+          returns={() => new Promise(() => undefined)}
           onBack={() => undefined}
           onRestart={() => undefined}
         />,
@@ -180,15 +196,16 @@ describe("empty and edge states", () => {
     expect(html).toContain("a.csv, row 1234");
   });
 
-  it("stops at the review while a note blocks the download", () => {
+  it("stops at the review while a note blocks both returns", () => {
     const html = render(
       <ReviewStep
         preview={{
           ...demoPreview,
-          diagnostics: [
-            { severity: "blocking", code: "foreignTaxProof", params: {} },
+          findings: [
+            { severity: "blocking", code: "unknownEvent", params: {} },
           ],
         }}
+        canContinue={false}
         onBack={() => undefined}
         onNext={() => undefined}
         onStartDemo={() => undefined}
@@ -196,6 +213,77 @@ describe("empty and edge states", () => {
     );
     expect(html).toMatch(/<button[^>]*disabled[^>]*>Continue/);
     expect(text(html)).toContain(en.review.blocked);
+  });
+
+  it("goes on with one return while a note stops only the other", () => {
+    const html = render(
+      <ReviewStep
+        preview={{
+          ...demoPreview,
+          findings: [
+            {
+              severity: "blocking",
+              code: "payerUnknown",
+              params: { isin: "US1912161007" },
+            },
+          ],
+        }}
+        forms={{
+          kdvp: { xml: "<x/>", blocking: 0, needed: true },
+          div: { xml: null, blocking: 1, needed: true },
+        }}
+        canContinue
+        onBack={() => undefined}
+        onNext={() => undefined}
+        onStartDemo={() => undefined}
+      />,
+    );
+    expect(html).not.toMatch(/<button[^>]*disabled[^>]*>Continue/);
+    expect(text(html)).toContain(en.review.blockedOne("Doh-Div"));
+  });
+
+  it("says the review is being prepared, then that it failed", () => {
+    const at = (status: "preparing" | "failed") =>
+      text(
+        render(
+          <ReviewStep
+            preview={null}
+            status={status}
+            canContinue={false}
+            onBack={() => undefined}
+            onNext={() => undefined}
+            onStartDemo={() => undefined}
+          />,
+        ),
+      );
+    expect(at("preparing")).toContain(en.review.preparing);
+    expect(at("failed")).toContain(en.review.prepareFailed);
+    expect(at("preparing")).not.toContain("Continue");
+  });
+
+  it("reminds that foreign tax needs proof, only where tax was withheld", () => {
+    const withTax = text(
+      render(
+        <DividendsPanel
+          dividends={demoPreview.dividends}
+          totals={demoPreview.dividendsEstimate}
+        />,
+      ),
+    );
+    const proof = en.review.foreignTaxProof.split("'")[0] ?? "";
+    expect(withTax).toContain(proof);
+    const none = text(
+      render(
+        <DividendsPanel
+          dividends={demoPreview.dividends.map((d) => ({
+            ...d,
+            foreignTaxEur: "0.00",
+          }))}
+          totals={demoPreview.dividendsEstimate}
+        />,
+      ),
+    );
+    expect(none).not.toContain(proof);
   });
 });
 

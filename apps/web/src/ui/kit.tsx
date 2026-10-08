@@ -251,17 +251,20 @@ export function Note({
   tone,
   id,
   action,
+  role = "note",
   children,
 }: {
   readonly tone: keyof typeof NOTE_ICONS;
   readonly id?: string;
   /** A button placed at the end of the note, e.g. to open the details. */
   readonly action?: ReactNode;
+  /** "status" or "alert" for a note that appears in answer to the user. */
+  readonly role?: "note" | "status" | "alert";
   readonly children: ReactNode;
 }) {
   const Icon = NOTE_ICONS[tone];
   return (
-    <div role="note" className={cx("note", `note-${tone}`)}>
+    <div role={role} className={cx("note", `note-${tone}`)}>
       <span className="note-icon">
         <Icon size={18} weight="bold" aria-hidden />
       </span>

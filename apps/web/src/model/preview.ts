@@ -1,11 +1,13 @@
 /**
  * The web UI's view of a prepared return. The review screens render only this
- * shape; when the core pipeline lands, an adapter maps its output onto it, so
- * the screens never depend on parser or lot-engine internals.
+ * shape; the engine worker maps the pipeline's output onto it
+ * (engine/toPreview.ts), so the screens never depend on parser or lot-engine
+ * internals, and nothing but plain data crosses from the worker (ADR 0013).
  *
  * Every amount is a plain decimal string ("1234.56", "-427.50"), never a JS
  * number: the UI formats values, it never does arithmetic on them (ADR 0006).
  */
+import type { DiagnosticCode } from "@taxreporter/core";
 
 /** Brokers the review can show, in display order. */
 export const BROKERS = ["trading212", "ibkr"] as const;
@@ -30,10 +32,11 @@ export interface RateProvenance {
   readonly rate: DecimalString;
   /** The BSI list used: the event date, or the last list before it. */
   readonly listDate: IsoDate;
-  readonly source: "bsi-daily" | "bsi-monthly";
+  readonly source: "bsi-daily" | "bsi-monthly" | "euro-changeover";
 }
 
 export interface SourceRef {
+  /** The name the file was added under, unique within the session. */
   readonly file: string;
   /** 1-based row (CSV) or record (XML) number in that file. */
   readonly row: number;
@@ -116,62 +119,25 @@ export interface DividendRow {
 export type DiagnosticSeverity = "blocking" | "warning" | "info";
 
 /**
- * A finding for the user. The text lives in the message catalog under
- * `diagnostics.<code>`, so the core can emit codes and parameters and the UI
- * stays the only place that knows the wording, in both languages.
+ * A finding's parameter as it crosses from the worker: a value already in
+ * the shape core checked, a file by its position in the request (never its
+ * name), or text copied from a file, which the page shows as text only.
  */
-export type Diagnostic =
-  | {
-      readonly severity: DiagnosticSeverity;
-      readonly code: "excessWithholding";
-      readonly params: {
-        readonly payer: string;
-        readonly country: string;
-        readonly withheldEur: DecimalString;
-        readonly withheldRate: DecimalString;
-        readonly treatyRate: DecimalString;
-        readonly creditEur: DecimalString;
-        readonly excessEur: DecimalString;
-      };
-    }
-  | {
-      readonly severity: DiagnosticSeverity;
-      readonly code: "splitAdjusted";
-      readonly params: {
-        readonly symbol: string;
-        readonly ratio: string;
-        readonly date: IsoDate;
-      };
-    }
-  | {
-      readonly severity: DiagnosticSeverity;
-      readonly code: "lossCounts";
-      readonly params: { readonly symbol: string; readonly saleDate: IsoDate };
-    }
-  | {
-      readonly severity: DiagnosticSeverity;
-      readonly code: "holidayRate";
-      readonly params: {
-        readonly payer: string;
-        readonly date: IsoDate;
-        readonly listDate: IsoDate;
-      };
-    }
-  | {
-      readonly severity: DiagnosticSeverity;
-      readonly code: "rowsSetAside";
-      readonly params: {
-        readonly file: string;
-        readonly deposits: number;
-        readonly interest: number;
-        readonly conversions: number;
-      };
-    }
-  | {
-      readonly severity: DiagnosticSeverity;
-      readonly code: "foreignTaxProof";
-      readonly params: Readonly<Record<string, never>>;
-    };
+export type FindingParam =
+  string | number | { readonly file: number } | { readonly untrusted: string };
+
+/**
+ * A finding for the user: the engine's code and parameters (core's
+ * `DiagnosticParams`). The page words it in the user's language from one
+ * catalog, i18n/findings.ts, so a change of language needs no new read.
+ */
+export interface Finding {
+  readonly severity: DiagnosticSeverity;
+  readonly code: DiagnosticCode;
+  readonly params: Readonly<Record<string, FindingParam>>;
+  /** Where in the user's files: the file's position in the request, and the row. */
+  readonly source?: { readonly file: number; readonly row: number };
+}
 
 export interface ImportedFile {
   readonly name: string;
@@ -225,7 +191,9 @@ export interface ReturnPreview {
   readonly files: readonly ImportedFile[];
   readonly securities: readonly SecurityResult[];
   readonly dividends: readonly DividendRow[];
-  readonly diagnostics: readonly Diagnostic[];
+  readonly findings: readonly Finding[];
+  /** The ticker of every security the files name, by ISIN, for the findings. */
+  readonly symbols: Readonly<Record<string, string>>;
   readonly gainsTotals: GainsTotals;
   readonly gainsEstimate: GainsEstimate;
   readonly dividendsEstimate: DividendsEstimate;

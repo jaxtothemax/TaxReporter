@@ -5,6 +5,7 @@
   "description": "TaxReporter FURS eDavki forms: form builders, schema-ordered XML writers and XSD validation (Doh-KDVP, Doh-Div).",
   "license": "AGPL-3.0-or-later",
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": {
       "source": "./src/index.ts",

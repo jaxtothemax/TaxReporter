@@ -1,5 +1,6 @@
 /**
- * Taxpayer details for the XML header. Labels sit above their inputs, help and
+ * Taxpayer details for the XML header, and the details Doh-Div needs of each
+ * dividend payer (ADR 0013 §8). Labels sit above their inputs, help and
  * error text below, and an error is tied to its input with aria-describedby.
  * It is a real form, so Enter submits; a failed submit moves focus to the
  * field, which then announces its error through that description.
@@ -11,19 +12,24 @@ import {
   LockSimpleIcon,
   WarningCircleIcon,
 } from "@phosphor-icons/react";
-import { useRef, type Ref } from "react";
+import { FURS_COUNTRIES } from "@taxreporter/furs";
+import { useMemo, useRef, type Ref } from "react";
 
+import type { PayerPrompt } from "../engine/protocol";
+import { formatCountry, plural, type Locale } from "../i18n/format";
 import { useI18n } from "../i18n/i18n";
 import {
+  isPayerIncomplete,
   isValidTaxNumber,
   normalizeTaxNumber,
   type Details,
+  type PayerDraft,
   type WizardState,
 } from "../state/wizard";
-import { Button, cx } from "../ui/kit";
+import { Button, cx, Note } from "../ui/kit";
 
 function Field({
-  id,
+  inputId,
   label,
   value,
   onChange,
@@ -36,7 +42,7 @@ function Field({
   wide = false,
   inputRef,
 }: {
-  readonly id: keyof Details;
+  readonly inputId: string;
   readonly label: string;
   readonly value: string;
   readonly onChange: (value: string) => void;
@@ -50,7 +56,6 @@ function Field({
   readonly wide?: boolean;
   readonly inputRef?: Ref<HTMLInputElement>;
 }) {
-  const inputId = `details-${id}`;
   const helpId = `${inputId}-help`;
   const errorId = `${inputId}-error`;
   const describedBy = [
@@ -93,6 +98,138 @@ function Field({
         </p>
       ) : null}
     </div>
+  );
+}
+
+/** FURS writes Greece as EL; the display names know it as GR. */
+const countryName = (code: string, locale: Locale) =>
+  formatCountry(code === "EL" ? "GR" : code, locale);
+
+/** The FURS country list, by name in the UI language. */
+function useCountries(): readonly (readonly [string, string])[] {
+  const { locale } = useI18n();
+  return useMemo(
+    () =>
+      FURS_COUNTRIES.map((code) => [code, countryName(code, locale)] as const)
+        .slice()
+        .sort(([, a], [, b]) => a.localeCompare(b, locale)),
+    [locale],
+  );
+}
+
+function CountrySelect({
+  inputId,
+  label,
+  value,
+  onChange,
+  help,
+}: {
+  readonly inputId: string;
+  readonly label: string;
+  readonly value: string;
+  readonly onChange: (value: string) => void;
+  readonly help?: string;
+}) {
+  const { t } = useI18n();
+  const countries = useCountries();
+  const helpId = `${inputId}-help`;
+  return (
+    <div className="field">
+      <label htmlFor={inputId} className="field-label">
+        {label}
+      </label>
+      <select
+        id={inputId}
+        className="input"
+        value={value}
+        aria-describedby={help === undefined ? undefined : helpId}
+        onChange={(event) => {
+          onChange(event.currentTarget.value);
+        }}
+      >
+        <option value="">{t.details.countryChoose}</option>
+        {countries.map(([code, name]) => (
+          <option key={code} value={code}>
+            {name}
+          </option>
+        ))}
+      </select>
+      {help === undefined ? null : (
+        <p id={helpId} className="field-help">
+          {help}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** One payer's details, under the security that paid. */
+function PayerFields({
+  prompt,
+  draft,
+  onChange,
+}: {
+  readonly prompt: PayerPrompt;
+  readonly draft: PayerDraft;
+  readonly onChange: (field: keyof PayerDraft, value: string) => void;
+}) {
+  const { locale, t } = useI18n();
+  const id = (field: keyof PayerDraft) => `payer-${prompt.isin}-${field}`;
+  const set = (field: keyof PayerDraft) => (value: string) => {
+    onChange(field, value);
+  };
+  const title = prompt.symbol === "" ? prompt.isin : prompt.symbol;
+  return (
+    <fieldset className="payer-fields">
+      <legend className="payer-legend">
+        <span className="strong">{title}</span>{" "}
+        <span className="mono muted small">{prompt.isin}</span>{" "}
+        <span className="muted small">
+          {plural(prompt.payments, locale, t.details.payments)}
+        </span>
+      </legend>
+      <div className="form-grid">
+        <Field
+          inputId={id("name")}
+          label={t.details.payerName}
+          value={draft.name}
+          onChange={set("name")}
+          autoComplete="off"
+          wide
+        />
+        <Field
+          inputId={id("address")}
+          label={t.details.payerAddress}
+          value={draft.address}
+          onChange={set("address")}
+          autoComplete="off"
+          wide
+        />
+        <CountrySelect
+          inputId={id("country")}
+          label={t.details.payerCountry}
+          value={draft.country}
+          onChange={set("country")}
+        />
+        <Field
+          inputId={id("id")}
+          label={t.details.payerId}
+          value={draft.id}
+          onChange={set("id")}
+          help={t.details.payerIdHelp}
+          autoComplete="off"
+        />
+        {prompt.isinCountry === "" ? (
+          <CountrySelect
+            inputId={id("sourceCountry")}
+            label={t.details.sourceCountry}
+            value={draft.sourceCountry}
+            onChange={set("sourceCountry")}
+            help={t.details.sourceCountryHelp}
+          />
+        ) : null}
+      </div>
+    </fieldset>
   );
 }
 
@@ -140,15 +277,28 @@ function HeaderPreview({ details }: { readonly details: Details }) {
 export function DetailsStep({
   state,
   onChange,
+  onPayerChange,
   onBack,
   onNext,
 }: {
   readonly state: WizardState;
   readonly onChange: (field: keyof Details, value: string) => void;
+  readonly onPayerChange: (
+    isin: string,
+    field: keyof PayerDraft,
+    value: string,
+  ) => void;
   readonly onBack: () => void;
   readonly onNext: () => void;
 }) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
+  const prompts =
+    state.mode === "own" && state.reading.status === "read"
+      ? state.reading.reply.payers
+      : [];
+  const missing = prompts.filter((p) =>
+    isPayerIncomplete(state.payers[p.isin], p.isinCountry),
+  ).length;
   const { details } = state;
   const taxNumberField = useRef<HTMLInputElement>(null);
   const taxNumberRequired = state.mode === "own";
@@ -185,66 +335,98 @@ export function DetailsStep({
       </header>
 
       <div className="details-layout">
-        <div className="card form-card">
-          <div className="form-grid">
-            <Field
-              id="taxNumber"
-              label={
-                taxNumberRequired
-                  ? `${t.details.taxNumberLabel} ${t.details.requiredSuffix}`
-                  : t.details.taxNumberLabel
-              }
-              required={taxNumberRequired}
-              inputRef={taxNumberField}
-              value={details.taxNumber}
-              onChange={set("taxNumber")}
-              help={t.details.taxNumberHelp}
-              error={taxNumberError}
-              inputMode="numeric"
-              autoComplete="off"
-              maxLength={9}
-            />
-            <Field
-              id="name"
-              label={t.details.nameLabel}
-              value={details.name}
-              onChange={set("name")}
-              autoComplete="name"
-            />
-            <Field
-              id="address"
-              label={t.details.addressLabel}
-              value={details.address}
-              onChange={set("address")}
-              autoComplete="street-address"
-              wide
-            />
-            <Field
-              id="postCode"
-              label={t.details.postCodeLabel}
-              value={details.postCode}
-              onChange={set("postCode")}
-              inputMode="numeric"
-              autoComplete="postal-code"
-            />
-            <Field
-              id="city"
-              label={t.details.cityLabel}
-              value={details.city}
-              onChange={set("city")}
-              autoComplete="address-level2"
-            />
-            <Field
-              id="email"
-              label={t.details.emailLabel}
-              value={details.email}
-              onChange={set("email")}
-              help={t.details.emailHelp}
-              inputMode="email"
-              autoComplete="email"
-              wide
-            />
+        <div className="details-forms">
+          <div className="card form-card">
+            <div className="form-grid">
+              <Field
+                inputId="details-taxNumber"
+                label={
+                  taxNumberRequired
+                    ? `${t.details.taxNumberLabel} ${t.details.requiredSuffix}`
+                    : t.details.taxNumberLabel
+                }
+                required={taxNumberRequired}
+                inputRef={taxNumberField}
+                value={details.taxNumber}
+                onChange={set("taxNumber")}
+                help={t.details.taxNumberHelp}
+                error={taxNumberError}
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength={9}
+              />
+              <Field
+                inputId="details-name"
+                label={t.details.nameLabel}
+                value={details.name}
+                onChange={set("name")}
+                autoComplete="name"
+              />
+              <Field
+                inputId="details-address"
+                label={t.details.addressLabel}
+                value={details.address}
+                onChange={set("address")}
+                autoComplete="street-address"
+                wide
+              />
+              <Field
+                inputId="details-postCode"
+                label={t.details.postCodeLabel}
+                value={details.postCode}
+                onChange={set("postCode")}
+                inputMode="numeric"
+                autoComplete="postal-code"
+              />
+              <Field
+                inputId="details-city"
+                label={t.details.cityLabel}
+                value={details.city}
+                onChange={set("city")}
+                autoComplete="address-level2"
+              />
+              <Field
+                inputId="details-email"
+                label={t.details.emailLabel}
+                value={details.email}
+                onChange={set("email")}
+                help={t.details.emailHelp}
+                inputMode="email"
+                autoComplete="email"
+                wide
+              />
+            </div>
           </div>
+
+          {prompts.length === 0 ? null : (
+            <section
+              className="card form-card payers-card"
+              aria-labelledby="payers-title"
+            >
+              <h2 id="payers-title" className="payers-title">
+                {t.details.payersTitle}
+              </h2>
+              <p className="muted small">{t.details.payersIntro}</p>
+              {missing === 0 ? null : (
+                <Note tone="warn">
+                  {plural(missing, locale, t.details.payersMissing)}
+                </Note>
+              )}
+              {prompts.map((prompt) => {
+                const draft = state.payers[prompt.isin];
+                return draft === undefined ? null : (
+                  <PayerFields
+                    key={prompt.isin}
+                    prompt={prompt}
+                    draft={draft}
+                    onChange={(field, value) => {
+                      onPayerChange(prompt.isin, field, value);
+                    }}
+                  />
+                );
+              })}
+            </section>
+          )}
         </div>
 
         <div className="details-actions">

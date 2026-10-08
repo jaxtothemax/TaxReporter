@@ -33,92 +33,102 @@ export function DividendsPanel({
   const rows = [...dividends].sort(
     (a, b) => a.date.localeCompare(b.date) || a.payer.localeCompare(b.payer),
   );
+  const withheld = dividends.some((row) => /[1-9]/.test(row.foreignTaxEur));
   return (
-    <DataTable caption={t.review.tabDividends}>
-      <thead>
-        <tr>
-          <th scope="col">{t.review.colDate}</th>
-          <th scope="col">{t.review.colPayer}</th>
-          <th scope="col">{t.review.colCountry}</th>
-          <th scope="col" className="end">
-            {t.review.colGross}
-          </th>
-          <th scope="col" className="end">
-            {t.review.colForeignTax}
-          </th>
-          <th scope="col" className="end">
-            {t.review.colCredit}
-          </th>
-          <th scope="col">{t.review.colRate}</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row) => (
-          <tr key={`${row.source.file}:${String(row.source.row)}`}>
-            <th scope="row" className="num nowrap">
-              {formatDate(row.date, locale)}
+    <div className="panel-stack">
+      <DataTable caption={t.review.tabDividends}>
+        <thead>
+          <tr>
+            <th scope="col">{t.review.colDate}</th>
+            <th scope="col">{t.review.colPayer}</th>
+            <th scope="col">{t.review.colCountry}</th>
+            <th scope="col" className="end">
+              {t.review.colGross}
             </th>
-            <td>
-              <span className="payer">
-                <SecurityMark isin={row.isin} symbol={row.symbol} labelled />
-                <span className="stack-tight">
-                  <span className="strong">{row.payer}</span>
-                  <span className="muted small">
-                    <BrokerName broker={row.broker} />
-                  </span>
-                  <SourceText source={row.source} />
-                </span>
-              </span>
-            </td>
-            <td className="nowrap">{formatCountry(row.country, locale)}</td>
-            <td className="end">
-              <span className="stack-tight align-end">
-                <Eur value={row.grossEur} />
-                {row.gross.currency === "EUR" ? null : (
-                  <span className="muted small num nowrap">
-                    {formatMoney(row.gross.amount, row.gross.currency, locale)}
-                  </span>
-                )}
-              </span>
-            </td>
-            <td className="end">
-              <Eur value={row.foreignTaxEur} />
-            </td>
-            <td className="end">
-              <span className="stack-tight align-end">
-                <Eur value={row.creditEur} />
-                {isCapped(row) && row.treatyRate !== null ? (
-                  <span className="cap-note">
-                    {t.review.creditCapped(
-                      formatPercent(row.treatyRate, locale),
-                    )}
-                  </span>
-                ) : null}
-              </span>
-            </td>
-            <td>
-              <RateText rate={row.rate} />
-            </td>
+            <th scope="col" className="end">
+              {t.review.colForeignTax}
+            </th>
+            <th scope="col" className="end">
+              {t.review.colCredit}
+            </th>
+            <th scope="col">{t.review.colRate}</th>
           </tr>
-        ))}
-      </tbody>
-      <tfoot>
-        <tr>
-          <th scope="row" colSpan={3}>
-            {t.review.dividendsTotal}
-          </th>
-          <td className="end">
-            <Eur value={totals.grossEur} strong />
-          </td>
-          <td className="end">
-            <Eur value={totals.foreignTaxEur} strong />
-          </td>
-          <td className="end">
-            <Eur value={totals.creditEur} strong />
-          </td>
-          <td />
-        </tr>
-      </tfoot>
-    </DataTable>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={`${row.source.file}:${String(row.source.row)}`}>
+              <th scope="row" className="num nowrap">
+                {formatDate(row.date, locale)}
+              </th>
+              <td>
+                <span className="payer">
+                  <SecurityMark isin={row.isin} symbol={row.symbol} labelled />
+                  <span className="stack-tight">
+                    <span className="strong">{row.payer}</span>
+                    <span className="muted small">
+                      <BrokerName broker={row.broker} />
+                    </span>
+                    <SourceText source={row.source} />
+                  </span>
+                </span>
+              </td>
+              <td className="nowrap">
+                {row.country === "" ? "" : formatCountry(row.country, locale)}
+              </td>
+              <td className="end">
+                <span className="stack-tight align-end">
+                  <Eur value={row.grossEur} />
+                  {row.gross.currency === "EUR" ? null : (
+                    <span className="muted small num nowrap">
+                      {formatMoney(
+                        row.gross.amount,
+                        row.gross.currency,
+                        locale,
+                      )}
+                    </span>
+                  )}
+                </span>
+              </td>
+              <td className="end">
+                <Eur value={row.foreignTaxEur} />
+              </td>
+              <td className="end">
+                <span className="stack-tight align-end">
+                  <Eur value={row.creditEur} />
+                  {isCapped(row) && row.treatyRate !== null ? (
+                    <span className="cap-note">
+                      {t.review.creditCapped(
+                        formatPercent(row.treatyRate, locale),
+                      )}
+                    </span>
+                  ) : null}
+                </span>
+              </td>
+              <td>
+                <RateText rate={row.rate} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr>
+            <th scope="row" colSpan={3}>
+              {t.review.dividendsTotal}
+            </th>
+            <td className="end">
+              <Eur value={totals.grossEur} strong />
+            </td>
+            <td className="end">
+              <Eur value={totals.foreignTaxEur} strong />
+            </td>
+            <td className="end">
+              <Eur value={totals.creditEur} strong />
+            </td>
+            <td />
+          </tr>
+        </tfoot>
+      </DataTable>
+      {withheld ? <Note tone="neutral">{t.review.foreignTaxProof}</Note> : null}
+    </div>
   );
 }

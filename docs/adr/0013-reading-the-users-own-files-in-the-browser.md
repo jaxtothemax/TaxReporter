@@ -3,9 +3,12 @@
 **Date:** 2026-10-08
 **Status:** Proposed
 
-> **Implementation status (2026-10-08):** being built on branch `feat/web-own-files`, not yet
-> on `main`. Until it lands, the web app reads no file: "Use my files" records names and
-> sizes only, and the review offers the demo.
+> **Implementation status (2026-10-09):** built on branch `feat/web-own-files`, not yet on
+> `main`: `packages/pipeline/src/prepare.ts` and, in `apps/web/src/`, `engine/` (`protocol.ts`,
+> `handle.ts`, `toPreview.ts`, `lockdown.ts`, `engine.worker.ts`, `client.ts`, `rates.ts`),
+> `i18n/present.ts`, `state/wizard.ts` and the four step screens. Tested in Node over the
+> synthetic broker fixtures and in a headless browser against the dev server and the
+> production build; no real export has been read in the browser yet.
 
 ## Context
 
@@ -34,8 +37,9 @@ and are open to review.
    leaves the page responsive, and a worker has no DOM, so no text from a file can be
    rendered except through the one reply shape the page checks.
 3. **The worker locks itself down before reading anything.** At start it removes `fetch`,
-   `XMLHttpRequest`, `WebSocket`, `EventSource`, `WebTransport`, `importScripts`, `indexedDB`
-   and `caches` from its global scope. The page's Content Security Policy already forbids
+   `XMLHttpRequest`, `WebSocket`, `EventSource`, `WebTransport`, `importScripts`, `indexedDB`,
+   `caches`, `navigator` (and with it the origin's private file system), `BroadcastChannel`,
+   `Worker` and `SharedWorker` from its global scope, and refuses to start if any is left. The page's Content Security Policy already forbids
    every other origin (`connect-src 'self'`); the lockdown makes "parsers do not touch the
    network" hold even against a same-origin request, and makes storing a file impossible
    rather than merely absent. The rate snapshot arrives as bundled modules (`?raw` imports,

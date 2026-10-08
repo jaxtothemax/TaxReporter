@@ -1,8 +1,9 @@
 /**
  * The review: four headline cards, then tabs for the two forms and the notes.
- * Notes that need attention are announced above the tabs, and blocking ones
- * stop the flow. With the user's own (unread) files there is nothing to show
- * yet, so the screen says so and offers the demo instead.
+ * Notes that need attention are announced above the tabs. A blocking note
+ * stops the return it bears on (ADR 0013 §9): the flow goes on while either
+ * return can be written. With the user's own files the engine prepares the
+ * review when the step opens, so until then the screen says it is working.
  */
 import {
   ArrowRightIcon,
@@ -11,8 +12,10 @@ import {
 } from "@phosphor-icons/react";
 import { useState } from "react";
 
+import type { FormOutput } from "../engine/protocol";
 import { formatNumber, formatPercent, plural } from "../i18n/format";
 import { useI18n } from "../i18n/i18n";
+import type { Messages } from "../i18n/messages";
 import { HOLDING_BUCKETS, type ReturnPreview } from "../model/preview";
 import { TAX_YEAR } from "../state/wizard";
 import { bucketLabel, Eur } from "../ui/bits";
@@ -188,13 +191,43 @@ function TabLabel({
   );
 }
 
+/** What a blocking note stops: one return while the other can be written. */
+function blockedText(
+  forms: { readonly kdvp: FormOutput; readonly div: FormOutput } | null,
+  t: Messages,
+): string {
+  if (forms === null) return t.review.blocked;
+  const withheld = (form: FormOutput) => form.needed && form.xml === null;
+  if (withheld(forms.kdvp) && !withheld(forms.div)) {
+    return t.review.blockedOne(t.download.kdvpTitle);
+  }
+  if (withheld(forms.div) && !withheld(forms.kdvp)) {
+    return t.review.blockedOne(t.download.divTitle);
+  }
+  return t.review.blocked;
+}
+
 export function ReviewStep({
   preview,
+  status = "ready",
+  fileNames = [],
+  forms = null,
+  canContinue,
   onBack,
   onNext,
   onStartDemo,
 }: {
   readonly preview: ReturnPreview | null;
+  /** Where the engine stands with the user's own files. */
+  readonly status?: "ready" | "preparing" | "failed";
+  /** The names of the files read, by their position in the request. */
+  readonly fileNames?: readonly string[];
+  /** Each return as written, for the user's own files; null in the demo. */
+  readonly forms?: {
+    readonly kdvp: FormOutput;
+    readonly div: FormOutput;
+  } | null;
+  readonly canContinue: boolean;
   readonly onBack: () => void;
   readonly onNext: () => void;
   readonly onStartDemo: () => void;
@@ -202,7 +235,7 @@ export function ReviewStep({
   const { locale, t } = useI18n();
   const [tab, setTab] = useState<ReviewTab>("gains");
   const year = String(preview?.taxYear ?? TAX_YEAR);
-  const notes = preview?.diagnostics ?? [];
+  const notes = preview?.findings ?? [];
   const noteCount = formatNumber(String(notes.length), locale);
   const blocking = notes.filter((d) => d.severity === "blocking").length;
   const needAttention = notes.filter((d) => d.severity !== "info").length;
@@ -219,7 +252,15 @@ export function ReviewStep({
         <p className="lead">{t.review.intro}</p>
       </header>
 
-      {preview === null ? (
+      {status === "preparing" ? (
+        <Note tone="neutral" role="status">
+          {t.review.preparing}
+        </Note>
+      ) : status === "failed" ? (
+        <Note tone="danger" role="alert">
+          {t.review.prepareFailed}
+        </Note>
+      ) : preview === null ? (
         <EmptyReview onStartDemo={onStartDemo} />
       ) : (
         <>
@@ -236,7 +277,7 @@ export function ReviewStep({
               }
             >
               {plural(needAttention, locale, t.review.attention)}
-              {blocking > 0 ? ` ${t.review.blocked}` : ""}
+              {blocking > 0 ? ` ${blockedText(forms, t)}` : ""}
             </Note>
           )}
 
@@ -294,7 +335,11 @@ export function ReviewStep({
                     <h2 className="visually-hidden">
                       {t.review.tabNotes(noteCount)}
                     </h2>
-                    <NotesPanel diagnostics={preview.diagnostics} />
+                    <NotesPanel
+                      findings={preview.findings}
+                      symbols={preview.symbols}
+                      fileNames={fileNames}
+                    />
                   </>
                 ),
               },
@@ -307,13 +352,13 @@ export function ReviewStep({
         <Button size="lg" onClick={onBack}>
           {t.nav.back}
         </Button>
-        {preview === null ? null : (
+        {preview === null || status !== "ready" ? null : (
           <Button
             variant="primary"
             size="lg"
             onClick={onNext}
-            disabled={blocking > 0}
-            aria-describedby={blocking > 0 ? "review-attention" : undefined}
+            disabled={!canContinue}
+            aria-describedby={canContinue ? undefined : "review-attention"}
           >
             {t.nav.next}
             <ArrowRightIcon size={18} weight="bold" aria-hidden />

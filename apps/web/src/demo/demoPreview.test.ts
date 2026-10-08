@@ -320,39 +320,47 @@ describe("demo dividends", () => {
   });
 });
 
-describe("demo diagnostics", () => {
+describe("demo findings", () => {
   it("state the excess withholding exactly as the dividend row computes it", () => {
-    const note = demoPreview.diagnostics.find(
+    const note = demoPreview.findings.find(
       (d) => d.code === "excessWithholding",
     );
     const row = demoPreview.dividends.find((r) => r.payer === "Allianz SE");
-    if (note?.code !== "excessWithholding" || row === undefined)
-      throw new Error("missing");
-    expect(note.params.creditEur).toBe(row.creditEur);
-    expect(note.params.withheldEur).toBe(row.foreignTaxEur);
-    expect(
-      same(
-        note.params.excessEur,
-        r2(sub(q(row.foreignTaxEur), q(row.creditEur))),
-      ),
-    ).toBe(true);
+    if (note === undefined || row === undefined) throw new Error("missing");
+    expect(note.params["isin"]).toBe(row.isin);
+    expect(note.params["date"]).toBe(row.date);
+    expect(note.params["creditEur"]).toBe(row.creditEur);
+    expect(note.params["withheldEur"]).toBe(row.foreignTaxEur);
+    expect(note.params["treatyRate"]).toBe(row.treatyRate);
+    const excess = note.params["excessEur"];
+    if (typeof excess !== "string") throw new Error("no excess");
+    expect(same(excess, r2(sub(q(row.foreignTaxEur), q(row.creditEur))))).toBe(
+      true,
+    );
   });
 
-  it("explain the holiday rate with the list the row actually used", () => {
-    const note = demoPreview.diagnostics.find((d) => d.code === "holidayRate");
-    if (note?.code !== "holidayRate") throw new Error("missing");
-    const row = demoPreview.dividends.find((r) => r.date === note.params.date);
-    expect(row?.rate?.listDate).toBe(note.params.listDate);
-    expect(note.params.listDate < note.params.date).toBe(true);
+  it("convert a payment on a TARGET holiday at the list before it", () => {
+    // 1 May 2026 is a TARGET holiday: Banka Slovenije published no list.
+    const row = demoPreview.dividends.find((r) => r.date === "2026-05-01");
+    expect(row?.rate?.listDate).toBe("2026-04-30");
   });
 
   it("mention every split that adjusted a row", () => {
-    const notes = demoPreview.diagnostics.filter(
+    const notes = demoPreview.findings.filter(
       (d) => d.code === "splitAdjusted",
     );
     const adjusted = demoPreview.securities.flatMap((s) =>
-      s.rows.filter((r) => r.splitAdjusted !== undefined).map(() => s.symbol),
+      s.rows.filter((r) => r.splitAdjusted !== undefined).map(() => s.isin),
     );
-    expect(notes.map((n) => n.params.symbol)).toEqual(adjusted);
+    expect(notes.map((n) => n.params["isin"])).toEqual(adjusted);
+  });
+
+  it("name every security a finding is about by its ticker", () => {
+    for (const finding of demoPreview.findings) {
+      const isin = finding.params["isin"];
+      if (typeof isin === "string") {
+        expect(demoPreview.symbols[isin], isin).toBeDefined();
+      }
+    }
   });
 });
