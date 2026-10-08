@@ -152,6 +152,23 @@ function checkDividend(
     issues.push({ code: "dividendType", path: `${path}.type` });
   }
 
+  // Typed, but a model from JSON can hold anything: amounts must be
+  // Decimals before any arithmetic touches them.
+  const grossValue: unknown = dividend.grossEur;
+  const taxValue: unknown = dividend.foreignTaxEur;
+  if (!(grossValue instanceof Decimal)) {
+    issues.push({ code: "notDecimal", path: `${path}.grossEur` });
+  }
+  if (given(taxValue) && !(taxValue instanceof Decimal)) {
+    issues.push({ code: "notDecimal", path: `${path}.foreignTaxEur` });
+  }
+  if (
+    !(grossValue instanceof Decimal) ||
+    (given(taxValue) && !(taxValue instanceof Decimal))
+  ) {
+    return;
+  }
+
   // Compared at the scale they are written at: the rounded values are the
   // ones eDavki sees.
   const gross = dividend.grossEur.round(AMOUNT_SCALE, "halfUp");
@@ -193,6 +210,13 @@ export function validateDohDiv(form: DohDiv): FormIssue[] {
   if (!isTaxYear(form.taxYear))
     issues.push({ code: "taxYear", path: "taxYear" });
   checkTaxpayer(form.taxpayer, issues);
+  // Tested on an untyped copy: Array.isArray narrows a readonly array type
+  // to any[], which would switch type checking off below.
+  const dividends: unknown = form.dividends;
+  if (!Array.isArray(dividends)) {
+    issues.push({ code: "notArray", path: "dividends" });
+    return issues;
+  }
   if (form.dividends.length === 0) {
     issues.push({ code: "noDividends", path: "dividends" });
   }

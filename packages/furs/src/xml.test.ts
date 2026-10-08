@@ -115,6 +115,16 @@ describe("serialize, given elements built by hand", () => {
   // must still never reach the output unchecked.
   const forged = (node: unknown) => () => serialize(node as XmlElement);
 
+  it("re-checks names, refusing a name that is not a string", () => {
+    expect(forged({ name: undefined, attributes: [], content: [] })).toThrow(
+      "Not an XML element or attribute name",
+    );
+    const sly = { toString: () => "R" };
+    expect(forged({ name: sly, attributes: [], content: [] })).toThrow(
+      "Not an XML element or attribute name",
+    );
+  });
+
   it("re-checks names", () => {
     expect(
       forged({

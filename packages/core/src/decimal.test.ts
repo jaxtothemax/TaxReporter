@@ -54,6 +54,36 @@ describe("Decimal.fromInteger", () => {
   });
 });
 
+describe("Decimal hardening", () => {
+  it("cannot be built around its checks", () => {
+    const Raw = Decimal as unknown as new (num: bigint, den: bigint) => Decimal;
+    expect(() => new Raw(1n, -2n)).toThrow(TypeError);
+    expect(() => Decimal.fromInteger("12" as never)).toThrow(
+      /^Not a safe integer$/,
+    );
+    expect(() => Decimal.parse(1.5 as never)).toThrow(
+      /^Not a plain decimal string$/,
+    );
+  });
+
+  it("keeps its methods and shared values from being patched", () => {
+    expect(Object.isFrozen(Decimal.prototype)).toBe(true);
+    expect(Object.isFrozen(Decimal.ZERO)).toBe(true);
+    expect(() => {
+      (Decimal.ZERO as unknown as { plus: unknown }).plus = () => Decimal.ONE;
+    }).toThrow(TypeError);
+  });
+
+  it("writes long runs of zeros in linear time", () => {
+    const tiny = Decimal.parse(`0.${"0".repeat(60)}1`);
+    const started = Date.now();
+    for (let i = 0; i < 200; i += 1) tiny.toPlain(100, "down");
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(Decimal.parse("10.500").toPlain(3, "down")).toBe("10.5");
+    expect(Decimal.parse("0.000").toPlain(3, "down")).toBe("0");
+  });
+});
+
 describe("Decimal constants", () => {
   it("cannot be replaced at run time", () => {
     expect(Object.isFrozen(Decimal)).toBe(true);

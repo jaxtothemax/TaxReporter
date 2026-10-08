@@ -8,7 +8,7 @@
  * out, then writes the XML in schema order. Field mapping, element order and
  * limits: docs/research/01-furs-doh-kdvp.md §3–§7.
  */
-import { Decimal } from "@taxreporter/core";
+import { Decimal, isIsin } from "@taxreporter/core";
 
 import {
   checkTaxpayer,
@@ -30,10 +30,13 @@ export const KDVP_NAMESPACE =
 /**
  * F2 on a long (PLVP) list, limited to what data from a foreign broker can
  * need: B purchase, D bonus issue from company funds, E exchange on a merger
- * or division, F inheritance, G gift, H other. A and C do not arise from a
- * broker export, and I, J and K mean different things on different list
- * types and in different FURS sources, so they are left to manual entry
- * (research 01 §6). Frozen, so no caller can widen it at run time.
+ * or division, F inheritance, G gift, H other. A (a capital contribution)
+ * does not arise from a broker export; C (a capital increase the taxpayer
+ * pays for, such as a rights issue) is not supported yet; and I, J and K
+ * mean different things on different list types and in different FURS
+ * sources, so they are left to manual entry (research 01 §6). These are the
+ * PLVP codes: short lists use A to D with other meanings. Frozen, so no
+ * caller can widen it at run time.
  */
 export const ACQUISITION_METHODS = Object.freeze([
   "B",
@@ -118,32 +121,6 @@ const MAX_QUANTITY = Decimal.parse("999999999999.99999999"); // 12 + 8 digits
 const MAX_UNIT_VALUE = Decimal.parse("99999999999999.99999999"); // 14 + 8
 const MAX_TAX = Decimal.parse("9999999999.9999"); // 10 + 4
 
-/** ISO 6166: two letters, nine alphanumerics, a Luhn check digit. */
-export function isIsin(value: unknown): value is string {
-  if (typeof value !== "string" || !/^[A-Z]{2}[A-Z0-9]{9}\d$/.test(value)) {
-    return false;
-  }
-  // Letters count as two digits (A = 10 ... Z = 35); the pattern above has
-  // already made the string ASCII.
-  let digits = "";
-  for (let i = 0; i < value.length; i += 1) {
-    const code = value.charCodeAt(i);
-    digits += code >= 65 ? String(code - 55) : value.charAt(i);
-  }
-  let sum = 0;
-  let double = false;
-  for (let i = digits.length - 1; i >= 0; i -= 1) {
-    let digit = Number(digits[i]);
-    if (double) {
-      digit *= 2;
-      if (digit > 9) digit -= 9;
-    }
-    sum += digit;
-    double = !double;
-  }
-  return sum % 10 === 0;
-}
-
 function checkQuantity(
   quantity: Decimal,
   path: string,
@@ -213,6 +190,27 @@ function checkRows(
         issues.push({ code: "saleOutsideTaxYear", path: `${at}.date` });
       }
     }
+    // Typed, but a model from JSON can hold anything: amounts must be
+    // Decimals before any arithmetic touches them.
+    const amounts: Record<string, unknown> =
+      row.kind === "purchase"
+        ? {
+            quantity: row.quantity,
+            unitCostEur: row.unitCostEur,
+            ...(given(row.inheritanceOrGiftTaxEur)
+              ? { inheritanceOrGiftTaxEur: row.inheritanceOrGiftTaxEur }
+              : {}),
+          }
+        : { quantity: row.quantity, unitValueEur: row.unitValueEur };
+    const notDecimal = Object.entries(amounts).filter(
+      ([, value]) => !(value instanceof Decimal),
+    );
+    if (notDecimal.length > 0) {
+      for (const [field] of notDecimal) {
+        issues.push({ code: "notDecimal", path: `${at}.${field}` });
+      }
+      continue;
+    }
     checkQuantity(row.quantity, `${at}.quantity`, issues);
     if (row.kind === "purchase") {
       // The schema takes all of A-K, but their meaning depends on the list
@@ -227,7 +225,12 @@ function checkRows(
         `${at}.unitCostEur`,
         issues,
       );
-      if (given(row.inheritanceOrGiftTaxEur)) {
+      // A zero F5 says nothing and is left out; a tax paid is only possible
+      // on an inheritance or a gift.
+      if (
+        given(row.inheritanceOrGiftTaxEur) &&
+        !row.inheritanceOrGiftTaxEur.isZero()
+      ) {
         if (!TAXED_ACQUISITIONS.has(row.method)) {
           issues.push({
             code: "inheritanceOrGiftTaxMethod",
@@ -276,8 +279,16 @@ export function validateDohKdvp(form: DohKdvp): FormIssue[] {
   if (!isTaxYear(form.taxYear))
     issues.push({ code: "taxYear", path: "taxYear" });
   checkTaxpayer(form.taxpayer, issues);
+  // Tested on an untyped copy: Array.isArray narrows a readonly array type
+  // to any[], which would switch type checking off below.
+  const lists: unknown = form.lists;
+  if (!Array.isArray(lists)) {
+    issues.push({ code: "notArray", path: "lists" });
+    return issues;
+  }
   if (form.lists.length === 0) issues.push({ code: "noLists", path: "lists" });
   const seen = new Set<string>();
+  const names = new Set<string>();
   for (let i = 0; i < form.lists.length; i += 1) {
     const path = `lists[${String(i)}]`;
     const list = form.lists[i];
@@ -297,9 +308,20 @@ export function validateDohKdvp(form: DohKdvp): FormIssue[] {
       required: true,
       maxLength: 100,
     });
+    // The schema declares list names unique (xs:unique on Securities/Name),
+    // though its selector never matches, so the check is done here.
+    if (names.has(list.name)) {
+      issues.push({ code: "duplicateName", path: `${path}.name` });
+    }
+    names.add(list.name);
     const isFund: unknown = list.isFund;
     if (typeof isFund !== "boolean") {
       issues.push({ code: "notBoolean", path: `${path}.isFund` });
+    }
+    const rows: unknown = list.rows;
+    if (!Array.isArray(rows)) {
+      issues.push({ code: "notArray", path: `${path}.rows` });
+      continue;
     }
     // eDavki counts a list as correctly entered only with at least one
     // acquisition and one disposal (research 01 §8).
@@ -332,7 +354,8 @@ function rowElements(rows: readonly KdvpRow[]): XmlElement[] {
         text("F4", unitValue(row.unitCostEur)),
         optional(
           "F5",
-          given(row.inheritanceOrGiftTaxEur)
+          given(row.inheritanceOrGiftTaxEur) &&
+            !row.inheritanceOrGiftTaxEur.isZero()
             ? row.inheritanceOrGiftTaxEur.toPlain(TAX_SCALE, "halfUp")
             : undefined,
         ),

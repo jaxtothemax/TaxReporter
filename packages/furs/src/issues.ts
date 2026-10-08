@@ -17,12 +17,18 @@ export type FormIssueCode =
   | "textMissing"
   /** A hole or null in a list of lists, rows or dividends. */
   | "entryMissing"
+  /** Lists, rows or dividends that are not an array. */
+  | "notArray"
+  /** An amount or quantity that is not a Decimal. */
+  | "notDecimal"
   /** A flag that is not a boolean, such as the string "false". */
   | "notBoolean"
   // Doh-KDVP
   | "noLists"
   | "duplicateList"
   | "isin"
+  /** Two lists with one name: the schema means names to be unique. */
+  | "duplicateName"
   | "listWithoutPurchase"
   | "listWithoutSale"
   /** A row that is neither a purchase nor a sale. */

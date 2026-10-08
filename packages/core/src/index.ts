@@ -9,4 +9,6 @@
  */
 export const PACKAGE = "@taxreporter/core";
 
+export { isIsoDate, type IsoDate } from "./dates.js";
 export { Decimal, MAX_DECIMAL_LENGTH, type RoundingMode } from "./decimal.js";
+export { isIsin } from "./isin.js";

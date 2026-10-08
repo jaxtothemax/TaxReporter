@@ -1,11 +1,10 @@
-import { Decimal } from "@taxreporter/core";
+import { Decimal, isIsin } from "@taxreporter/core";
 import { describe, expect, it } from "vitest";
 
 import { kdvpDemo2026, kdvpMatchedLots, TAXPAYER } from "../test/scenarios.js";
 import { FormValidationError, type FormIssueCode } from "./issues.js";
 import {
   ACQUISITION_METHODS,
-  isIsin,
   validateDohKdvp,
   writeDohKdvp,
   type DohKdvp,
@@ -111,6 +110,42 @@ describe("validateDohKdvp", () => {
   it("keeps one list per security, merged across brokers", () => {
     expect(issues(form([valid, valid]))).toEqual([
       "duplicateList lists[1].isin",
+      "duplicateName lists[1].name",
+    ]);
+  });
+
+  it("refuses two lists with one name, which the schema means to be unique", () => {
+    expect(
+      issues(form([valid, list(valid.rows, { isin: "IE00BK5BQT80" })])),
+    ).toEqual(["duplicateName lists[1].name"]);
+  });
+
+  it("checks that lists and rows are arrays and amounts are Decimals", () => {
+    const loose = (value: unknown) => value as never;
+    expect(issues(form(loose({ length: 1, 0: valid })))).toEqual([
+      "notArray lists",
+    ]);
+    expect(issues(form([list(loose("rows"))]))).toEqual([
+      "notArray lists[0].rows",
+    ]);
+    expect(
+      issues(
+        form([
+          list([
+            loose({ ...purchase("2024-01-02", "1"), quantity: null }),
+            loose({ ...sale("2026-03-04", "1"), unitValueEur: 12 }),
+          ]),
+        ]),
+      ),
+    ).toEqual([
+      "notDecimal lists[0].rows[0].quantity",
+      "notDecimal lists[0].rows[1].unitValueEur",
+    ]);
+  });
+
+  it("refuses text that is not a string, rather than coercing it", () => {
+    expect(issues(form([list(valid.rows, { name: 42 as never })]))).toEqual([
+      "invalidCharacter lists[0].name",
     ]);
   });
 
@@ -337,13 +372,17 @@ describe("validateDohKdvp", () => {
   });
 
   it("keeps text on one line, without bidirectional controls", () => {
-    // NEL, line and paragraph separators, a right-to-left mark, a
-    // right-to-left override and a left-to-right isolate.
-    for (const unit of [0x85, 0x2028, 0x2029, 0x200f, 0x202e, 0x2066]) {
-      const name = `Apple${String.fromCharCode(unit)}Inc.`;
+    // NEL and a C1 control, line and paragraph separators, every kind of
+    // bidirectional control, zero-width characters, a soft hyphen, a
+    // byte-order mark and a tag character.
+    for (const point of [
+      0x85, 0x86, 0x2028, 0x2029, 0x061c, 0x200e, 0x200f, 0x202a, 0x202e,
+      0x2066, 0x2067, 0x200b, 0x200d, 0x2060, 0x00ad, 0xfeff, 0xe0041,
+    ]) {
+      const name = `Apple${String.fromCodePoint(point)}Inc.`;
       expect(
         issues(form([list(valid.rows, { name })])),
-        unit.toString(16),
+        point.toString(16),
       ).toEqual(["invalidCharacter lists[0].name"]);
     }
   });
@@ -443,6 +482,19 @@ describe("writeDohKdvp", () => {
     for (const tag of ["<F5>", "<F10>", "<Code>"]) {
       expect(xml, tag).not.toContain(tag);
     }
+  });
+
+  it("leaves a zero F5 out, on any acquisition", () => {
+    const xml = writeDohKdvp(
+      form([
+        list([
+          { ...purchase("2024-01-02", "1"), inheritanceOrGiftTaxEur: d("0") },
+          sale("2026-03-04", "1"),
+        ]),
+      ]),
+    );
+    expect(xml).toContain("<F2>B</F2>");
+    expect(xml).not.toContain("<F5>");
   });
 
   it("writes F5 at its own scale of 4 decimals", () => {

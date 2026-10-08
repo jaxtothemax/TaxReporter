@@ -53,10 +53,13 @@ ever shows otherwise.
 **Totals are taken over values already rounded to their field (2026-10-08).** A sum over
 many rows converted at different rates would carry the product of all those rates in its
 denominator. Where a total or an estimate adds up rows, it adds the per-unit values and
-amounts as written to the form (8 decimals, cents), which is also how eDavki computes from
-the file. Every such denominator is then a power of ten, and a quotient by a rate exists only
-per row, never across rows. The running stock (`F8`) sums exact quantities, which are
-decimal inputs and so have power-of-ten denominators too.
+amounts as they are written to the form (8 decimals, cents). Every such denominator is then a
+power of ten. The only divisions left are one per row by its rate, and the estimate's split of
+the net base across holding-period buckets, at most four. That eDavki also computes from the
+written values is the research's reading, not a published rule. The running stock (`F8`) sums
+the written quantities, which have at most 8 decimals. Inside the FIFO engine, a split with a
+ratio such as 3:2 gives lot quantities with other denominators; they are rounded once, on the
+running total, when a list is written.
 
 ## Consequences
 

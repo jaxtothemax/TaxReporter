@@ -13,6 +13,9 @@
  */
 export const PACKAGE = "@taxreporter/furs";
 
+// The ISIN check lives in core with the engine that also needs it.
+export { isIsin } from "@taxreporter/core";
+
 export {
   EDP_NAMESPACE,
   isIsoDate,
@@ -44,7 +47,6 @@ export {
 } from "./issues.js";
 export {
   ACQUISITION_METHODS,
-  isIsin,
   KDVP_NAMESPACE,
   validateDohKdvp,
   writeDohKdvp,

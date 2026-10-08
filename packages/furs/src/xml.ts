@@ -20,8 +20,13 @@ const NAME = /^[A-Za-z_][\w.-]*(?::[A-Za-z_][\w.-]*)?$/;
 
 /** The messages name the rule, never the value, which may be user data. */
 function checkName(name: string): string {
-  if (!NAME.test(name)) throw new Error("Not an XML element or attribute name");
-  return name;
+  // Typed, but a hand-built element could carry anything: test the string
+  // itself, never a coercion of it.
+  const value: unknown = name;
+  if (typeof value !== "string" || !NAME.test(value)) {
+    throw new Error("Not an XML element or attribute name");
+  }
+  return value;
 }
 
 /**

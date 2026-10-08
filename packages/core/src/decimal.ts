@@ -43,15 +43,25 @@ function gcd(a: bigint, b: bigint): bigint {
   return x;
 }
 
+/**
+ * Only this module builds a Decimal directly. The constructor trusts its
+ * arguments (lowest terms, positive denominator), and `private` binds only
+ * TypeScript, so plain JavaScript gets a token check instead.
+ */
+const TRUSTED: unique symbol = Symbol("Decimal");
+
 export class Decimal {
-  static readonly ZERO = new Decimal(0n, 1n);
-  static readonly ONE = new Decimal(1n, 1n);
+  static readonly ZERO = new Decimal(0n, 1n, TRUSTED);
+  static readonly ONE = new Decimal(1n, 1n, TRUSTED);
 
   readonly #num: bigint;
   /** Always positive; the sign lives in the numerator. */
   readonly #den: bigint;
 
-  private constructor(num: bigint, den: bigint) {
+  private constructor(num: bigint, den: bigint, token: typeof TRUSTED) {
+    if (token !== TRUSTED) {
+      throw new TypeError("Build a Decimal with Decimal.parse");
+    }
     this.#num = num;
     this.#den = den;
   }
@@ -62,7 +72,7 @@ export class Decimal {
     if (num === 0n) return Decimal.ZERO;
     const divisor = gcd(num, den);
     const sign = den < 0n ? -1n : 1n;
-    return new Decimal((sign * num) / divisor, (sign * den) / divisor);
+    return new Decimal((sign * num) / divisor, (sign * den) / divisor, TRUSTED);
   }
 
   /**
@@ -72,6 +82,12 @@ export class Decimal {
    * misread number fails loudly instead of becoming a wrong amount.
    */
   static parse(text: string): Decimal {
+    // Typed, but a model can come from JSON: a number is not a source
+    // string, and a float must never be coerced into one (ADR 0006).
+    const input: unknown = text;
+    if (typeof input !== "string") {
+      throw new RangeError("Not a plain decimal string");
+    }
     if (text.length > MAX_DECIMAL_LENGTH) {
       throw new RangeError(
         `Decimal string longer than ${String(MAX_DECIMAL_LENGTH)} characters`,
@@ -96,10 +112,12 @@ export class Decimal {
    * does not repeat the value, which can come from an imported file.
    */
   static fromInteger(value: number | bigint): Decimal {
-    if (typeof value === "number" && !Number.isSafeInteger(value)) {
+    const input: unknown = value;
+    if (typeof input === "bigint") return Decimal.#ratio(input, 1n);
+    if (typeof input !== "number" || !Number.isSafeInteger(input)) {
       throw new RangeError("Not a safe integer");
     }
-    return Decimal.#ratio(BigInt(value), 1n);
+    return Decimal.#ratio(BigInt(input), 1n);
   }
 
   static sum(values: Iterable<Decimal>): Decimal {
@@ -129,7 +147,9 @@ export class Decimal {
   }
 
   negated(): Decimal {
-    return this.#num === 0n ? this : new Decimal(-this.#num, this.#den);
+    return this.#num === 0n
+      ? this
+      : new Decimal(-this.#num, this.#den, TRUSTED);
   }
 
   abs(): Decimal {
@@ -198,7 +218,13 @@ export class Decimal {
    */
   toPlain(scale: number, mode: RoundingMode): string {
     const fixed = this.toFixed(scale, mode);
-    return fixed.includes(".") ? fixed.replace(/\.?0+$/, "") : fixed;
+    if (!fixed.includes(".")) return fixed;
+    // By index, not by a regular expression: /\.?0+$/ backtracks on long
+    // runs of zeros.
+    let end = fixed.length;
+    while (fixed.charCodeAt(end - 1) === 0x30) end -= 1;
+    if (fixed.charCodeAt(end - 1) === 0x2e) end -= 1;
+    return fixed.slice(0, end);
   }
 
   /**
@@ -233,8 +259,12 @@ export class Decimal {
   }
 }
 
-// ZERO and ONE are shared by every caller: frozen, no code can replace them.
+// ZERO and ONE are shared by every caller: frozen, like the class and its
+// methods, so no code can replace or shadow them.
 Object.freeze(Decimal);
+Object.freeze(Decimal.prototype);
+Object.freeze(Decimal.ZERO);
+Object.freeze(Decimal.ONE);
 
 function checkScale(scale: number): number {
   if (!Number.isInteger(scale) || scale < 0 || scale > 100) {

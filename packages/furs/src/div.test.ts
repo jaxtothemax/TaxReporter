@@ -142,6 +142,33 @@ describe("validateDohDiv", () => {
     ).toEqual(["payerIdMissing dividends[0].payer.identificationNumber"]);
   });
 
+  it("checks the payer's ID like any text field", () => {
+    expect(
+      issues(
+        form([
+          dividend({
+            payer: {
+              ...dividend().payer,
+              identificationNumber: "94-24\t04110",
+            },
+          }),
+        ]),
+      ),
+    ).toEqual(["invalidCharacter dividends[0].payer.identificationNumber"]);
+  });
+
+  it("checks that dividends are an array and amounts are Decimals", () => {
+    expect(issues(form({ length: 0 } as never))).toEqual([
+      "notArray dividends",
+    ]);
+    expect(issues(form([dividend({ grossEur: null as never })]))).toEqual([
+      "notDecimal dividends[0].grossEur",
+    ]);
+    expect(issues(form([dividend({ foreignTaxEur: 3.33 as never })]))).toEqual([
+      "notDecimal dividends[0].foreignTaxEur",
+    ]);
+  });
+
   it("catches holes in the list of dividends", () => {
     const dividends: DividendRecord[] = [];
     dividends[1] = dividend();
