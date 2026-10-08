@@ -21,12 +21,34 @@ import { isIsoDate, parseSnapshotCsv, type SnapshotTable } from "./snapshot.js";
 export const MAX_LOOKBACK_DAYS = 10;
 
 /**
+ * Frozen two levels deep. Every conversion reads these tables, so no code
+ * in the same process may change one at run time.
+ */
+function frozen<T extends object>(table: T): T {
+  for (const value of Object.values(table)) {
+    if (typeof value === "object" && value !== null) Object.freeze(value);
+  }
+  return Object.freeze(table);
+}
+
+/**
+ * A table entry by its own key only: a currency read from a file, such as
+ * "constructor", must not reach a member every object inherits.
+ */
+function own<T>(
+  table: Readonly<Record<string, T>>,
+  key: string,
+): T | undefined {
+  return Object.hasOwn(table, key) ? table[key] : undefined;
+}
+
+/**
  * Irrevocable euro conversion rates, from the day each currency joined the
  * euro (research 03 §10). After that day BSI lists no rate for them.
  */
 export const EURO_CHANGEOVERS: Readonly<
   Record<string, { readonly from: string; readonly rate: string }>
-> = {
+> = frozen({
   BGN: { from: "2026-01-01", rate: "1.95583" },
   HRK: { from: "2023-01-01", rate: "7.53450" },
   LTL: { from: "2015-01-01", rate: "3.45280" },
@@ -35,7 +57,7 @@ export const EURO_CHANGEOVERS: Readonly<
   SKK: { from: "2009-01-01", rate: "30.1260" },
   CYP: { from: "2008-01-01", rate: "0.585274" },
   MTL: { from: "2008-01-01", rate: "0.429300" },
-};
+});
 
 /**
  * Quotes in a currency's minor unit, as brokers write them: pence for London
@@ -44,13 +66,13 @@ export const EURO_CHANGEOVERS: Readonly<
  */
 export const MINOR_UNITS: Readonly<
   Record<string, { readonly currency: string; readonly per: string }>
-> = {
+> = frozen({
   GBX: { currency: "GBP", per: "100" },
   GBp: { currency: "GBP", per: "100" },
   ZAc: { currency: "ZAR", per: "100" },
   ZAC: { currency: "ZAR", per: "100" },
   ILA: { currency: "ILS", per: "100" },
-};
+});
 
 /**
  * The monthly list prices metals in EUR per gram, the inverse of every
@@ -68,14 +90,14 @@ export const KNOWN_DISCREPANCIES: readonly {
   readonly currency: string;
   readonly bsi: string;
   readonly ecb: string;
-}[] = [
+}[] = frozen([
   { date: "2008-10-14", currency: "JPY", bsi: "141.52", ecb: "141.25" },
   { date: "2010-03-04", currency: "HUF", bsi: "266.02", ecb: "266.5" },
   { date: "2013-06-24", currency: "BGN", bsi: "1.9560", ecb: "1.9558" },
   { date: "2013-12-31", currency: "LVL", bsi: "0.7028", ecb: "0.702804" },
   { date: "2014-02-03", currency: "SGD", bsi: "1.7341", ecb: "1.7212" },
   { date: "2025-10-23", currency: "NOK", bsi: "11.8529", ecb: "11.5829" },
-];
+]);
 
 export type RateSource =
   "eur" | "bsi-daily" | "bsi-monthly" | "euro-changeover";
@@ -175,7 +197,7 @@ export class RateTable {
       };
     }
     if (METALS.has(currency)) return { ok: false, error: "metal" };
-    const minor = MINOR_UNITS[currency];
+    const minor = own(MINOR_UNITS, currency);
     const result = this.#lookupListed(minor?.currency ?? currency, date);
     if (!result.ok || minor === undefined) return result;
     return {
@@ -189,7 +211,7 @@ export class RateTable {
   }
 
   #lookupListed(currency: string, date: string): RateResult {
-    const changeover = EURO_CHANGEOVERS[currency];
+    const changeover = own(EURO_CHANGEOVERS, currency);
     if (changeover !== undefined && date >= changeover.from) {
       return {
         ok: true,

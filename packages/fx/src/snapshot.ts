@@ -10,31 +10,19 @@
  * break (research 03 §13), and reading checks the shape again, because the
  * snapshot is data the app trusts.
  */
+import { isIsoDate } from "@taxreporter/core";
+
 import type { PublishedList } from "./bsi-xml.js";
 
-const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+// The project's one date check, in core; re-exported where fx offered it.
+export { isIsoDate };
+
 const CODE = /^[A-Z]{3}$/;
 const RATE = /^\d{1,12}(?:\.\d{1,12})?$/;
 
 /** Bounds for reading a snapshot: far above the real files, which are ~1.3 MB. */
 const MAX_SNAPSHOT_LENGTH = 16 * 1024 * 1024;
 const MAX_ROWS = 40_000;
-
-export function isIsoDate(value: string): boolean {
-  const match = ISO_DATE.exec(value);
-  if (match === null) return false;
-  const [year, month, day] = match.slice(1).map(Number) as [
-    number,
-    number,
-    number,
-  ];
-  const date = new Date(Date.UTC(year, month - 1, day));
-  return (
-    date.getUTCFullYear() === year &&
-    date.getUTCMonth() === month - 1 &&
-    date.getUTCDate() === day
-  );
-}
 
 function weekday(iso: string): number {
   return new Date(`${iso}T00:00:00Z`).getUTCDay();

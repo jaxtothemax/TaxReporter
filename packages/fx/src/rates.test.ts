@@ -10,7 +10,10 @@ import { describe, expect, it } from "vitest";
 
 import snapshot from "../data/snapshot.json" with { type: "json" };
 import {
+  EURO_CHANGEOVERS,
+  KNOWN_DISCREPANCIES,
   MAX_LOOKBACK_DAYS,
+  MINOR_UNITS,
   RateTable,
   toEur,
   type RateResult,
@@ -118,6 +121,29 @@ describe("lookup rules", () => {
       ok: false,
       error: "unknownCurrency",
     });
+  });
+
+  it("looks currencies up by their own keys, never an inherited member", () => {
+    for (const code of [
+      "constructor",
+      "__proto__",
+      "toString",
+      "hasOwnProperty",
+    ]) {
+      expect(table.lookup(code, "2026-03-12"), code).toEqual({
+        ok: false,
+        error: "unknownCurrency",
+      });
+    }
+  });
+
+  it("keeps its tables frozen, entries included", () => {
+    for (const table of [EURO_CHANGEOVERS, MINOR_UNITS, KNOWN_DISCREPANCIES]) {
+      expect(Object.isFrozen(table)).toBe(true);
+      expect(
+        Object.values(table).every((entry) => Object.isFrozen(entry)),
+      ).toBe(true);
+    }
   });
 
   it("refuses dates it cannot answer for", () => {
