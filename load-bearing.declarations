@@ -83,3 +83,15 @@ why:  The only thing stopping `* text=auto` from normalizing the vendored FURS s
 path: website/astro.config.mjs
 call: markdownLinks(),
 why:  The only wiring of the Markdown link rewrite. Delete it and the build, page-size check and link check stay green while every in-content link on the deployed Pages site 404s and repository links ignore GITHUB_REPOSITORY.
+
+path: apps/web/vite.config.ts
+call: plugins: [react(), contentSecurityPolicy()],
+why:  The only wiring of the web app's Content Security Policy. Drop contentSecurityPolicy() and every test, lint and build stays green while the shipped page loses its script-src 'self' and connect-src 'self' protection.
+
+path: apps/web/src/App.tsx
+call: target?.focus({ preventScroll: true });
+why:  The only focus move after a screen change. Without it keyboard and screen-reader users stay on a button that no longer exists; the tests render without a DOM, so nothing notices.
+
+path: apps/web/src/screens/FilesStep.tsx
+call: listHeading.current?.focus();
+why:  Keeps focus in the file list after a removal deletes the focused button. Delete it and focus falls to the page body with every test still green.
