@@ -178,9 +178,9 @@ jobs:
       - run: sh scripts/ci-assert-artifacts.sh apps/web/dist/index.html apps/cli/dist/bin.js
       - name: Run the built CLI
         run: |
-          out="$(node apps/cli/dist/bin.js)"
+          out="$(node apps/cli/dist/bin.js --help)"
           printf '%s\n' "$out"
-          grep -q "not yet functional" <<<"$out"
+          grep -q "Usage: taxreporter" <<<"$out"
 
   # Every dependency's license is AGPL-3.0-compatible: production, development
   # and optional alike. The policy (allowlist, deny-by-default, reasoned
