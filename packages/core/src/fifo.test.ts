@@ -102,7 +102,7 @@ describe("matchFifo", () => {
     expect(apple.purchases).toHaveLength(1);
     expect(apple.open).toEqual([]);
     expect(diagnostics).toEqual([
-      { severity: "info", code: "duplicatesRemoved", params: { count: "1" } },
+      { severity: "info", code: "duplicatesRemoved", params: { count: 1 } },
     ]);
   });
 

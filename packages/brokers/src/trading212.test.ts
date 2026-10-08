@@ -149,7 +149,7 @@ describe("the 2026 export (V4)", () => {
       {
         severity: "warning",
         code: "interestNotCovered",
-        params: { broker: "trading212", count: "1" },
+        params: { broker: "trading212", count: 1 },
       },
     ]);
   });
@@ -214,7 +214,10 @@ describe("rows it refuses rather than guesses", () => {
     );
     // The action is the file's text: the row says which, the finding not.
     expect(result.diagnostics.map((d) => [d.code, d.params])).toEqual([
-      ["unknownAction", { broker: "trading212" }],
+      [
+        "unknownAction",
+        { broker: "trading212", action: { untrusted: "Gift card" } },
+      ],
       ["unsupportedAction", { broker: "trading212", action: "Transfer in" }],
       [
         "unsupportedAction",
@@ -237,7 +240,11 @@ describe("rows it refuses rather than guesses", () => {
       {
         severity: "blocking",
         code: "unknownColumn",
-        params: { broker: "trading212", position: "18" },
+        params: {
+          broker: "trading212",
+          position: 18,
+          column: { untrusted: "Bonus" },
+        },
       },
     ]);
   });
@@ -335,7 +342,7 @@ describe("limits and shapes", () => {
     expect(result.diagnostics.at(-1)).toEqual({
       severity: "blocking",
       code: "diagnosticsTruncated",
-      params: { dropped: "200" },
+      params: { dropped: 200 },
     });
   });
 
@@ -401,7 +408,7 @@ describe("overlapping exports", () => {
       {
         severity: "info",
         code: "duplicatesRemoved",
-        params: { count: String(keyed) },
+        params: { count: keyed },
       },
     ]);
     expect(events.length).toBe(all.length - keyed);
@@ -436,7 +443,7 @@ describe("importFile", () => {
       {
         severity: "blocking",
         code: "unreadableFile",
-        params: { reason: "unterminatedQuote", row: "2" },
+        params: { reason: "unterminatedQuote", row: 2 },
       },
     ]);
   });

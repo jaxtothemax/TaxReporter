@@ -399,7 +399,7 @@ describe("buildDohDiv", () => {
       result.form?.dividends.map((d) => d.payer.identificationNumber),
     ).toEqual([T.isin, "1", "2"]);
     expect(result.diagnostics.map((d) => [d.code, d.params])).toEqual([
-      ["payerIdsNumbered", { date: "2026-05-14", count: "2" }],
+      ["payerIdsNumbered", { date: "2026-05-14", count: 2 }],
     ]);
     const form = result.form;
     if (form === null) throw new Error("no form");

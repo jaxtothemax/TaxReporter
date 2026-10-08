@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
 import {
+  forExport,
   hasBlocking,
   isIsoDate,
   type Diagnostic,
@@ -148,10 +149,15 @@ const SEVERITY_TITLE: Readonly<Record<Severity, string>> = {
 const count = (n: number, one: string, many: string) =>
   `${String(n)} ${n === 1 ? one : many}`;
 
-/** A diagnostic as one line: code, parameters, and where it came from. */
+/**
+ * A diagnostic as one line: code, parameters, and where it came from. Only
+ * the export-safe parameters are printed, never text copied from a file:
+ * a terminal is often captured into a log. The source is the label of a
+ * file the user named on the command line.
+ */
 function describe(d: Diagnostic): string {
-  const params = Object.entries(d.params)
-    .map(([key, value]) => `${key}=${value}`)
+  const params = Object.entries(forExport(d).params)
+    .map(([key, value]) => `${key}=${String(value)}`)
     .join(" ");
   const at =
     d.source === undefined
@@ -282,7 +288,10 @@ export function main(
           coverageEnd: prepared.coverageEnd,
           written,
           estimates: { gainsTaxEur: kdvpTax, dividendTaxDueEur: divDue },
-          diagnostics,
+          diagnostics: diagnostics.map((d) => ({
+            ...forExport(d),
+            ...(d.source === undefined ? {} : { source: d.source }),
+          })),
         },
         null,
         2,

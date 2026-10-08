@@ -8,8 +8,10 @@
 import { closeSync, fstatSync, openSync, readSync } from "node:fs";
 import { basename } from "node:path";
 
+import { LIMITS } from "@taxreporter/core";
+
 /** Far above a year of any broker's history; checked before reading. */
-export const MAX_FILE_BYTES = 64 * 1024 * 1024;
+export const MAX_FILE_BYTES = LIMITS.fileBytes;
 
 export type IntakeRefusal =
   | "unreadable"

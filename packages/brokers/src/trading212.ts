@@ -34,10 +34,13 @@ import {
   Decimal,
   diagnostic,
   isIsin,
+  LIMITS,
   MAX_SPLIT_TERM,
+  untrusted,
   MAX_SPLITS,
   type Diagnostic,
   type DiagnosticCode,
+  type DiagnosticParams,
   type IgnoredReason,
   type LedgerEvent,
   type SecurityRef,
@@ -200,7 +203,9 @@ const FUND_NAME = /\b(?:ETF|UCITS)\b/;
  * A number as T212 writes it: an optional minus, at most 15 whole digits
  * and 12 decimals. Each column's sign is checked where it is read.
  */
-const NUMBER = /^-?\d{1,15}(?:\.\d{1,12})?$/;
+const NUMBER = new RegExp(
+  `^-?\\d{1,${String(LIMITS.numberWholeDigits)}}(?:\\.\\d{1,${String(LIMITS.numberDecimals)}})?$`,
+);
 
 /** A plain decimal string as an exact fraction, numerator over 10^decimals. */
 function fraction(text: string): readonly [bigint, bigint] {
@@ -293,7 +298,8 @@ function read(table: CsvTable, file: string): ImportResult {
       diagnostics.push(
         diagnostic("blocking", "unknownColumn", {
           broker: TRADING212,
-          position: String(index + 1),
+          position: index + 1,
+          column: untrusted(name),
         }),
       );
     }
@@ -335,16 +341,16 @@ function read(table: CsvTable, file: string): ImportResult {
 
   for (const row of table.rows) {
     const source: SourceRef = { file, row: row.row };
-    const block = (
-      code: DiagnosticCode,
-      params: Record<string, string> = {},
+    const block = <C extends DiagnosticCode>(
+      code: C,
+      params: DiagnosticParams[C],
     ) => {
       diagnostics.push(diagnostic("blocking", code, params, source));
     };
     const action = text(row, "Action");
     const stamp = fromUtcStamp(text(row, timeColumn));
     if (stamp === null) {
-      block("invalidTime");
+      block("invalidTime", {});
       continue;
     }
     if (lastDate === null || stamp.date > lastDate) lastDate = stamp.date;
@@ -378,14 +384,14 @@ function read(table: CsvTable, file: string): ImportResult {
     if (side === null && !isSplit && !DIVIDENDS.has(action)) {
       // The row says which action; the action is file text, so it stays
       // out of the diagnostic.
-      block("unknownAction", { broker: TRADING212 });
+      block("unknownAction", { broker: TRADING212, action: untrusted(action) });
       continue;
     }
 
     // Every action left concerns one security.
     const isin = text(row, "ISIN");
     if (!isIsin(isin)) {
-      block("invalidIsin");
+      block("invalidIsin", {});
       continue;
     }
     // The Ljubljana date decides the tax year, the rate and the 30-day
@@ -417,7 +423,7 @@ function read(table: CsvTable, file: string): ImportResult {
       continue;
     }
     if (quantity === null || !quantity.isPositive()) {
-      block("invalidQuantity");
+      block("invalidQuantity", {});
       continue;
     }
 
@@ -438,13 +444,13 @@ function read(table: CsvTable, file: string): ImportResult {
 
     const currency = text(row, "Currency (Price / share)");
     if (!CURRENCY.test(currency) && !MINOR_CURRENCIES.has(currency)) {
-      block("invalidCurrency");
+      block("invalidCurrency", {});
       continue;
     }
     // Zero is no price: a sale at 0 is a takeover paid in shares, which
     // needs the user's input (06 §4.3).
     if (price === null || !price.isPositive()) {
-      block("invalidPrice");
+      block("invalidPrice", {});
       continue;
     }
 
@@ -495,7 +501,7 @@ function read(table: CsvTable, file: string): ImportResult {
       withheld.isPositive() &&
       text(row, "Currency (Withholding tax)") !== currency
     ) {
-      block("dividendTaxCurrency");
+      block("dividendTaxCurrency", {});
       continue;
     }
     const key = keyOf(
@@ -539,7 +545,10 @@ function read(table: CsvTable, file: string): ImportResult {
   for (const [at, { close, open }] of halves) {
     const isin = at.slice(0, at.indexOf(" "));
     const rows = [...close, ...open];
-    const refuse = (code: DiagnosticCode, params: Record<string, string>) => {
+    const refuse = <C extends DiagnosticCode>(
+      code: C,
+      params: DiagnosticParams[C],
+    ) => {
       // Every row of a refused pair is accounted for by the refusal.
       for (const half of rows) {
         diagnostics.push(diagnostic("blocking", code, params, half.source));
@@ -598,7 +607,7 @@ function read(table: CsvTable, file: string): ImportResult {
     diagnostics.push(
       diagnostic("warning", "interestNotCovered", {
         broker: TRADING212,
-        count: String(interestRows),
+        count: interestRows,
       }),
     );
   }

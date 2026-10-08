@@ -13,11 +13,19 @@ export const PACKAGE = "@taxreporter/core";
 export { isIsoDate, type IsoDate } from "./dates.js";
 export { Decimal, MAX_DECIMAL_LENGTH, type RoundingMode } from "./decimal.js";
 export { isIsin } from "./isin.js";
+export { LIMITS } from "./limits.js";
 export {
   diagnostic,
+  forExport,
   hasBlocking,
+  untrusted,
+  UNTRUSTED_LENGTH,
   type Diagnostic,
   type DiagnosticCode,
+  type DiagnosticParams,
+  type ExportedDiagnostic,
+  type ExportedValue,
+  type UntrustedText,
   type Severity,
 } from "./diagnostics.js";
 export {

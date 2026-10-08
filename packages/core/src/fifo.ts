@@ -16,6 +16,7 @@ import { Decimal } from "./decimal.js";
 import { diagnostic, type Diagnostic } from "./diagnostics.js";
 import { daysBetween } from "./holding.js";
 import { isIsin } from "./isin.js";
+import { LIMITS } from "./limits.js";
 import type {
   IgnoredRow,
   LedgerEvent,
@@ -76,10 +77,10 @@ export function compareText(a: string, b: string): number {
  * 1,000), and the bound keeps a hostile ratio from making every quantity
  * after it enormous.
  */
-export const MAX_SPLIT_TERM = 10_000;
+export const MAX_SPLIT_TERM = LIMITS.splitTerm;
 
 /** More splits than this on one security is no real history. */
-export const MAX_SPLITS = 32;
+export const MAX_SPLITS = LIMITS.splitsPerSecurity;
 
 /**
  * Brokers can date one split a few days apart: the ex-date, the day they
@@ -89,7 +90,7 @@ export const MAX_SPLITS = 32;
 export const SPLIT_REPORT_DAYS = 14;
 
 /** How many brokers' reports of one split the merge expects at most. */
-const MAX_SPLIT_REPORTERS = 4;
+const MAX_SPLIT_REPORTERS = LIMITS.splitReporters;
 
 const MAX_TERM = Decimal.fromInteger(MAX_SPLIT_TERM);
 /**
@@ -336,7 +337,7 @@ export function deduplicate(events: readonly LedgerEvent[]): {
   );
   if (duplicates > 0) {
     diagnostics.unshift(
-      diagnostic("info", "duplicatesRemoved", { count: String(duplicates) }),
+      diagnostic("info", "duplicatesRemoved", { count: duplicates }),
     );
   }
   return {

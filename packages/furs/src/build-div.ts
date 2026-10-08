@@ -476,9 +476,7 @@ function numberSharedPayerIds(
     };
   });
   for (const [date, count] of numbered) {
-    diagnostics.push(
-      diagnostic("info", "payerIdsNumbered", { date, count: String(count) }),
-    );
+    diagnostics.push(diagnostic("info", "payerIdsNumbered", { date, count }));
   }
   return result;
 }

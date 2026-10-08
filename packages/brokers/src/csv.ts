@@ -9,6 +9,7 @@
  * CRLF line ends, and empty lines, which carry no data and are skipped.
  * Errors name a rule and a row number, never a value from the file.
  */
+import { LIMITS } from "@taxreporter/core";
 
 export interface CsvLimits {
   /** Characters of text, checked before anything is read. */
@@ -26,10 +27,12 @@ export interface CsvLimits {
  * columns.
  */
 export const CSV_LIMITS: CsvLimits = Object.freeze({
-  maxLength: 32 * 1024 * 1024,
-  maxRows: 200_000,
-  maxColumns: 100,
-  maxCellLength: 4096,
+  // Characters, a backstop for the byte cap: UTF-8 never has more
+  // characters than bytes.
+  maxLength: LIMITS.fileBytes,
+  maxRows: LIMITS.recordsPerFile,
+  maxColumns: LIMITS.columns,
+  maxCellLength: LIMITS.cellLength,
 });
 
 export type CsvErrorCode =

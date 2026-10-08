@@ -158,8 +158,12 @@ function bearsOnYear(
   yearStart: IsoDate,
   yearEnd: IsoDate,
 ): boolean {
-  const { isin, date } = finding.params;
-  if (isin === undefined || date === undefined) return true;
+  // Every engine finding about one security carries its ISIN and date
+  // under these names; one that has either missing is never dropped.
+  const params = finding.params as Readonly<Record<string, unknown>>;
+  const isin = params["isin"];
+  const date = params["date"];
+  if (typeof isin !== "string" || typeof date !== "string") return true;
   if (date > addDays(yearEnd, WASH_SALE_DAYS)) return false;
   if (finding.code === "insufficientHistory" && date > yearEnd) return false;
   return (date >= yearStart && date <= yearEnd) || sold.has(isin);

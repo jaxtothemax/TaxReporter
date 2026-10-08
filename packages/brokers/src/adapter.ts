@@ -6,8 +6,10 @@
  */
 import {
   diagnostic,
+  LIMITS,
   type Diagnostic,
   type DiagnosticCode,
+  type DiagnosticParams,
   type IsoDate,
   type LedgerEvent,
 } from "@taxreporter/core";
@@ -44,7 +46,7 @@ export interface CsvAdapter {
  * were: a hostile file must not flood the review, and the summary blocks
  * whenever anything it stands for did.
  */
-export const MAX_DIAGNOSTICS_PER_FILE = 1000;
+export const MAX_DIAGNOSTICS_PER_FILE = LIMITS.diagnosticsPerFile;
 
 function capped(result: ImportResult): ImportResult {
   if (result.diagnostics.length <= MAX_DIAGNOSTICS_PER_FILE) return result;
@@ -56,7 +58,7 @@ function capped(result: ImportResult): ImportResult {
       diagnostic(
         dropped.some((d) => d.severity === "blocking") ? "blocking" : "warning",
         "diagnosticsTruncated",
-        { dropped: String(dropped.length) },
+        { dropped: dropped.length },
       ),
     ],
   };
@@ -68,7 +70,10 @@ export const CSV_ADAPTERS: readonly CsvAdapter[] = Object.freeze([
   trading212Cfd,
 ]);
 
-function refused(code: DiagnosticCode, params: Record<string, string> = {}) {
+function refused<C extends DiagnosticCode>(
+  code: C,
+  params: DiagnosticParams[C],
+) {
   return {
     broker: "unknown",
     format: "unknown",
@@ -90,12 +95,12 @@ export function importFile(file: string, text: string): ImportResult {
     if (!(error instanceof CsvError)) throw error;
     return refused("unreadableFile", {
       reason: error.code,
-      row: String(error.row),
+      row: error.row,
     });
   }
   const matching = CSV_ADAPTERS.filter((a) => a.matches(table.header));
   const [adapter] = matching;
-  if (adapter === undefined) return refused("unknownFormat");
-  if (matching.length > 1) return refused("ambiguousFormat");
+  if (adapter === undefined) return refused("unknownFormat", {});
+  if (matching.length > 1) return refused("ambiguousFormat", {});
   return capped(adapter.read(table, file));
 }
