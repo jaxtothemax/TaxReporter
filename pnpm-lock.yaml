@@ -69,6 +69,9 @@ importers:
       '@taxreporter/core':
         specifier: workspace:*
         version: link:../core
+      '@taxreporter/fx':
+        specifier: workspace:*
+        version: link:../fx
     devDependencies:
       xmllint-wasm:
         specifier: 5.3.0
