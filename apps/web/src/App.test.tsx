@@ -228,13 +228,14 @@ describe("App", () => {
     expect(html).toContain("1 note needs your attention before you download.");
   });
 
-  it("keeps the download buttons disabled and says why", () => {
+  it("keeps the download buttons disabled while the files are written, and says so", () => {
     const html = render(screens[4]?.[1] ?? demo, "sl");
     const buttons =
       html.match(/<button[^>]*>[^]*?Prenesi Doh-(?:KDVP|Div)/g) ?? [];
     expect(buttons).toHaveLength(2);
     for (const button of buttons) expect(button).toContain("disabled");
-    expect(text(html)).toContain(sl.download.notBuilt);
+    expect(text(html)).toContain(sl.download.preparing);
+    expect(text(html)).toContain("Doh_KDVP_2026.xml");
     // Tax year 2026 is due on Monday 1 March 2027 (28 February is a Sunday).
     expect(text(html)).toContain("1. 3. 2027");
   });

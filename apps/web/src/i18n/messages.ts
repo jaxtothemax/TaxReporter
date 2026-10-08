@@ -223,13 +223,18 @@ export interface Messages {
     readonly title: string;
     readonly intro: (deadline: string) => string;
     readonly due: (deadline: string) => string;
-    readonly notBuiltChip: string;
+    readonly preparingChip: string;
+    readonly readyChip: string;
+    readonly notWrittenChip: string;
     readonly kdvpTitle: string;
     readonly kdvpBody: PluralForms;
     readonly divTitle: string;
     readonly divBody: PluralForms;
     readonly downloadButton: (form: string) => string;
-    readonly notBuilt: string;
+    readonly preparing: string;
+    readonly demoFiles: string;
+    readonly notWritten: PluralForms;
+    readonly failed: string;
     readonly importTitle: string;
     readonly nothingToFile: string;
     readonly importSteps: (
@@ -481,7 +486,9 @@ export const en: Messages = {
     intro: (deadline) =>
       `Import each file into eDavki, check the form, and submit it by ${deadline}.`,
     due: (deadline) => `Due ${deadline}`,
-    notBuiltChip: "Not built yet",
+    preparingChip: "Preparing",
+    readyChip: "Ready",
+    notWrittenChip: "Not written",
     kdvpTitle: "Doh-KDVP",
     kdvpBody: {
       one: "Gains from selling securities: {n} inventory list.",
@@ -493,8 +500,16 @@ export const en: Messages = {
       other: "Dividends: {n} payments.",
     },
     downloadButton: (form) => `Download ${form}`,
-    notBuilt:
-      "The XML writer is not built yet, so this preview has nothing to download.",
+    preparing:
+      "Writing the files from the trades and dividends, at Banka Slovenije rates.",
+    demoFiles:
+      "These files hold the demo's made-up trades for a made-up taxpayer, tax number 12345678. They are written exactly as yours will be, so you can see what eDavki receives, but do not import them into eDavki.",
+    notWritten: {
+      one: "Not written: {n} problem in the review must be fixed first.",
+      other: "Not written: {n} problems in the review must be fixed first.",
+    },
+    failed:
+      "The files could not be written. Reload the page to try again; nothing was sent anywhere.",
     importTitle: "Importing into eDavki",
     nothingToFile:
       "No securities were sold and no dividends were paid in this tax year, so there is nothing to file.",
@@ -772,7 +787,9 @@ export const sl: Messages = {
     intro: (deadline) =>
       `Vsako datoteko uvozite v eDavke, preverite obrazec in ga oddajte do ${deadline}.`,
     due: (deadline) => `Rok: ${deadline}`,
-    notBuiltChip: "Še ni izdelano",
+    preparingChip: "V pripravi",
+    readyChip: "Pripravljeno",
+    notWrittenChip: "Ni zapisano",
     kdvpTitle: "Doh-KDVP",
     kdvpBody: {
       one: "Dobiček od odsvojitve vrednostnih papirjev: {n} popisni list.",
@@ -788,8 +805,18 @@ export const sl: Messages = {
       other: "Dividende: {n} izplačil.",
     },
     downloadButton: (form) => `Prenesi ${form}`,
-    notBuilt:
-      "Pisanje datotek XML še ni izdelano, zato v tem predogledu ni česa prenesti.",
+    preparing:
+      "Datoteke nastajajo iz poslov in dividend, po tečajih Banke Slovenije.",
+    demoFiles:
+      "Datoteki vsebujeta izmišljene posle iz demonstracije za izmišljenega zavezanca z davčno številko 12345678. Zapisani sta natanko tako kot vaše, zato vidite, kaj prejmejo eDavki, vendar ju v eDavke ne uvažajte.",
+    notWritten: {
+      one: "Ni zapisano: najprej je treba odpraviti {n} težavo v pregledu.",
+      two: "Ni zapisano: najprej je treba odpraviti {n} težavi v pregledu.",
+      few: "Ni zapisano: najprej je treba odpraviti {n} težave v pregledu.",
+      other: "Ni zapisano: najprej je treba odpraviti {n} težav v pregledu.",
+    },
+    failed:
+      "Datotek ni bilo mogoče zapisati. Za nov poskus znova naložite stran; nič ni bilo nikamor poslano.",
     importTitle: "Uvoz v eDavke",
     nothingToFile:
       "V tem davčnem letu niste prodali vrednostnih papirjev in niste prejeli dividend, zato ni česa oddati.",

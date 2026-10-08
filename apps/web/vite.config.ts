@@ -1,5 +1,5 @@
 import react from "@vitejs/plugin-react";
-import { defineConfig, type Plugin } from "vite";
+import { defaultClientConditions, defineConfig, type Plugin } from "vite";
 
 /**
  * The built app's Content Security Policy (CLAUDE.md, "Secure code"): scripts,
@@ -50,4 +50,7 @@ export default defineConfig({
   // TAXREPORTER_WEB_BASE=/app/. An empty value counts as unset.
   base: process.env.TAXREPORTER_WEB_BASE || "/",
   plugins: [react(), contentSecurityPolicy()],
+  // The workspace packages export their TypeScript sources under the
+  // "source" condition, so the app bundles the engine from src/ directly.
+  resolve: { conditions: ["source", ...defaultClientConditions] },
 });

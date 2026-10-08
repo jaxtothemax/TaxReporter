@@ -1,7 +1,9 @@
 /**
- * Download and import. The XML writer does not exist yet, so the download
- * buttons are disabled with the reason shown next to them, never hidden. A
- * form with nothing in it gets no card: there is nothing to file.
+ * Download and import. The returns are written when this step opens, by the
+ * same engine and writers as the command line's (ADR 0011), and saved on the
+ * user's device. A button that cannot save yet stays visible, disabled, with
+ * the reason next to it. A form with nothing in it gets no card: there is
+ * nothing to file.
  */
 import {
   ArrowCounterClockwiseIcon,
@@ -9,11 +11,23 @@ import {
   DownloadSimpleIcon,
   FileCodeIcon,
 } from "@phosphor-icons/react";
+import { useEffect, useState } from "react";
 
+import type { BuiltForm, BuiltReturns } from "../engine/demoReturns";
+import { saveFile } from "../engine/saveFile";
 import { formatDate, formatNumber, plural } from "../i18n/format";
 import { useI18n } from "../i18n/i18n";
 import type { ReturnPreview } from "../model/preview";
 import { Button, Chip, Note } from "../ui/kit";
+
+/** Where writing the returns stands. */
+type Writing =
+  | { readonly status: "preparing" }
+  | { readonly status: "ready"; readonly returns: BuiltReturns }
+  | { readonly status: "failed" };
+
+/** The note every disabled button points at while nothing can be saved. */
+const STATUS_NOTE = "download-status";
 
 /**
  * 28 February, moved to the next working day when it is not one (ZDavP-2
@@ -28,68 +42,123 @@ export function filingDeadline(taxYear: number): string {
   return due.toISOString().slice(0, 10);
 }
 
-function FormCard({
+export function FormCard({
+  id,
   form,
   body,
   fileName,
+  built,
 }: {
+  readonly id: string;
   readonly form: string;
   readonly body: string;
   readonly fileName: string;
+  /** The written return, or null while it is being written or failed. */
+  readonly built: BuiltForm | null;
 }) {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
+  const xml = built?.xml ?? null;
+  const reasonId = `${id}-not-written`;
+  const chip =
+    built === null ? (
+      <Chip tone="neutral">{t.download.preparingChip}</Chip>
+    ) : xml === null ? (
+      <Chip tone="warn">{t.download.notWrittenChip}</Chip>
+    ) : (
+      <Chip tone="accent">{t.download.readyChip}</Chip>
+    );
   return (
     <div className="card form-file-card">
       <div className="form-file-top">
         <span className="icon-tile" aria-hidden>
           <FileCodeIcon size={22} weight="bold" />
         </span>
-        <Chip tone="warn">{t.download.notBuiltChip}</Chip>
+        {chip}
       </div>
       <h2 className="form-file-title">{form}</h2>
       <p className="muted">{body}</p>
       <p>
-        <code className="code-badge">{fileName}</code>
+        <code className="code-badge">{built?.fileName ?? fileName}</code>
       </p>
-      <Button
-        variant="primary"
-        aria-disabled
-        aria-describedby="download-not-built"
-      >
-        <DownloadSimpleIcon size={18} weight="bold" aria-hidden />
-        {t.download.downloadButton(form)}
-      </Button>
+      {built !== null && xml === null ? (
+        <p className="muted" id={reasonId}>
+          {plural(built.blocking, locale, t.download.notWritten)}
+        </p>
+      ) : null}
+      {built === null || xml === null ? (
+        <Button
+          variant="primary"
+          aria-disabled
+          aria-describedby={built === null ? STATUS_NOTE : reasonId}
+        >
+          <DownloadSimpleIcon size={18} weight="bold" aria-hidden />
+          {t.download.downloadButton(form)}
+        </Button>
+      ) : (
+        <Button
+          variant="primary"
+          onClick={() => {
+            saveFile(built.fileName, xml);
+          }}
+        >
+          <DownloadSimpleIcon size={18} weight="bold" aria-hidden />
+          {t.download.downloadButton(form)}
+        </Button>
+      )}
     </div>
   );
 }
 
 export function DownloadStep({
   preview,
+  writeReturns,
   onBack,
   onRestart,
 }: {
   readonly preview: ReturnPreview;
+  /** Writes the returns the preview shows; awaited when the step opens. */
+  readonly writeReturns: () => Promise<BuiltReturns>;
   readonly onBack: () => void;
   readonly onRestart: () => void;
 }) {
   const { locale, t } = useI18n();
+  const [writing, setWriting] = useState<Writing>({ status: "preparing" });
+  useEffect(() => {
+    let current = true;
+    writeReturns().then(
+      (returns) => {
+        if (current) setWriting({ status: "ready", returns });
+      },
+      () => {
+        if (current) setWriting({ status: "failed" });
+      },
+    );
+    return () => {
+      current = false;
+    };
+  }, [writeReturns]);
+  const returns = writing.status === "ready" ? writing.returns : null;
   const deadline = formatDate(filingDeadline(preview.taxYear), locale);
   const year = String(preview.taxYear);
   const forms = [
     preview.securities.length === 0 ? null : (
       <FormCard
         key="kdvp"
+        id="kdvp"
         form={t.download.kdvpTitle}
         body={plural(preview.securities.length, locale, t.download.kdvpBody)}
-        fileName={`Doh-KDVP-${year}.xml`}
+        fileName={`Doh_KDVP_${year}.xml`}
+        built={returns?.kdvp ?? null}
       />
     ),
     preview.dividends.length === 0 ? null : (
       <FormCard
         key="div"
+        id="div"
         form={t.download.divTitle}
         body={plural(preview.dividends.length, locale, t.download.divBody)}
-        fileName={`Doh-Div-${year}.xml`}
+        fileName={`Doh_Div_${year}.xml`}
+        built={returns?.div ?? null}
       />
     ),
   ].filter((card) => card !== null);
@@ -116,9 +185,17 @@ export function DownloadStep({
         <>
           <div className="form-cards">{forms}</div>
 
-          <Note tone="neutral" id="download-not-built">
-            {t.download.notBuilt}
-          </Note>
+          {writing.status === "preparing" ? (
+            <Note tone="neutral" id={STATUS_NOTE}>
+              {t.download.preparing}
+            </Note>
+          ) : writing.status === "failed" ? (
+            <Note tone="danger" id={STATUS_NOTE}>
+              {t.download.failed}
+            </Note>
+          ) : (
+            <Note tone="warn">{t.download.demoFiles}</Note>
+          )}
 
           <div className="card import-card">
             <h2>{t.download.importTitle}</h2>

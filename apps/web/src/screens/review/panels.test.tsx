@@ -11,7 +11,7 @@ import type { Locale } from "../../i18n/format";
 import { I18nProvider } from "../../i18n/i18n";
 import { en, sl } from "../../i18n/messages";
 import { SourceText } from "../../ui/bits";
-import { DownloadStep, filingDeadline } from "../DownloadStep";
+import { DownloadStep, filingDeadline, FormCard } from "../DownloadStep";
 import { ReviewStep } from "../ReviewStep";
 import { DividendsPanel } from "./DividendsPanel";
 import { GainsPanel } from "./GainsPanel";
@@ -163,6 +163,7 @@ describe("empty and edge states", () => {
       render(
         <DownloadStep
           preview={{ ...demoPreview, dividends: [] }}
+          writeReturns={() => new Promise(() => undefined)}
           onBack={() => undefined}
           onRestart={() => undefined}
         />,
@@ -203,5 +204,41 @@ describe("filingDeadline", () => {
     expect(filingDeadline(2026)).toBe("2027-03-01"); // Sunday → Monday
     expect(filingDeadline(2025)).toBe("2026-03-02"); // Saturday → Monday
     expect(filingDeadline(2027)).toBe("2028-02-28"); // Monday stays
+  });
+});
+
+describe("FormCard", () => {
+  const card = (built: Parameters<typeof FormCard>[0]["built"]) =>
+    render(
+      <FormCard
+        id="kdvp"
+        form="Doh-KDVP"
+        body="4 lists"
+        fileName="Doh_KDVP_2026.xml"
+        built={built}
+      />,
+    );
+
+  it("offers a written return for saving", () => {
+    const html = card({
+      fileName: "Doh_KDVP_2026.xml",
+      xml: "<Envelope/>",
+      blocking: 0,
+    });
+    expect(html).toMatch(/<button[^>]*>[^]*?Download Doh-KDVP/);
+    expect(html).not.toContain("aria-disabled");
+    expect(text(html)).toContain(en.download.readyChip);
+  });
+
+  it("says why a return was not written, beside its disabled button", () => {
+    const html = card({
+      fileName: "Doh_KDVP_2026.xml",
+      xml: null,
+      blocking: 2,
+    });
+    expect(html).toContain('aria-describedby="kdvp-not-written"');
+    expect(text(html)).toContain(
+      "Not written: 2 problems in the review must be fixed first.",
+    );
   });
 });

@@ -28,6 +28,14 @@ import {
 import { DemoBanner } from "./ui/bits";
 import { Stepper } from "./ui/Stepper";
 
+/**
+ * The demo's returns, from the engine the download step loads when it opens.
+ * Own files are not read yet, so the demo is the only preview that reaches
+ * that step.
+ */
+const writeDemoReturns = () =>
+  import("./engine/demoReturns").then((engine) => engine.buildDemoReturns());
+
 function Frame({
   initialState,
   initialTheme,
@@ -160,6 +168,7 @@ function Frame({
               ) : (
                 <DownloadStep
                   preview={preview}
+                  writeReturns={writeDemoReturns}
                   onBack={back}
                   onRestart={() => {
                     dispatch({ type: "restart" });
