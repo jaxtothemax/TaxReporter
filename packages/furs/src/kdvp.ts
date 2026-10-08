@@ -14,6 +14,7 @@ import {
   checkTaxpayer,
   checkText,
   EDP_NAMESPACE,
+  given,
   header,
   isIsoDate,
   isTaxYear,
@@ -32,10 +33,22 @@ export const KDVP_NAMESPACE =
  * or division, F inheritance, G gift, H other. A and C do not arise from a
  * broker export, and I, J and K mean different things on different list
  * types and in different FURS sources, so they are left to manual entry
- * (research 01 §6).
+ * (research 01 §6). Frozen, so no caller can widen it at run time.
  */
-export const ACQUISITION_METHODS = ["B", "D", "E", "F", "G", "H"] as const;
+export const ACQUISITION_METHODS = Object.freeze([
+  "B",
+  "D",
+  "E",
+  "F",
+  "G",
+  "H",
+] as const);
 export type AcquisitionMethod = (typeof ACQUISITION_METHODS)[number];
+
+const METHODS: ReadonlySet<string> = new Set(ACQUISITION_METHODS);
+
+/** F5 is the tax paid on an inheritance (F) or a gift (G), research 01 §8. */
+const TAXED_ACQUISITIONS: ReadonlySet<string> = new Set(["F", "G"]);
 
 export interface KdvpPurchase {
   readonly kind: "purchase";
@@ -106,8 +119,10 @@ const MAX_UNIT_VALUE = Decimal.parse("99999999999999.99999999"); // 14 + 8
 const MAX_TAX = Decimal.parse("9999999999.9999"); // 10 + 4
 
 /** ISO 6166: two letters, nine alphanumerics, a Luhn check digit. */
-export function isIsin(value: string): boolean {
-  if (!/^[A-Z]{2}[A-Z0-9]{9}\d$/.test(value)) return false;
+export function isIsin(value: unknown): value is string {
+  if (typeof value !== "string" || !/^[A-Z]{2}[A-Z0-9]{9}\d$/.test(value)) {
+    return false;
+  }
   // Letters count as two digits (A = 10 ... Z = 35); the pattern above has
   // already made the string ASCII.
   let digits = "";
@@ -167,8 +182,22 @@ function checkRows(
   const yearEnd = `${String(taxYear)}-12-31`;
   let balance = Decimal.ZERO;
   let previousDate: string | null = null;
-  list.rows.forEach((row, i) => {
+  // An index loop, not forEach: forEach skips the holes of a sparse array,
+  // which would then go unchecked.
+  for (let i = 0; i < list.rows.length; i += 1) {
     const at = `${path}.rows[${String(i)}]`;
+    const row = list.rows[i];
+    if (!given(row)) {
+      issues.push({ code: "entryMissing", path: at });
+      continue;
+    }
+    // Typed, but the model may come from JSON: an unknown kind must not be
+    // written as a sale.
+    const kind: unknown = row.kind;
+    if (kind !== "purchase" && kind !== "sale") {
+      issues.push({ code: "rowKind", path: `${at}.kind` });
+      continue;
+    }
     if (!isIsoDate(row.date)) {
       issues.push({ code: "invalidDate", path: `${at}.date` });
     } else {
@@ -186,6 +215,11 @@ function checkRows(
     }
     checkQuantity(row.quantity, `${at}.quantity`, issues);
     if (row.kind === "purchase") {
+      // The schema takes all of A-K, but their meaning depends on the list
+      // type and the source; only these can come from a broker (§6).
+      if (!METHODS.has(row.method)) {
+        issues.push({ code: "acquisitionMethod", path: `${at}.method` });
+      }
       checkValue(
         row.unitCostEur,
         MAX_UNIT_VALUE,
@@ -193,7 +227,13 @@ function checkRows(
         `${at}.unitCostEur`,
         issues,
       );
-      if (row.inheritanceOrGiftTaxEur !== undefined) {
+      if (given(row.inheritanceOrGiftTaxEur)) {
+        if (!TAXED_ACQUISITIONS.has(row.method)) {
+          issues.push({
+            code: "inheritanceOrGiftTaxMethod",
+            path: `${at}.inheritanceOrGiftTaxEur`,
+          });
+        }
         checkValue(
           row.inheritanceOrGiftTaxEur,
           MAX_TAX,
@@ -211,6 +251,12 @@ function checkRows(
         `${at}.unitValueEur`,
         issues,
       );
+      // The string "false" is truthy: written as it is, it would say the
+      // loss reduces the base.
+      const flag: unknown = row.lossReducesBase;
+      if (given(flag) && typeof flag !== "boolean") {
+        issues.push({ code: "notBoolean", path: `${at}.lossReducesBase` });
+      }
       balance = balance.minus(row.quantity);
     }
     // A long list never goes short: eDavki reportedly rejects a negative
@@ -221,7 +267,7 @@ function checkRows(
     } else if (balance.greaterThan(MAX_QUANTITY)) {
       issues.push({ code: "balanceTooLarge", path: at });
     }
-  });
+  }
 }
 
 /** Every rule the schema does not enforce, in model order. Empty means writable. */
@@ -232,8 +278,13 @@ export function validateDohKdvp(form: DohKdvp): FormIssue[] {
   checkTaxpayer(form.taxpayer, issues);
   if (form.lists.length === 0) issues.push({ code: "noLists", path: "lists" });
   const seen = new Set<string>();
-  form.lists.forEach((list, i) => {
+  for (let i = 0; i < form.lists.length; i += 1) {
     const path = `lists[${String(i)}]`;
+    const list = form.lists[i];
+    if (!given(list)) {
+      issues.push({ code: "entryMissing", path });
+      continue;
+    }
     if (!isIsin(list.isin)) issues.push({ code: "isin", path: `${path}.isin` });
     // One list per security, merged across brokers: FIFO runs per ISIN over
     // all of the taxpayer's holdings (research 01 §8).
@@ -246,16 +297,21 @@ export function validateDohKdvp(form: DohKdvp): FormIssue[] {
       required: true,
       maxLength: 100,
     });
+    const isFund: unknown = list.isFund;
+    if (typeof isFund !== "boolean") {
+      issues.push({ code: "notBoolean", path: `${path}.isFund` });
+    }
     // eDavki counts a list as correctly entered only with at least one
     // acquisition and one disposal (research 01 §8).
-    if (!list.rows.some((row) => row.kind === "purchase")) {
+    const kinds = new Set(list.rows.filter(given).map((row) => row.kind));
+    if (!kinds.has("purchase")) {
       issues.push({ code: "listWithoutPurchase", path });
     }
-    if (!list.rows.some((row) => row.kind === "sale")) {
+    if (!kinds.has("sale")) {
       issues.push({ code: "listWithoutSale", path });
     }
     checkRows(list, path, form.taxYear, issues);
-  });
+  }
   return issues;
 }
 
@@ -276,7 +332,9 @@ function rowElements(rows: readonly KdvpRow[]): XmlElement[] {
         text("F4", unitValue(row.unitCostEur)),
         optional(
           "F5",
-          row.inheritanceOrGiftTaxEur?.toPlain(TAX_SCALE, "halfUp"),
+          given(row.inheritanceOrGiftTaxEur)
+            ? row.inheritanceOrGiftTaxEur.toPlain(TAX_SCALE, "halfUp")
+            : undefined,
         ),
       ]);
     } else {
@@ -287,9 +345,9 @@ function rowElements(rows: readonly KdvpRow[]): XmlElement[] {
         text("F9", unitValue(row.unitValueEur)),
         optional(
           "F10",
-          row.lossReducesBase === undefined
-            ? undefined
-            : bool(row.lossReducesBase),
+          typeof row.lossReducesBase === "boolean"
+            ? bool(row.lossReducesBase)
+            : undefined,
         ),
       ]);
     }

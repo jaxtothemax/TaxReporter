@@ -18,8 +18,9 @@ export type XmlChild = XmlElement | null | undefined | false;
 
 const NAME = /^[A-Za-z_][\w.-]*(?::[A-Za-z_][\w.-]*)?$/;
 
+/** The messages name the rule, never the value, which may be user data. */
 function checkName(name: string): string {
-  if (!NAME.test(name)) throw new Error(`Not an XML element name: ${name}`);
+  if (!NAME.test(name)) throw new Error("Not an XML element or attribute name");
   return name;
 }
 
@@ -45,6 +46,13 @@ export function isXmlText(text: string): boolean {
   return true;
 }
 
+function checkAttribute(value: string): string {
+  if (!isXmlText(value)) {
+    throw new Error("An attribute contains a character XML cannot carry");
+  }
+  return value;
+}
+
 /** An element holding other elements; skipped children leave no trace. */
 export function element(
   name: string,
@@ -53,31 +61,44 @@ export function element(
 ): XmlElement {
   return {
     name: checkName(name),
-    attributes: attributes.map(([key, value]) => [checkName(key), value]),
+    attributes: attributes.map(([key, value]) => [
+      checkName(key),
+      checkAttribute(value),
+    ]),
     content: children.filter((child): child is XmlElement => Boolean(child)),
   };
 }
 
 /**
- * An element holding text. Empty text is refused: an empty typed element
- * fails the schema (a decimal cannot be ""), so a value that is absent must
- * be omitted with `optional`, never written empty.
+ * Text content as it may be written. Empty text is refused: an empty typed
+ * element fails the schema (a decimal cannot be ""), so a value that is
+ * absent must be omitted with `optional`, never written empty.
  */
-export function text(name: string, value: string): XmlElement {
-  if (value === "")
+function checkContent(name: string, value: string): string {
+  if (value === "") {
     throw new Error(`Empty text for <${name}>; omit it instead`);
+  }
   if (!isXmlText(value)) {
     throw new Error(`<${name}> contains a character XML cannot carry`);
   }
-  return { name: checkName(name), attributes: [], content: value };
+  return value;
 }
 
-/** `text` for a value that may be absent. */
+/** An element holding text. */
+export function text(name: string, value: string): XmlElement {
+  return {
+    name: checkName(name),
+    attributes: [],
+    content: checkContent(name, value),
+  };
+}
+
+/** `text` for a value that may be absent; `null`, as JSON writes it, is absent. */
 export function optional(
   name: string,
-  value: string | undefined,
+  value: string | null | undefined,
 ): XmlElement | null {
-  return value === undefined ? null : text(name, value);
+  return value === undefined || value === null ? null : text(name, value);
 }
 
 function escapeText(value: string): string {
@@ -96,20 +117,26 @@ function escapeAttribute(value: string): string {
 }
 
 function write(node: XmlElement, depth: number, out: string[]): void {
+  // An XmlElement is a plain object, so one built by hand would skip the
+  // checks in element() and text(); the writer repeats them rather than
+  // trust its input, and no name or text reaches the output unchecked.
+  const name = checkName(node.name);
   const pad = "  ".repeat(depth);
   const attributes = node.attributes
-    .map(([key, value]) => ` ${key}="${escapeAttribute(value)}"`)
+    .map(
+      ([key, value]) =>
+        ` ${checkName(key)}="${escapeAttribute(checkAttribute(value))}"`,
+    )
     .join("");
   if (typeof node.content === "string") {
-    out.push(
-      `${pad}<${node.name}${attributes}>${escapeText(node.content)}</${node.name}>`,
-    );
+    const content = escapeText(checkContent(name, node.content));
+    out.push(`${pad}<${name}${attributes}>${content}</${name}>`);
   } else if (node.content.length === 0) {
-    out.push(`${pad}<${node.name}${attributes}/>`);
+    out.push(`${pad}<${name}${attributes}/>`);
   } else {
-    out.push(`${pad}<${node.name}${attributes}>`);
+    out.push(`${pad}<${name}${attributes}>`);
     for (const child of node.content) write(child, depth + 1, out);
-    out.push(`${pad}</${node.name}>`);
+    out.push(`${pad}</${name}>`);
   }
 }
 

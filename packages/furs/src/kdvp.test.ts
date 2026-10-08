@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { kdvpDemo2026, kdvpMatchedLots, TAXPAYER } from "../test/scenarios.js";
 import { FormValidationError, type FormIssueCode } from "./issues.js";
 import {
+  ACQUISITION_METHODS,
   isIsin,
   validateDohKdvp,
   writeDohKdvp,
@@ -252,6 +253,111 @@ describe("validateDohKdvp", () => {
     ).toEqual(["negativeBalance lists[0].rows[1]"]);
   });
 
+  it("takes only the F2 codes a foreign broker's data can need", () => {
+    // The schema takes A-K, but I, J and K mean different things per list
+    // type and source, and A and C cannot come from a broker (research 01 §6).
+    for (const method of ["A", "C", "I", "J", "K", "Z", "b", ""]) {
+      const row = { ...purchase("2024-01-02", "10"), method } as KdvpRow;
+      expect(
+        issues(form([list([row, sale("2026-03-04", "10")])])),
+        method,
+      ).toEqual(["acquisitionMethod lists[0].rows[0].method"]);
+    }
+    expect(Object.isFrozen(ACQUISITION_METHODS)).toBe(true);
+  });
+
+  it("allows F5 only on an inheritance or a gift", () => {
+    const taxed = (method: string) =>
+      issues(
+        form([
+          list([
+            {
+              ...purchase("2024-01-02", "1"),
+              method,
+              inheritanceOrGiftTaxEur: d("5"),
+            } as KdvpRow,
+            sale("2026-03-04", "1"),
+          ]),
+        ]),
+      );
+    expect(taxed("F")).toEqual([]);
+    expect(taxed("G")).toEqual([]);
+    expect(taxed("B")).toEqual([
+      "inheritanceOrGiftTaxMethod lists[0].rows[0].inheritanceOrGiftTaxEur",
+    ]);
+  });
+
+  it("refuses what a model read from JSON could slip past the types", () => {
+    const loose = (value: unknown) => value as KdvpRow;
+    // "false" is a truthy string: written as is, it would claim the loss.
+    expect(
+      issues(
+        form([
+          list([
+            purchase("2024-01-02", "1"),
+            loose({ ...sale("2026-03-04", "1"), lossReducesBase: "false" }),
+          ]),
+        ]),
+      ),
+    ).toEqual(["notBoolean lists[0].rows[1].lossReducesBase"]);
+    expect(
+      issues(form([list(valid.rows, { isFund: loose("true") as never })])),
+    ).toEqual(["notBoolean lists[0].isFund"]);
+    expect(
+      issues(
+        form([
+          list([
+            purchase("2024-01-02", "1"),
+            loose({ ...sale("2026-03-04", "1"), kind: "short" }),
+            sale("2026-03-04", "1"),
+          ]),
+        ]),
+      ),
+    ).toEqual(["rowKind lists[0].rows[1].kind"]);
+    expect(
+      issues(
+        form([valid], { taxpayer: { taxNumber: loose(12345678) as never } }),
+      ),
+    ).toEqual(["taxNumber taxpayer.taxNumber"]);
+  });
+
+  it("catches holes and nulls in the lists and rows", () => {
+    const lists: KdvpList[] = [];
+    lists[1] = valid;
+    expect(issues(form(lists))).toEqual(["entryMissing lists[0]"]);
+    const rows: KdvpRow[] = [];
+    rows[0] = purchase("2024-01-02", "10");
+    rows[2] = sale("2026-03-04", "10");
+    expect(issues(form([list(rows)]))).toEqual([
+      "entryMissing lists[0].rows[1]",
+    ]);
+    expect(
+      issues(form([list([...valid.rows, null as unknown as KdvpRow])])),
+    ).toEqual(["entryMissing lists[0].rows[2]"]);
+  });
+
+  it("keeps text on one line, without bidirectional controls", () => {
+    // NEL, line and paragraph separators, a right-to-left mark, a
+    // right-to-left override and a left-to-right isolate.
+    for (const unit of [0x85, 0x2028, 0x2029, 0x200f, 0x202e, 0x2066]) {
+      const name = `Apple${String.fromCharCode(unit)}Inc.`;
+      expect(
+        issues(form([list(valid.rows, { name })])),
+        unit.toString(16),
+      ).toEqual(["invalidCharacter lists[0].name"]);
+    }
+  });
+
+  it("bounds text the schema leaves unbounded at 255 characters", () => {
+    const taxpayer = (address: string) => ({ ...TAXPAYER, address });
+    expect(
+      issues(form([valid], { taxpayer: taxpayer("x".repeat(255)) })),
+    ).toEqual([]);
+    expect(
+      issues(form([valid], { taxpayer: taxpayer("x".repeat(256)) })),
+    ).toEqual(["textTooLong taxpayer.address"]);
+  });
+
   it("checks the taxpayer's text fields", () => {
     expect(
       issues(
@@ -317,6 +423,26 @@ describe("writeDohKdvp", () => {
       expect(bare, tag).not.toContain(tag);
     }
     expect(bare).not.toMatch(/<(\w+)><\/\1>/);
+  });
+
+  it("reads null, as JSON writes an absent value, as absent", () => {
+    const xml = writeDohKdvp(
+      form([
+        list(
+          [
+            {
+              ...purchase("2024-01-02", "1"),
+              inheritanceOrGiftTaxEur: null,
+            } as unknown as KdvpRow,
+            { ...sale("2026-03-04", "1"), lossReducesBase: null } as never,
+          ],
+          { ticker: null } as never,
+        ),
+      ]),
+    );
+    for (const tag of ["<F5>", "<F10>", "<Code>"]) {
+      expect(xml, tag).not.toContain(tag);
+    }
   });
 
   it("writes F5 at its own scale of 4 decimals", () => {

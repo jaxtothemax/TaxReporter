@@ -7,12 +7,13 @@
  * "IRL" all validate), so this module enforces FURS's business rules before
  * writing (docs/research/02-furs-doh-div-and-others.md §3, §9).
  */
-import type { Decimal } from "@taxreporter/core";
+import { Decimal } from "@taxreporter/core";
 
 import {
   checkTaxpayer,
   checkText,
   EDP_NAMESPACE,
+  given,
   header,
   isIsoDate,
   isTaxNumber,
@@ -34,7 +35,15 @@ export const DIV_NAMESPACE =
  * (ETFs and UCITS), 5 returned subsequent contributions, 6 earn-out payments
  * on the disposal of a share, 7 own-share acquisitions.
  */
-export const DIVIDEND_TYPES = ["1", "2", "3", "4", "5", "6", "7"] as const;
+export const DIVIDEND_TYPES = Object.freeze([
+  "1",
+  "2",
+  "3",
+  "4",
+  "5",
+  "6",
+  "7",
+] as const);
 export type DividendType = (typeof DIVIDEND_TYPES)[number];
 
 export interface DividendPayer {
@@ -83,6 +92,12 @@ export interface DohDiv {
 const AMOUNT_SCALE = 2;
 const amount = (value: Decimal) => value.toFixed(AMOUNT_SCALE, "halfUp");
 
+/**
+ * Amount_Type sets no limit, so this is a bound like Doh-KDVP's 14 integer
+ * digits for per-unit values: far above any real dividend.
+ */
+const MAX_AMOUNT = Decimal.parse("99999999999999.99");
+
 function checkDividend(
   dividend: DividendRecord,
   path: string,
@@ -108,11 +123,11 @@ function checkDividend(
     issues.push({ code: "country", path: `${path}.sourceCountry` });
   }
   if (slovenian) {
-    if (payer.taxNumber === undefined || !isTaxNumber(payer.taxNumber)) {
+    if (!isTaxNumber(payer.taxNumber)) {
       issues.push({ code: "payerTaxNumber", path: `${path}.payer.taxNumber` });
     }
   } else {
-    if (payer.taxNumber !== undefined) {
+    if (given(payer.taxNumber)) {
       issues.push({
         code: "payerTaxNumberForForeignPayer",
         path: `${path}.payer.taxNumber`,
@@ -120,7 +135,7 @@ function checkDividend(
     }
     // The 2026 XML guide makes the ID mandatory for foreign payers; other
     // FURS documents call it optional, so the stricter reading is used.
-    if (payer.identificationNumber === undefined) {
+    if (!given(payer.identificationNumber)) {
       issues.push({
         code: "payerIdMissing",
         path: `${path}.payer.identificationNumber`,
@@ -142,8 +157,13 @@ function checkDividend(
   const gross = dividend.grossEur.round(AMOUNT_SCALE, "halfUp");
   if (!gross.isPositive()) {
     issues.push({ code: "valueNotPositive", path: `${path}.grossEur` });
+  } else if (gross.greaterThan(MAX_AMOUNT)) {
+    issues.push({ code: "valueTooLarge", path: `${path}.grossEur` });
   }
-  const tax = dividend.foreignTaxEur?.round(AMOUNT_SCALE, "halfUp");
+  const foreignTax = given(dividend.foreignTaxEur)
+    ? dividend.foreignTaxEur
+    : undefined;
+  const tax = foreignTax?.round(AMOUNT_SCALE, "halfUp");
   if (slovenian && tax !== undefined) {
     issues.push({
       code: "foreignTaxForSlovenianPayer",
@@ -151,7 +171,8 @@ function checkDividend(
     });
   } else if (!slovenian && tax === undefined) {
     issues.push({ code: "foreignTaxMissing", path: `${path}.foreignTaxEur` });
-  } else if (tax !== undefined && tax.isNegative()) {
+  } else if (foreignTax?.isNegative() === true) {
+    // Before rounding: -0.004 would otherwise pass as 0.00.
     issues.push({ code: "valueNegative", path: `${path}.foreignTaxEur` });
   } else if (tax !== undefined && tax.greaterThan(gross)) {
     issues.push({
@@ -177,14 +198,21 @@ export function validateDohDiv(form: DohDiv): FormIssue[] {
   }
   // Two records with the same payer ID on the same day are a critical error
   // in eDavki (research 02 §5); the code that builds the records must give
-  // same-day payments from one payer distinct IDs.
+  // same-day payments from one payer distinct IDs. IDs are compared without
+  // case or spaces, so "us 94-2404110" and "US94-2404110" are one payer.
   const seen = new Set<string>();
-  form.dividends.forEach((dividend, i) => {
+  // An index loop, not forEach, so the holes of a sparse array are caught.
+  for (let i = 0; i < form.dividends.length; i += 1) {
     const path = `dividends[${String(i)}]`;
+    const dividend = form.dividends[i];
+    if (!given(dividend)) {
+      issues.push({ code: "entryMissing", path });
+      continue;
+    }
     checkDividend(dividend, path, form.taxYear, issues);
-    const id = dividend.payer.identificationNumber;
-    if (id !== undefined) {
-      const key = `${dividend.date}\u0000${id}`;
+    const id: unknown = dividend.payer.identificationNumber;
+    if (typeof id === "string") {
+      const key = `${dividend.date} ${id.replace(/\s+/g, "").toUpperCase()}`;
       if (seen.has(key)) {
         issues.push({
           code: "duplicatePayerId",
@@ -193,7 +221,7 @@ export function validateDohDiv(form: DohDiv): FormIssue[] {
       }
       seen.add(key);
     }
-  });
+  }
   return issues;
 }
 
@@ -210,9 +238,9 @@ function dividendElement(dividend: DividendRecord): XmlElement {
     text("Value", amount(dividend.grossEur)),
     optional(
       "ForeignTax",
-      dividend.foreignTaxEur === undefined
-        ? undefined
-        : amount(dividend.foreignTaxEur),
+      given(dividend.foreignTaxEur)
+        ? amount(dividend.foreignTaxEur)
+        : undefined,
     ),
     text("SourceCountry", dividend.sourceCountry),
     optional("ReliefStatement", dividend.reliefStatement),

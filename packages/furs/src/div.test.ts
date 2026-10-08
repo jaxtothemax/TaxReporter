@@ -8,6 +8,7 @@ import {
   isFursCountry,
 } from "./countries.js";
 import {
+  DIVIDEND_TYPES,
   validateDohDiv,
   writeDohDiv,
   type DividendRecord,
@@ -100,6 +101,55 @@ describe("validateDohDiv", () => {
     );
   });
 
+  it("refuses a negative foreign tax even where it would round to zero", () => {
+    expect(issues(form([dividend({ foreignTaxEur: d("-0.004") })]))).toEqual([
+      "valueNegative dividends[0].foreignTaxEur",
+    ]);
+  });
+
+  it("bounds amounts the schema leaves unbounded", () => {
+    expect(
+      issues(form([dividend({ grossEur: d("100000000000000") })])),
+    ).toEqual(["valueTooLarge dividends[0].grossEur"]);
+    expect(
+      issues(form([dividend({ grossEur: d("99999999999999.99") })])),
+    ).toEqual([]);
+  });
+
+  it("reads null, as JSON writes an absent value, as absent", () => {
+    const slovenian = dividend({
+      payer: {
+        name: "Primer, d. d.",
+        address: "Trubarjeva cesta 1, 1000 Ljubljana",
+        country: "SI",
+        taxNumber: "87654321",
+        identificationNumber: null as never,
+      },
+      foreignTaxEur: null as never,
+      sourceCountry: "SI",
+    });
+    expect(issues(form([slovenian]))).toEqual([]);
+    expect(writeDohDiv(form([slovenian]))).not.toContain("<ForeignTax>");
+    // For a foreign payer, a null ID is a missing ID.
+    expect(
+      issues(
+        form([
+          dividend({
+            payer: { ...dividend().payer, identificationNumber: null as never },
+          }),
+        ]),
+      ),
+    ).toEqual(["payerIdMissing dividends[0].payer.identificationNumber"]);
+  });
+
+  it("catches holes in the list of dividends", () => {
+    const dividends: DividendRecord[] = [];
+    dividends[1] = dividend();
+    expect(issues(form(dividends))).toEqual(["entryMissing dividends[0]"]);
+    expect(Object.isFrozen(DIVIDEND_TYPES)).toBe(true);
+    expect(Object.isFrozen(FURS_COUNTRIES)).toBe(true);
+  });
+
   it("requires foreign tax from a foreign payer, even when it is zero", () => {
     const { foreignTaxEur, ...rest } = dividend();
     expect(foreignTaxEur).toBeDefined();
@@ -162,6 +212,14 @@ describe("validateDohDiv", () => {
     expect(
       issues(form([dividend(), dividend({ date: "2026-05-15" })])),
     ).toEqual([]);
+  });
+
+  it("compares payer IDs without case or spaces", () => {
+    const irish = (identificationNumber: string) =>
+      dividend({ payer: { ...dividend().payer, identificationNumber } });
+    expect(issues(form([irish("IE6388047V"), irish("ie 6388047v")]))).toEqual([
+      "duplicatePayerId dividends[1].payer.identificationNumber",
+    ]);
   });
 
   it("checks countries, the type code and the payer's text", () => {

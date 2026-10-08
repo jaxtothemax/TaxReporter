@@ -29,10 +29,21 @@ export interface Taxpayer {
 
 /**
  * The schema's pattern for `edp:taxNumber`: eight digits, as a positive
- * integer (so not all zeros).
+ * integer (so not all zeros). A number is refused too, not coerced: a form
+ * model can come from JSON.
  */
-export function isTaxNumber(value: string): boolean {
-  return /^\d{8}$/.test(value) && /[1-9]/.test(value);
+export function isTaxNumber(value: unknown): value is string {
+  return (
+    typeof value === "string" && /^\d{8}$/.test(value) && /[1-9]/.test(value)
+  );
+}
+
+/**
+ * Whether an optional model value is there. `null`, as JSON writes an
+ * absent value, counts as absent, the same as `undefined`.
+ */
+export function given<T>(value: T | null | undefined): value is T {
+  return value !== undefined && value !== null;
 }
 
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -60,6 +71,13 @@ export function isTaxYear(year: number): boolean {
   return Number.isInteger(year) && year >= 2013 && year <= 9999;
 }
 
+/**
+ * The length limit for text fields whose schema sets none. It is a bound,
+ * not a FURS rule: no real name, address or ID comes near it, and it keeps a
+ * hostile import from bloating the return.
+ */
+export const MAX_TEXT_LENGTH = 255;
+
 /** The length the schema's maxLength counts: characters, not UTF-16 units. */
 function codePoints(value: string): number {
   let count = 0;
@@ -72,27 +90,63 @@ function codePoints(value: string): number {
 }
 
 /**
- * Checks a text field: present when required, writable as XML, a single line
- * (every FURS text field is), and within the schema's maximum length.
+ * One line, as every FURS text field is: no tab, CR or LF, no Unicode line
+ * or paragraph break (NEL, LS, PS), and no bidirectional control, which can
+ * make a name display differently from what it is.
+ */
+function isSingleLine(value: string): boolean {
+  for (let i = 0; i < value.length; i += 1) {
+    const unit = value.charCodeAt(i);
+    if (
+      unit === 0x09 ||
+      unit === 0x0a ||
+      unit === 0x0d ||
+      unit === 0x85 ||
+      unit === 0x2028 ||
+      unit === 0x2029 ||
+      // Arabic letter mark, left-to-right and right-to-left marks.
+      unit === 0x061c ||
+      unit === 0x200e ||
+      unit === 0x200f ||
+      // Embeddings and overrides, then isolates.
+      (unit >= 0x202a && unit <= 0x202e) ||
+      (unit >= 0x2066 && unit <= 0x2069)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Checks a text field: present when required, a string, writable as XML, a
+ * single line, and within the schema's maximum length (or MAX_TEXT_LENGTH).
+ * The value is typed `unknown` because a form model can come from JSON.
  */
 export function checkText(
-  value: string | undefined,
+  value: unknown,
   path: string,
   issues: FormIssue[],
   options: { readonly required?: boolean; readonly maxLength?: number } = {},
 ): void {
-  if (value === undefined || value.trim() === "") {
+  if (!given(value)) {
     if (options.required === true) issues.push({ code: "textMissing", path });
-    else if (value !== undefined) issues.push({ code: "textMissing", path });
     return;
   }
-  if (!isXmlText(value) || /[\r\n\t]/.test(value)) {
+  if (typeof value !== "string") {
+    issues.push({ code: "invalidCharacter", path });
+    return;
+  }
+  // Present but blank would become an empty element, which the schema
+  // refuses for most types: absent text is left out, never written blank.
+  if (value.trim() === "") {
+    issues.push({ code: "textMissing", path });
+    return;
+  }
+  if (!isXmlText(value) || !isSingleLine(value)) {
     issues.push({ code: "invalidCharacter", path });
   }
-  if (
-    options.maxLength !== undefined &&
-    codePoints(value) > options.maxLength
-  ) {
+  if (codePoints(value) > (options.maxLength ?? MAX_TEXT_LENGTH)) {
     issues.push({ code: "textTooLong", path });
   }
 }

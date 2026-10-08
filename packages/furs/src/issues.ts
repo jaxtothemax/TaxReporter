@@ -15,12 +15,22 @@ export type FormIssueCode =
   | "invalidCharacter"
   | "textTooLong"
   | "textMissing"
+  /** A hole or null in a list of lists, rows or dividends. */
+  | "entryMissing"
+  /** A flag that is not a boolean, such as the string "false". */
+  | "notBoolean"
   // Doh-KDVP
   | "noLists"
   | "duplicateList"
   | "isin"
   | "listWithoutPurchase"
   | "listWithoutSale"
+  /** A row that is neither a purchase nor a sale. */
+  | "rowKind"
+  /** F2 outside the codes a foreign broker's data can need. */
+  | "acquisitionMethod"
+  /** F5 on an acquisition other than an inheritance (F) or gift (G). */
+  | "inheritanceOrGiftTaxMethod"
   | "rowsNotChronological"
   | "purchaseAfterTaxYear"
   | "saleOutsideTaxYear"

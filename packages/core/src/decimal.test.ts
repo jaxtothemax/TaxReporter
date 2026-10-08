@@ -48,6 +48,20 @@ describe("Decimal.fromInteger", () => {
     expect(() => Decimal.fromInteger(0.5)).toThrow(RangeError);
     expect(() => Decimal.fromInteger(2 ** 53)).toThrow(RangeError);
   });
+
+  it("does not repeat the refused value in its error", () => {
+    expect(() => Decimal.fromInteger(1234.5)).toThrow(/^Not a safe integer$/);
+  });
+});
+
+describe("Decimal constants", () => {
+  it("cannot be replaced at run time", () => {
+    expect(Object.isFrozen(Decimal)).toBe(true);
+    expect(() => {
+      (Decimal as unknown as { ZERO: Decimal }).ZERO = Decimal.ONE;
+    }).toThrow(TypeError);
+    expect(Decimal.ZERO.isZero()).toBe(true);
+  });
 });
 
 describe("arithmetic", () => {

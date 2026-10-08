@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { element, isXmlText, optional, serialize, text } from "./xml.js";
+import {
+  element,
+  isXmlText,
+  optional,
+  serialize,
+  text,
+  type XmlElement,
+} from "./xml.js";
 
 describe("serialize", () => {
   it("writes a declaration, indented elements, unindented text and a final newline", () => {
@@ -78,9 +85,66 @@ describe("element and text", () => {
   });
 
   it("refuses element and attribute names that are not names", () => {
-    expect(() => element("bad name")).toThrow(/element name/);
-    expect(() => text("<x>", "1")).toThrow(/element name/);
-    expect(() => element("R", [], [["on click", "x"]])).toThrow(/element name/);
+    expect(() => element("bad name")).toThrow(/attribute name/);
+    expect(() => text("<x>", "1")).toThrow(/attribute name/);
+    expect(() => element("R", [], [["on click", "x"]])).toThrow(
+      /attribute name/,
+    );
     expect(() => element("edp:Header")).not.toThrow();
+  });
+
+  it("does not repeat a refused name, which could be user data", () => {
+    expect(() => element("Janez Novak")).toThrow(
+      /^Not an XML element or attribute name$/,
+    );
+  });
+
+  it("refuses an attribute value XML cannot carry", () => {
+    expect(() =>
+      element("R", [], [["xmlns", `urn:${String.fromCharCode(0)}`]]),
+    ).toThrow("An attribute contains a character XML cannot carry");
+  });
+
+  it("treats null, as JSON writes an absent value, as absent", () => {
+    expect(optional("A", null)).toBeNull();
+  });
+});
+
+describe("serialize, given elements built by hand", () => {
+  // An XmlElement is a plain object; one that skipped element() and text()
+  // must still never reach the output unchecked.
+  const forged = (node: unknown) => () => serialize(node as XmlElement);
+
+  it("re-checks names", () => {
+    expect(
+      forged({
+        name: "R",
+        attributes: [],
+        content: [{ name: 'x><y a="', attributes: [], content: "1" }],
+      }),
+    ).toThrow("Not an XML element or attribute name");
+    expect(
+      forged({ name: "R", attributes: [["a b", "1"]], content: [] }),
+    ).toThrow("Not an XML element or attribute name");
+  });
+
+  it("re-checks text and attribute values", () => {
+    expect(
+      forged({
+        name: "R",
+        attributes: [],
+        content: `a${String.fromCharCode(1)}`,
+      }),
+    ).toThrow("<R> contains a character XML cannot carry");
+    expect(forged({ name: "R", attributes: [], content: "" })).toThrow(
+      /omit it/,
+    );
+    expect(
+      forged({
+        name: "R",
+        attributes: [["xmlns", String.fromCharCode(0xffff)]],
+        content: [],
+      }),
+    ).toThrow("An attribute contains a character XML cannot carry");
   });
 });

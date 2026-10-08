@@ -50,6 +50,14 @@ The cost is growth of denominators over long chains of different rates; for a ye
 it is negligible, and a later change can add a `round` at a documented point if a profile
 ever shows otherwise.
 
+**Totals are taken over values already rounded to their field (2026-10-08).** A sum over
+many rows converted at different rates would carry the product of all those rates in its
+denominator. Where a total or an estimate adds up rows, it adds the per-unit values and
+amounts as written to the form (8 decimals, cents), which is also how eDavki computes from
+the file. Every such denominator is then a power of ten, and a quotient by a rate exists only
+per row, never across rows. The running stock (`F8`) sums exact quantities, which are
+decimal inputs and so have power-of-ten denominators too.
+
 ## Consequences
 
 - **Exact and reproducible.** Arithmetic is exact, and golden files compare byte for byte.

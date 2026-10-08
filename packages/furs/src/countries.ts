@@ -10,7 +10,7 @@
  * (GR is absent), and it adds XK (Kosovo) and the legacy AN (Netherlands
  * Antilles); see docs/research/02-furs-doh-div-and-others.md §4.3.
  */
-export const FURS_COUNTRIES = [
+export const FURS_COUNTRIES = Object.freeze([
   "AD",
   "AE",
   "AF",
@@ -262,7 +262,7 @@ export const FURS_COUNTRIES = [
   "ZA",
   "ZM",
   "ZW",
-] as const;
+] as const);
 
 export type FursCountry = (typeof FURS_COUNTRIES)[number];
 

@@ -91,10 +91,13 @@ export class Decimal {
     );
   }
 
-  /** A whole number, e.g. a count of shares from a split ratio. */
+  /**
+   * A whole number, e.g. a count of shares from a split ratio. The error
+   * does not repeat the value, which can come from an imported file.
+   */
   static fromInteger(value: number | bigint): Decimal {
     if (typeof value === "number" && !Number.isSafeInteger(value)) {
-      throw new RangeError(`Not a safe integer: ${String(value)}`);
+      throw new RangeError("Not a safe integer");
     }
     return Decimal.#ratio(BigInt(value), 1n);
   }
@@ -229,6 +232,9 @@ export class Decimal {
     return negative ? -units : units;
   }
 }
+
+// ZERO and ONE are shared by every caller: frozen, no code can replace them.
+Object.freeze(Decimal);
 
 function checkScale(scale: number): number {
   if (!Number.isInteger(scale) || scale < 0 || scale > 100) {
