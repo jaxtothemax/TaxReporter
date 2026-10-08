@@ -63,6 +63,7 @@ export type DiagnosticCode =
   | "payerIdsNumbered"
   // Broker adapters (brokers)
   | "unreadableFile"
+  | "diagnosticsTruncated"
   | "unknownFormat"
   | "ambiguousFormat"
   | "derivativesNotSupported"

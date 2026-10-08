@@ -5,7 +5,6 @@
 import { readFileSync } from "node:fs";
 
 import {
-  Decimal,
   deduplicate,
   type LedgerEvent,
   type TradeEvent,
@@ -30,12 +29,17 @@ const V4_HEADER =
 const v4 = (...rows: string[]) =>
   importFile("t.csv", [V4_HEADER, ...rows].join("\n"));
 
-/** The rows an import accounts for: events, ignored records and diagnostics. */
+/**
+ * The rows an import accounts for: events, ignored records and blocking
+ * diagnostics. A warning or a note accounts for nothing.
+ */
 function accountedRows(result: ImportResult): number[] {
   const rows = new Set<number>();
   for (const event of result.events) rows.add(event.source.row);
   for (const d of result.diagnostics) {
-    if (d.source !== undefined) rows.add(d.source.row);
+    if (d.source !== undefined && d.severity === "blocking") {
+      rows.add(d.source.row);
+    }
   }
   return [...rows].sort((a, b) => a - b);
 }
@@ -208,8 +212,9 @@ describe("rows it refuses rather than guesses", () => {
       "Transfer in,2026-01-06 14:31:02+00:00,US1912161007,KO,Coca-Cola,,,2,69.5,USD,,,,,,,",
       "Dividend (Dividend manufactured payment),2026-01-06 14:31:02+00:00,US1912161007,KO,Coca-Cola,,,2,0.5,USD,,,,1,EUR,,",
     );
+    // The action is the file's text: the row says which, the finding not.
     expect(result.diagnostics.map((d) => [d.code, d.params])).toEqual([
-      ["unknownAction", { broker: "trading212", action: "Gift card" }],
+      ["unknownAction", { broker: "trading212" }],
       ["unsupportedAction", { broker: "trading212", action: "Transfer in" }],
       [
         "unsupportedAction",
@@ -227,11 +232,12 @@ describe("rows it refuses rather than guesses", () => {
     const empty = importFile("t.csv", `${header}\n${BUY},`);
     expect(empty.diagnostics).toEqual([]);
     const filled = importFile("t.csv", `${header}\n${BUY},1`);
+    // The column by its position: a header name is the file's text.
     expect(filled.diagnostics).toEqual([
       {
         severity: "blocking",
         code: "unknownColumn",
-        params: { broker: "trading212", column: "Bonus" },
+        params: { broker: "trading212", position: "18" },
       },
     ]);
   });
@@ -283,17 +289,75 @@ describe("rows it refuses rather than guesses", () => {
       half("Stock split close", "2026-05-04 07:00:00", "3", "775.86"),
       half("Stock split open", "2026-05-04 07:00:00", "7.1234", "775.86"),
     );
+    // Each row of a refused pair is accounted for by the refusal.
     expect(blocking(result)).toEqual([
       ["splitUnpaired", 2],
       ["splitHalvesDisagree", 3],
+      ["splitHalvesDisagree", 4],
       ["splitRatioUnclear", 5],
+      ["splitRatioUnclear", 6],
     ]);
+    expect(accountedRows(result)).toEqual([2, 3, 4, 5, 6]);
+  });
+});
+
+describe("limits and shapes", () => {
+  it("refuses a currency not written as T212 writes it", () => {
+    const result = v4(
+      "Market buy,2026-01-06 14:31:02+00:00,US1912161007,KO,Coca-Cola,,EOF1,2,69.5,usd,,,,118.55,EUR,,",
+      "Market buy,2026-01-06 14:31:02+00:00,GB00B10RZP78,ULVR,Unilever,,EOF2,2,3500,GBX,,,,80,EUR,,",
+    );
+    expect(blocking(result)).toEqual([["invalidCurrency", 2]]);
+  });
+
+  it("refuses more split pairs on one security than any history has", () => {
+    const rows = Array.from({ length: 33 }, (_, i) => {
+      const time = `2026-0${String(1 + Math.floor(i / 28))}-${String(1 + (i % 28)).padStart(2, "0")} 07:00:00`;
+      return [
+        `Stock split close,${time},US00000ACME1,ACME,Acme Corp,,,1,100,USD,,,,10,EUR,,`,
+        `Stock split open,${time},US00000ACME1,ACME,Acme Corp,,,2,50,USD,,,,10,EUR,,`,
+      ];
+    }).flat();
+    const result = v4(...rows);
+    expect(new Set(blocking(result).map(([code]) => code))).toEqual(
+      new Set(["tooManySplits"]),
+    );
+    expect(result.events.filter((e) => e.kind === "split")).toEqual([]);
+  });
+
+  it("caps the findings of one file, and keeps the cap blocking", () => {
+    const bad = Array.from(
+      { length: 1200 },
+      () => "Gift card,2026-01-06 14:31:02+00:00,,,,,,,,,,,,5,EUR,,",
+    );
+    const result = v4(...bad);
+    expect(result.diagnostics).toHaveLength(1001);
+    expect(result.diagnostics.at(-1)).toEqual({
+      severity: "blocking",
+      code: "diagnosticsTruncated",
+      params: { dropped: "200" },
+    });
+  });
+
+  it("keeps keys apart even when an ID holds a separator", () => {
+    const row = (id: string, qty: string) =>
+      `Market buy,2026-01-06 14:31:02+00:00,US1912161007,KO,Coca-Cola,,${id},${qty},69.5,USD,,,,1,EUR,,`;
+    const result = v4(row('"A|2"', "1"), row("A", "2|1"));
+    const keys = result.events.map((e) => (e.kind === "ignored" ? "" : e.key));
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("takes a file as a CFD export only beside T212's own columns", () => {
+    expect(
+      importFile("x.csv", "RecordType,Date,Amount\nX,2026-01-01,5\n")
+        .diagnostics,
+    ).toEqual([{ severity: "blocking", code: "unknownFormat", params: {} }]);
   });
 });
 
 describe("splitRatio", () => {
   const ratio = (before: string, after: string) => {
-    const r = splitRatio(Decimal.parse(before), Decimal.parse(after));
+    const r = splitRatio(before, after);
     return r === null ? null : `${r.to.toString()}:${r.from.toString()}`;
   };
 
@@ -313,6 +377,16 @@ describe("splitRatio", () => {
     expect(ratio("3", "7.1234")).toBeNull();
     expect(ratio("1", "100000")).toBeNull();
     expect(ratio("0", "1")).toBeNull();
+  });
+
+  it("works it out in a few steps, whatever the input", () => {
+    const started = Date.now();
+    for (let i = 0; i < 2000; i += 1) {
+      ratio("999999999999999.999999999999", "0.000000000001");
+      ratio("0.1234567891", "0.0123456789");
+      ratio("3", "7.1234");
+    }
+    expect(Date.now() - started).toBeLessThan(2000);
   });
 });
 

@@ -39,6 +39,29 @@ export interface CsvAdapter {
   read(table: CsvTable, file: string): ImportResult;
 }
 
+/**
+ * At most this many findings per file, then one saying how many more there
+ * were: a hostile file must not flood the review, and the summary blocks
+ * whenever anything it stands for did.
+ */
+export const MAX_DIAGNOSTICS_PER_FILE = 1000;
+
+function capped(result: ImportResult): ImportResult {
+  if (result.diagnostics.length <= MAX_DIAGNOSTICS_PER_FILE) return result;
+  const dropped = result.diagnostics.slice(MAX_DIAGNOSTICS_PER_FILE);
+  return {
+    ...result,
+    diagnostics: [
+      ...result.diagnostics.slice(0, MAX_DIAGNOSTICS_PER_FILE),
+      diagnostic(
+        dropped.some((d) => d.severity === "blocking") ? "blocking" : "warning",
+        "diagnosticsTruncated",
+        { dropped: String(dropped.length) },
+      ),
+    ],
+  };
+}
+
 /** Every CSV adapter; a file must match exactly one of them. */
 export const CSV_ADAPTERS: readonly CsvAdapter[] = Object.freeze([
   trading212,
@@ -74,5 +97,5 @@ export function importFile(file: string, text: string): ImportResult {
   const [adapter] = matching;
   if (adapter === undefined) return refused("unknownFormat");
   if (matching.length > 1) return refused("ambiguousFormat");
-  return adapter.read(table, file);
+  return capped(adapter.read(table, file));
 }

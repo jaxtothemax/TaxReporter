@@ -34,6 +34,8 @@ import {
   Decimal,
   diagnostic,
   isIsin,
+  MAX_SPLIT_TERM,
+  MAX_SPLITS,
   type Diagnostic,
   type DiagnosticCode,
   type IgnoredReason,
@@ -200,50 +202,77 @@ const FUND_NAME = /\b(?:ETF|UCITS)\b/;
  */
 const NUMBER = /^-?\d{1,15}(?:\.\d{1,12})?$/;
 
-/** Ratios are whole numbers up to this on either side: real splits are. */
-const MAX_SPLIT_TERM = 10_000;
-/** T212 writes positions to 10 decimals, so a split rounds within this. */
-const POSITION_ROUNDING = Decimal.parse("0.0000000001");
+/** A plain decimal string as an exact fraction, numerator over 10^decimals. */
+function fraction(text: string): readonly [bigint, bigint] {
+  const [whole = "0", decimals = ""] = text.split(".");
+  return [BigInt(whole + decimals), 10n ** BigInt(decimals.length)];
+}
+
+function gcd(a: bigint, b: bigint): bigint {
+  let [x, y] = [a < 0n ? -a : a, b < 0n ? -b : b];
+  while (y !== 0n) [x, y] = [y, x % y];
+  return x;
+}
+
+const MAX_TERM = BigInt(MAX_SPLIT_TERM);
 
 /**
- * The simplest ratio, `to` new shares for `from` old ones, that turns the
- * position before a split into the position after it: exactly if one does,
- * else within T212's rounding of the position. Null when none fits, which
- * blocks rather than inventing a ratio.
+ * The split's ratio, `to` new shares for `from` old ones, from the position
+ * before it and after it (plain decimal strings). Exact when the reduced
+ * fraction after/before has whole terms up to MAX_SPLIT_TERM; otherwise the
+ * simplest continued-fraction convergent that restates the position within
+ * T212's rounding (10 decimals, 06 §4.2). Null when none fits, which blocks
+ * rather than inventing a ratio. A few dozen steps at most, whatever the
+ * input: it runs once per split pair in a file that may be hostile.
  */
 export function splitRatio(
-  before: Decimal,
-  after: Decimal,
+  before: string,
+  after: string,
 ): { readonly from: Decimal; readonly to: Decimal } | null {
-  if (!before.isPositive() || !after.isPositive()) return null;
-  let close: { from: Decimal; to: Decimal } | null = null;
-  for (let q = 1; q <= MAX_SPLIT_TERM; q += 1) {
-    const from = Decimal.fromInteger(q);
-    const to = after.times(from).dividedBy(before).round(0, "halfUp");
-    if (
-      !to.isPositive() ||
-      to.greaterThan(Decimal.fromInteger(MAX_SPLIT_TERM))
-    ) {
-      continue;
+  const [bn, bd] = fraction(before);
+  const [an, ad] = fraction(after);
+  if (bn <= 0n || an <= 0n) return null;
+  // after / before = (an / ad) / (bn / bd)
+  const divisor = gcd(an * bd, ad * bn);
+  const [p, q] = [(an * bd) / divisor, (ad * bn) / divisor];
+  const ratio = (to: bigint, from: bigint) => ({
+    from: Decimal.fromInteger(from),
+    to: Decimal.fromInteger(to),
+  });
+  if (p <= MAX_TERM && q <= MAX_TERM) return ratio(p, q);
+  // Convergents h/k of p/q, from the simplest on.
+  let [h0, h1, k0, k1] = [0n, 1n, 1n, 0n];
+  let [x, y] = [p, q];
+  while (y !== 0n) {
+    const a = x / y;
+    [h0, h1] = [h1, a * h1 + h0];
+    [k0, k1] = [k1, a * k1 + k0];
+    if (h1 > MAX_TERM || k1 > MAX_TERM) break;
+    // |before x h/k - after| <= 10^-10, all in whole numbers.
+    const off = bn * h1 * ad - an * k1 * bd;
+    if (h1 > 0n && (off < 0n ? -off : off) * 10_000_000_000n <= bd * ad * k1) {
+      return ratio(h1, k1);
     }
-    const restated = before.times(to).dividedBy(from);
-    if (restated.equals(after)) return { from, to };
-    if (
-      close === null &&
-      restated.minus(after).abs().compare(POSITION_ROUNDING) <= 0
-    ) {
-      close = { from, to };
-    }
+    [x, y] = [y, x % y];
   }
-  return close;
+  return null;
 }
 
 interface SplitHalf {
   readonly source: SourceRef;
   readonly stamp: UtcStamp;
-  readonly quantity: Decimal;
+  /** As written: the ratio is worked out on exact fractions. */
+  readonly quantity: string;
   readonly total: Decimal | null;
 }
+
+/**
+ * Currency codes as T212 writes them: ISO codes in capitals, and the pence
+ * and cents codes the rate table scales. Never case-folded: GBp is not GBP,
+ * and folding it would be a hundredfold error.
+ */
+const CURRENCY = /^[A-Z]{3}$/;
+const MINOR_CURRENCIES = new Set(["GBp", "ZAc"]);
 
 class BadCell extends Error {
   constructor(readonly column: string) {
@@ -259,10 +288,12 @@ function read(table: CsvTable, file: string): ImportResult {
   for (const [index, name] of header.entries()) {
     if (isKnownColumn(name)) continue;
     if (table.rows.some((r) => (r.cells[index] ?? "") !== "")) {
+      // The column's position, not its name: a header is file text, and
+      // file text never goes into a diagnostic.
       diagnostics.push(
         diagnostic("blocking", "unknownColumn", {
           broker: TRADING212,
-          column: name.slice(0, 80),
+          position: String(index + 1),
         }),
       );
     }
@@ -286,12 +317,16 @@ function read(table: CsvTable, file: string): ImportResult {
   };
 
   const occurrences = new Map<string, number>();
-  /** A key unique within the file, and the same for the same row in any file. */
+  /**
+   * A key unique within the file, and the same for the same row in any
+   * file. The parts are encoded as a JSON array, so no cell text, an order
+   * ID included, can make two different rows read alike.
+   */
   const keyOf = (...parts: readonly string[]) => {
-    const content = parts.join("|");
+    const content = JSON.stringify(parts);
     const n = (occurrences.get(content) ?? 0) + 1;
     occurrences.set(content, n);
-    return `${TRADING212}|${content}|${String(n)}`;
+    return JSON.stringify([TRADING212, content, n]);
   };
   const fundsNoted = new Set<string>();
   const halves = new Map<string, { close: SplitHalf[]; open: SplitHalf[] }>();
@@ -341,10 +376,9 @@ function read(table: CsvTable, file: string): ImportResult {
     const side = BUYS.has(action) ? "buy" : SELLS.has(action) ? "sell" : null;
     const isSplit = action === SPLIT_CLOSE || action === SPLIT_OPEN;
     if (side === null && !isSplit && !DIVIDENDS.has(action)) {
-      block("unknownAction", {
-        broker: TRADING212,
-        action: action.slice(0, 80),
-      });
+      // The row says which action; the action is file text, so it stays
+      // out of the diagnostic.
+      block("unknownAction", { broker: TRADING212 });
       continue;
     }
 
@@ -395,7 +429,7 @@ function read(table: CsvTable, file: string): ImportResult {
       pair[action === SPLIT_CLOSE ? "close" : "open"].push({
         source,
         stamp,
-        quantity,
+        quantity: text(row, "No. of shares"),
         total,
       });
       halves.set(`${isin} ${stamp.second}`, pair);
@@ -403,7 +437,7 @@ function read(table: CsvTable, file: string): ImportResult {
     }
 
     const currency = text(row, "Currency (Price / share)");
-    if (!/^[A-Za-z]{3}$/.test(currency)) {
+    if (!CURRENCY.test(currency) && !MINOR_CURRENCIES.has(currency)) {
       block("invalidCurrency");
       continue;
     }
@@ -495,8 +529,26 @@ function read(table: CsvTable, file: string): ImportResult {
     }
   }
 
+  // More split pairs on one security than the engine takes are refused
+  // before any ratio is worked out: no real history has them.
+  const pairsPerIsin = new Map<string, number>();
+  for (const at of halves.keys()) {
+    const isin = at.slice(0, at.indexOf(" "));
+    pairsPerIsin.set(isin, (pairsPerIsin.get(isin) ?? 0) + 1);
+  }
   for (const [at, { close, open }] of halves) {
     const isin = at.slice(0, at.indexOf(" "));
+    const rows = [...close, ...open];
+    const refuse = (code: DiagnosticCode, params: Record<string, string>) => {
+      // Every row of a refused pair is accounted for by the refusal.
+      for (const half of rows) {
+        diagnostics.push(diagnostic("blocking", code, params, half.source));
+      }
+    };
+    if ((pairsPerIsin.get(isin) ?? 0) > MAX_SPLITS) {
+      refuse("tooManySplits", { isin });
+      continue;
+    }
     const [before] = close;
     const [after] = open;
     if (
@@ -505,11 +557,7 @@ function read(table: CsvTable, file: string): ImportResult {
       close.length > 1 ||
       open.length > 1
     ) {
-      for (const half of [...close, ...open]) {
-        diagnostics.push(
-          diagnostic("blocking", "splitUnpaired", { isin }, half.source),
-        );
-      }
+      refuse("splitUnpaired", { isin });
       continue;
     }
     const ratio = splitRatio(before.quantity, after.quantity);
@@ -520,20 +568,16 @@ function read(table: CsvTable, file: string): ImportResult {
       after.total === null ||
       before.total.equals(after.total);
     if (ratio === null || !agree) {
-      diagnostics.push(
-        diagnostic(
-          "blocking",
-          ratio === null ? "splitRatioUnclear" : "splitHalvesDisagree",
-          { isin, date: before.stamp.date },
-          before.source,
-        ),
-      );
+      refuse(ratio === null ? "splitRatioUnclear" : "splitHalvesDisagree", {
+        isin,
+        date: before.stamp.date,
+      });
       continue;
     }
     events.push(
       {
         kind: "split",
-        key: `${TRADING212}|split|${isin}|${before.stamp.second}`,
+        key: JSON.stringify([TRADING212, "split", isin, before.stamp.second]),
         broker: TRADING212,
         source: before.source,
         date: before.stamp.date,
@@ -582,13 +626,15 @@ export const trading212: CsvAdapter = {
 };
 
 /**
- * The CFD account's export, recognized by its `RecordType` column so that it
- * is refused by name: CFDs are derivatives, filed on D-IFI, which this
- * version does not build (06 §4.1).
+ * The CFD account's export, recognized by its `RecordType` column beside
+ * T212's `Ticker`, so that it is refused by name: CFDs are derivatives,
+ * filed on D-IFI, which this version does not build (06 §4.1). Another
+ * broker's file with a `RecordType` column is no match: it is unknown.
  */
 export const trading212Cfd: CsvAdapter = {
   broker: TRADING212,
-  matches: (header) => header.includes("RecordType"),
+  matches: (header) =>
+    header.includes("RecordType") && header.includes("Ticker"),
   read: () => ({
     broker: TRADING212,
     format: "trading212-cfd-csv",
