@@ -36,7 +36,20 @@ importers:
         specifier: ^5.0.3
         version: 5.0.3(@types/node@24.19.1)(@vitest/coverage-v8@5.0.3)(vite@8.3.3(@types/node@24.19.1))
 
-  apps/cli: {}
+  apps/cli:
+    dependencies:
+      '@taxreporter/brokers':
+        specifier: workspace:*
+        version: link:../../packages/brokers
+      '@taxreporter/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@taxreporter/furs':
+        specifier: workspace:*
+        version: link:../../packages/furs
+      '@taxreporter/fx':
+        specifier: workspace:*
+        version: link:../../packages/fx
 
   apps/web:
     dependencies:

@@ -10,7 +10,8 @@
       "source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
-    }
+    },
+    "./data/*": "./data/*"
   },
   "files": [
     "dist",
