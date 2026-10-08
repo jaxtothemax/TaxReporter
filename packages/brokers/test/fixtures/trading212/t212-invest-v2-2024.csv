@@ -1,0 +1,5 @@
+Action,Time,ISIN,Ticker,Name,No. of shares,Price / share,Currency (Price / share),Exchange rate,Result,Currency (Result),Total,Currency (Total),Withholding tax,Currency (Withholding tax),Notes,ID,Currency conversion fee,Currency (Currency conversion fee)
+Deposit,2024-01-08 10:00:00,,,,,,,,,,500.00,"EUR",,,"Bank Transfer",00000000-0000-7000-8000-000000000001,,
+Market buy,2024-01-09 14:35:21.512,US5949181045,MSFT,"Microsoft",1.0000000000,375.0000000000,USD,1.09460000,,,343.10,"EUR",,,,EOF0000001001,0.51,"EUR"
+Dividend (Dividends paid by us corporations),2024-03-14 11:20:05,US5949181045,MSFT,"Microsoft",1.0000000000,0.6375000000,USD,Not available,,,0.58,"EUR",0.11,USD,,,,
+Interest on cash,2024-04-01 05:00:00,,,,,,,,,,0.42,"EUR",,,,00000000-0000-7000-8000-000000000002,,

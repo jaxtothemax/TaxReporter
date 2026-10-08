@@ -31,9 +31,7 @@ pnpm-lock.yaml      merge=union
 # exports ship CRLF line endings, byte-order marks and non-UTF-8 encodings, and
 # `* text=auto` above would normalize line endings on commit: a parser test then
 # passes against a file no broker ever produced. `-text` stores them as-is.
-# CUSTOMIZE: point these at the fixture directories once they exist.
-# tests/fixtures/** -text
-# **/fixtures/**/*.csv -text
+packages/brokers/test/fixtures/** -text
 
 # Vendored FURS eDavki schemas — byte-exact copies of what FURS publishes (CRLF
 # line endings; Doh_KDVP_9.xsd also opens with a UTF-8 byte-order mark). Their

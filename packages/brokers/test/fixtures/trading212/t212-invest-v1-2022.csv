@@ -1,0 +1,4 @@
+Action,Time,ISIN,Ticker,Name,No. of shares,Price / share,Currency (Price / share),Exchange rate,Result (EUR),Total (EUR),Withholding tax,Currency (Withholding tax),Charge amount (EUR),Transaction fee (GBP),Stamp duty (GBP),Notes,ID
+Deposit,2022-03-01 09:00:00,,,,,,,,,1000.00,,,,,,"Bank Transfer",00000000-0000-7000-8000-000000000301
+Market buy,2022-03-02 10:15:30,GB00B10RZP78,ULVR,"Unilever",10.0000000000,3500.0000000000,GBX,0.83500000,,421.26,,,,,1.75,,EOF0000000001
+Market sell,2022-11-15 14:00:00,GB00B10RZP78,ULVR,"Unilever",4.0000000000,3900.0000000000,GBX,0.87000000,18.40,179.31,,,,,,,EOF0000000002

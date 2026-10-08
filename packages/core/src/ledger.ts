@@ -113,6 +113,11 @@ export type IgnoredReason =
   | "fee"
   | "transfer"
   | "header"
+  /**
+   * The second row of a pair whose first row carries the event, such as
+   * the "open" half of a Trading 212 split.
+   */
+  | "pairedRow"
   | "other";
 
 export interface IgnoredRow {

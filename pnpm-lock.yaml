@@ -60,7 +60,11 @@ importers:
         specifier: ^8.3.3
         version: 8.3.3(@types/node@24.19.1)
 
-  packages/brokers: {}
+  packages/brokers:
+    dependencies:
+      '@taxreporter/core':
+        specifier: workspace:*
+        version: link:../core
 
   packages/core: {}
 

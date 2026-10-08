@@ -5,7 +5,8 @@
     "composite": false,
     "noEmit": false,
     "rootDir": "src",
-    "outDir": "dist"
+    "outDir": "dist",
+    "types": []
   },
   "exclude": ["src/**/*.test.ts"]
 }

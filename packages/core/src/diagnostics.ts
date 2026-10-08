@@ -60,7 +60,28 @@ export type DiagnosticCode =
   | "payerIdIsIsin"
   | "treatyRateUnknown"
   | "excessWithholding"
-  | "payerIdsNumbered";
+  | "payerIdsNumbered"
+  // Broker adapters (brokers)
+  | "unreadableFile"
+  | "unknownFormat"
+  | "ambiguousFormat"
+  | "derivativesNotSupported"
+  | "unknownColumn"
+  | "unknownAction"
+  | "unsupportedAction"
+  | "invalidTime"
+  | "invalidIsin"
+  | "invalidNumber"
+  | "invalidQuantity"
+  | "invalidCurrency"
+  | "invalidPrice"
+  | "unexpectedSign"
+  | "dividendTaxCurrency"
+  | "splitUnpaired"
+  | "splitRatioUnclear"
+  | "splitHalvesDisagree"
+  | "interestNotCovered"
+  | "fundFromName";
 
 export interface Diagnostic {
   readonly severity: Severity;
