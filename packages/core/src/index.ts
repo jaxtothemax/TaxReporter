@@ -16,6 +16,7 @@ export {
   diagnostic,
   hasBlocking,
   type Diagnostic,
+  type DiagnosticCode,
   type Severity,
 } from "./diagnostics.js";
 export {
@@ -26,8 +27,12 @@ export {
   type LotBase,
 } from "./estimate.js";
 export {
+  compareText,
   deduplicate,
   matchFifo,
+  MAX_SPLIT_TERM,
+  MAX_SPLITS,
+  SPLIT_REPORT_DAYS,
   type Disposal,
   type FifoResult,
   type LotMatch,
@@ -58,6 +63,7 @@ export type {
 export {
   WASH_SALE_DAYS,
   washSaleVerdicts,
+  type LossSale,
   type WashSaleStatus,
   type WashSaleVerdict,
 } from "./wash-sale.js";

@@ -28,13 +28,18 @@ export function trade(
   };
 }
 
-export function split(date: string, from: string, to: string): SplitEvent {
+export function split(
+  date: string,
+  from: string,
+  to: string,
+  broker = "ibkr",
+): SplitEvent {
   row += 1;
   return {
     kind: "split",
     key: `s${String(row)}`,
-    broker: "ibkr",
-    source: { file: "test.csv", row },
+    broker,
+    source: { file: `${broker}.csv`, row },
     date,
     isin: ISIN,
     from: Decimal.parse(from),

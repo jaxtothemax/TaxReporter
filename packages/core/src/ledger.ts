@@ -14,6 +14,11 @@ export type { IsoDate };
 
 /** Where an event came from: a file and a 1-based row or record number. */
 export interface SourceRef {
+  /**
+   * A label for the file, chosen by the app: its base name, never a path.
+   * A name can still carry an account number or a client's name, so it is
+   * shown to the user and nowhere else (see diagnostics.ts).
+   */
   readonly file: string;
   readonly row: number;
 }
@@ -35,8 +40,10 @@ export interface SecurityRef {
 
 interface EventBase {
   /**
-   * Stable identity for deduplication: the same trade read from two
-   * overlapping exports of one account has the same key (ADR 0004).
+   * Stable identity for deduplication, unique within the broker: the same
+   * trade read from two overlapping exports of one account has the same
+   * key, and two rows of one export never do (ADR 0004). The engine pairs it
+   * with `broker`, so two brokers' keys never collide.
    */
   readonly key: string;
   readonly broker: string;

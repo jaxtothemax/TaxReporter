@@ -1,7 +1,10 @@
+// Loads the type-only ledger module, so coverage lists it (added-files-covered).
+import "./ledger.js";
+
 import { describe, expect, it } from "vitest";
 
 import { ISIN, split, trade } from "../test/events.js";
-import type { Decimal } from "./decimal.js";
+import { Decimal } from "./decimal.js";
 import { matchFifo } from "./fifo.js";
 import type { LedgerEvent } from "./ledger.js";
 
@@ -123,5 +126,193 @@ describe("matchFifo", () => {
       }),
     ]);
     expect(apple.security).toEqual({ isin: ISIN, name: "Apple Inc." });
+  });
+
+  it("applies a split once when several brokers report it", () => {
+    const events = [
+      trade("buy", "2025-01-02", "10"),
+      trade("buy", "2025-01-02", "10", "100", {
+        broker: "trading212",
+        source: { file: "t212.csv", row: 1 },
+      }),
+      split("2025-06-10", "1", "4"),
+      split("2025-06-12", "2", "8", "trading212"),
+    ];
+    const { apple, diagnostics } = history(events);
+    expect(apple.splits).toHaveLength(1);
+    expect(shares(apple.open)).toEqual(["40", "40"]);
+    expect(diagnostics).toEqual([
+      {
+        severity: "info",
+        code: "splitReportsMerged",
+        params: { isin: ISIN, date: "2025-06-10" },
+      },
+    ]);
+  });
+
+  it("blocks split reports that disagree, or that a trade falls between", () => {
+    const conflict = history([
+      trade("buy", "2025-01-02", "10"),
+      split("2025-06-10", "1", "4"),
+      split("2025-06-10", "1", "2", "trading212"),
+    ]);
+    expect(conflict.diagnostics.map((d) => d.code)).toEqual(["splitConflict"]);
+    expect(conflict.apple.splits).toHaveLength(1);
+
+    // Bought at Trading 212 on the 11th: in old shares there, in new ones
+    // by the IBKR date.
+    const between = history([
+      trade("buy", "2025-01-02", "10"),
+      split("2025-06-10", "1", "4"),
+      trade("buy", "2025-06-11", "5", "50", {
+        broker: "trading212",
+        source: { file: "t212.csv", row: 2 },
+      }),
+      split("2025-06-12", "1", "4", "trading212"),
+    ]);
+    expect(between.diagnostics).toEqual([
+      expect.objectContaining({
+        severity: "blocking",
+        code: "splitDateAmbiguous",
+        params: { isin: ISIN, date: "2025-06-10", until: "2025-06-12" },
+      }),
+    ]);
+  });
+
+  it("keeps two splits one broker reports, and caps how many there can be", () => {
+    const twice = history([
+      trade("buy", "2025-01-02", "10"),
+      split("2025-06-10", "1", "2"),
+      split("2025-06-12", "1", "2"),
+    ]);
+    expect(shares(twice.apple.open)).toEqual(["40"]);
+    const many = history([
+      trade("buy", "2000-01-03", "1"),
+      ...Array.from({ length: 33 }, (_, i) =>
+        split(`${String(2001 + i)}-01-03`, "1", "1"),
+      ),
+    ]);
+    expect(many.diagnostics.map((d) => d.code)).toEqual(["tooManySplits"]);
+    expect(many.apple.splits).toHaveLength(32);
+  });
+
+  it("refuses events it cannot trust, without repeating what they say", () => {
+    const bad = (overrides: Record<string, unknown>) =>
+      ({ ...trade("buy", "2025-01-02", "1"), ...overrides }) as never;
+    const { diagnostics } = matchFifo([
+      bad({ date: "2025-1-2" }),
+      bad({ security: { isin: "us0378331005" } }),
+      bad({ side: "BUY" }),
+      bad({ price: { amount: Decimal.parse("-1"), currency: "USD" } }),
+      bad({ price: { amount: Decimal.parse("1"), currency: "U1234567" } }),
+      { ...trade("buy", "2025-01-02", "1"), kind: "spinoff" } as never,
+      { ...split("2025-06-10", "2", "3"), to: Decimal.parse("1.5") },
+      { ...split("2025-06-10", "1", "2"), to: Decimal.fromInteger(100_000) },
+    ]);
+    expect(diagnostics.map((d) => [d.code, d.params])).toEqual([
+      ["invalidTrade", { isin: ISIN }],
+      ["invalidTrade", { date: "2025-01-02" }],
+      ["invalidTrade", { isin: ISIN, date: "2025-01-02" }],
+      ["invalidTrade", { isin: ISIN, date: "2025-01-02" }],
+      ["invalidTrade", { isin: ISIN, date: "2025-01-02" }],
+      ["unknownEvent", {}],
+      ["invalidSplit", { isin: ISIN, date: "2025-06-10" }],
+      ["invalidSplit", { isin: ISIN, date: "2025-06-10" }],
+    ]);
+    expect(JSON.stringify(diagnostics)).not.toContain("U1234567");
+  });
+
+  it("refuses a key repeated in one file, or reported twice with other content", () => {
+    const buy = trade("buy", "2025-01-02", "10");
+    const inFile = matchFifo([
+      buy,
+      { ...buy, source: { ...buy.source, row: 99 } },
+    ]);
+    expect(inFile.diagnostics.map((d) => d.code)).toEqual([
+      "duplicateKeyInFile",
+    ]);
+    const changed = matchFifo([
+      buy,
+      {
+        ...buy,
+        quantity: Decimal.parse("20"),
+        source: { file: "b.csv", row: 1 },
+      },
+    ]);
+    expect(changed.diagnostics.map((d) => d.code)).toEqual([
+      "duplicateKeyConflict",
+    ]);
+    // The same key from another broker is another trade.
+    const other = matchFifo([buy, { ...buy, broker: "trading212" }]);
+    expect(other.diagnostics).toEqual([]);
+    expect(other.securities.get(ISIN)?.purchases).toHaveLength(2);
+  });
+
+  it("gives the same result whatever order the events come in", () => {
+    const events = [
+      trade("buy", "2025-02-03", "10", "100", { security: { isin: ISIN } }),
+      trade("buy", "2025-02-03", "10", "130", {
+        broker: "trading212",
+        source: { file: "t212.csv", row: 1 },
+        security: { isin: ISIN, symbol: "AAPL", name: "Apple Inc." },
+      }),
+      trade("sell", "2026-05-04", "15"),
+      split("2025-06-10", "1", "2"),
+    ];
+    const summary = (input: LedgerEvent[]) => {
+      const { apple } = history(input);
+      return JSON.stringify([
+        apple.security,
+        apple.disposals.map((d) =>
+          d.matches.map((m) => [m.purchase.broker, m.quantity.toString()]),
+        ),
+      ]);
+    };
+    const expected = summary(events);
+    for (const order of [
+      [3, 2, 1, 0],
+      [1, 0, 3, 2],
+      [2, 3, 0, 1],
+    ]) {
+      expect(summary(order.map((i) => events[i] as LedgerEvent))).toBe(
+        expected,
+      );
+    }
+  });
+
+  it("warns when the order of one day's lots at two brokers decided a sale", () => {
+    const { diagnostics } = history([
+      trade("buy", "2025-02-03", "10", "100"),
+      trade("buy", "2025-02-03", "10", "130", {
+        broker: "trading212",
+        source: { file: "t212.csv", row: 1 },
+      }),
+      trade("sell", "2026-05-04", "15"),
+    ]);
+    expect(diagnostics.map((d) => [d.code, d.params])).toEqual([
+      [
+        "sameDayLotOrder",
+        { isin: ISIN, date: "2026-05-04", purchased: "2025-02-03" },
+      ],
+    ]);
+  });
+
+  it("warns of a purchase at no cost, which may be income", () => {
+    const { diagnostics } = history([trade("buy", "2025-02-03", "1", "0")]);
+    expect(diagnostics.map((d) => d.code)).toEqual(["zeroCostPurchase"]);
+  });
+
+  it("stays linear in the number of lots and sales", () => {
+    const events: LedgerEvent[] = [];
+    for (let i = 0; i < 10_000; i += 1) {
+      events.push(trade("buy", "2025-01-02", "1"));
+    }
+    for (let i = 0; i < 10_000; i += 1) {
+      events.push(trade("sell", "2026-01-05", "1"));
+    }
+    const started = Date.now();
+    const { apple } = history(events);
+    expect(apple.open).toEqual([]);
+    expect(Date.now() - started).toBeLessThan(3000);
   });
 });

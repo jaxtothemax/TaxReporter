@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 
 import { ISIN, split, trade } from "../test/events.js";
+import { Decimal } from "./decimal.js";
 import { matchFifo } from "./fifo.js";
 import type { LedgerEvent } from "./ledger.js";
 import { washSaleVerdicts } from "./wash-sale.js";
@@ -20,7 +21,11 @@ function verdicts(
   const losses = history.disposals.filter((x) =>
     lossDates.includes(x.sale.date),
   );
-  const result = washSaleVerdicts(history, losses, coverageEnd);
+  const result = washSaleVerdicts(
+    history,
+    losses.map((disposal) => ({ disposal, quantity: disposal.sale.quantity })),
+    coverageEnd,
+  );
   return losses.map((x) => {
     const verdict = result.get(x.sale.key);
     return [x.sale.date, verdict?.status, verdict?.replaced.toString()];
@@ -135,6 +140,35 @@ describe("washSaleVerdicts", () => {
         "2026-12-31",
       ),
     ).toEqual([["2026-12-20", "disallowed", "10"]]);
+  });
+
+  it("needs replacing only the shares sold at a loss", () => {
+    const history = matchFifo([
+      trade("buy", "2025-01-02", "20"),
+      trade("sell", "2026-03-01", "15"),
+      trade("buy", "2026-03-10", "5"),
+    ]).securities.get(ISIN);
+    if (history === undefined) throw new Error("no history");
+    const [disposal] = history.disposals;
+    if (disposal === undefined) throw new Error("no sale");
+    // 5 of the 15 shares were sold at a loss: 5 bought back cover them all.
+    const verdict = washSaleVerdicts(
+      history,
+      [{ disposal, quantity: Decimal.parse("5") }],
+      "2026-12-31",
+    ).get(disposal.sale.key);
+    expect([verdict?.status, verdict?.replaced.toString()]).toEqual([
+      "disallowed",
+      "5",
+    ]);
+  });
+
+  it("refuses a coverage date it cannot compare", () => {
+    const history = matchFifo([trade("buy", "2025-01-02", "1")]).securities.get(
+      ISIN,
+    );
+    if (history === undefined) throw new Error("no history");
+    expect(() => washSaleVerdicts(history, [], "2026-1-5")).toThrow(RangeError);
   });
 
   it("compares quantities across a split in between", () => {

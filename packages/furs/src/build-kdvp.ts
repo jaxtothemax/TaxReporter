@@ -19,24 +19,38 @@
  *   writer rounds them half up to 8 decimals.
  * - **Quantities** are rounded to 8 decimals on the running total, so F8 is
  *   always the rounded true stock and never drifts below zero.
- * - **F10** comes from the 30-day rule: true when the loss may reduce the
- *   base, false when it is replaced, a partly replaced loss split into a
- *   false row and a true row, and left out (with a warning) while the
- *   imported files end inside the 30 days after the sale.
+ * - **F10, lot by lot.** eDavki takes gains and losses per matched lot (each
+ *   has its own holding period, 04 §4.6), so a sale is written as runs of
+ *   rows in the order its lots are matched: lots sold at a gain (no F10),
+ *   then for lots sold at a loss, the part the 30-day rule disallows (F10
+ *   false) and the part that may reduce the base (true). The rule counts
+ *   only the shares sold at a loss (04 §5.3), and the disallowed part is
+ *   taken from the sale's first loss lots, an assumption FURS has not ruled
+ *   on (04, open questions). While the files end inside the 30 days after a
+ *   loss, its open part is left without F10, with a warning.
+ * - **Losses of the weeks before the year count too**: a purchase that
+ *   replaced a December loss cannot replace a January one as well.
  * - **The estimate** is computed from the rows as written, matched the way
  *   eDavki matches them, so it shows what eDavki will compute.
+ * - **Names are cleaned, never refused.** A broker's names can carry
+ *   characters the form refuses; they become spaces (`toPlainLine`), and
+ *   two securities sharing a name get their ISIN after it, since the schema
+ *   means names to be unique.
  * - **No form while anything blocks.** A missing rate or purchase leaves a
  *   list that does not add up, so the form is withheld; the lists and
- *   diagnostics still come back for the review.
+ *   diagnostics still come back for the review. A form handed out has also
+ *   passed the writer's own rules.
  */
 import {
   addDays,
   bucketFor,
+  compareText,
   completedYears,
   Decimal,
   diagnostic,
   estimateGainsTax,
   hasBlocking,
+  isIsoDate,
   lotBase,
   matchFifo,
   washSaleVerdicts,
@@ -47,15 +61,23 @@ import {
   type HoldingBucket,
   type IsoDate,
   type LedgerEvent,
+  type LossSale,
+  type LotMatch,
   type Money,
   type SecurityHistory,
   type SourceRef,
   type SplitEvent,
+  type TradeEvent,
 } from "@taxreporter/core";
 import type { BsiRate, RateTable } from "@taxreporter/fx";
 
-import type { Taxpayer } from "./common.js";
-import type { DohKdvp, KdvpList, KdvpRow } from "./kdvp.js";
+import { isTaxYear, toPlainLine, type Taxpayer } from "./common.js";
+import {
+  validateDohKdvp,
+  type DohKdvp,
+  type KdvpList,
+  type KdvpRow,
+} from "./kdvp.js";
 
 export interface KdvpBuildInput {
   readonly taxYear: number;
@@ -63,8 +85,10 @@ export interface KdvpBuildInput {
   readonly events: readonly LedgerEvent[];
   readonly rates: RateTable;
   /**
-   * The last day the imported exports cover. The 30-day rule looks 30 days
-   * past each loss, so a December loss needs January's trades.
+   * The last day every imported account's exports cover: the earliest of
+   * their ends. The 30-day rule looks 30 days past each loss, so a December
+   * loss needs January's trades, and one account whose files end early
+   * could hide a replacement.
    */
   readonly coverageEnd: IsoDate;
 }
@@ -115,17 +139,18 @@ export interface KdvpBuild {
 
 const QUANTITY_SCALE = 8;
 const UNIT_SCALE = 8;
+const NAME_LENGTH = 100;
+const TICKER_LENGTH = 10;
 
 const rounded = (value: Decimal) => value.round(QUANTITY_SCALE, "halfUp");
-
-/** Code-unit order: the same on every machine, unlike `localeCompare`. */
-const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+const lesser = (a: Decimal, b: Decimal) => (a.lessThan(b) ? a : b);
 
 /**
  * Whether a FIFO finding bears on the return for the year. One about a
  * later sale, or about a security with no sale in the year, belongs to
  * another year's return and must not block this one; anything in the year,
- * or in the 30 days after it that the 30-day rule reads, stays.
+ * or in the 30 days after it that the 30-day rule reads, stays. A finding
+ * without a valid ISIN or date is never dropped.
  */
 function bearsOnYear(
   finding: Diagnostic,
@@ -169,12 +194,21 @@ interface DraftRow {
   readonly lossReducesBase?: boolean;
 }
 
+/** A lot a sale consumed, as gain or loss, in shares of the valuation basis. */
+interface ValuedMatch {
+  readonly match: LotMatch;
+  /** In shares of the basis the sale was valued in. */
+  readonly quantity: Decimal;
+  readonly loss: boolean;
+}
+
 /**
  * Matches the list's sale rows to its purchase rows first in, first out,
  * with the per-unit values rounded as written: eDavki's computation.
  */
 function simulate(rows: readonly KdvpRow[]): BuiltLot[] {
   const queue: { date: IsoDate; left: Decimal; unit: Decimal }[] = [];
+  let head = 0;
   const lots: BuiltLot[] = [];
   for (const row of rows) {
     if (row.kind === "purchase") {
@@ -188,9 +222,9 @@ function simulate(rows: readonly KdvpRow[]): BuiltLot[] {
     const unit = row.unitValueEur.round(UNIT_SCALE, "halfUp");
     let need = row.quantity;
     while (need.isPositive()) {
-      const lot = queue[0];
+      const lot = queue[head];
       if (lot === undefined) break;
-      const take = lot.left.lessThan(need) ? lot.left : need;
+      const take = lesser(lot.left, need);
       const acquisitionEur = take.times(lot.unit).round(2, "halfUp");
       const disposalEur = take.times(unit).round(2, "halfUp");
       const yearsHeld = completedYears(lot.date, row.date);
@@ -218,7 +252,7 @@ function simulate(rows: readonly KdvpRow[]): BuiltLot[] {
       });
       need = need.minus(take);
       lot.left = lot.left.minus(take);
-      if (!lot.left.isPositive()) queue.shift();
+      if (!lot.left.isPositive()) head += 1;
     }
   }
   return lots;
@@ -237,17 +271,35 @@ function truncate(text: string, length: number): string {
   return text.slice(0, end).trimEnd();
 }
 
-/** Whitespace runs folded to one space; undefined when nothing is left. */
-function singleLine(text: string | undefined): string | undefined {
-  const folded = text?.replace(/\s+/g, " ").trim();
-  return folded === undefined || folded === "" ? undefined : folded;
-}
+type RunKind = "gain" | "disallowed" | "allowed" | "open";
+
+/** F10 for each kind of run: none on a gain or an open loss. */
+const RUN_F10: Readonly<Record<RunKind, boolean | undefined>> = {
+  gain: undefined,
+  disallowed: false,
+  allowed: true,
+  open: undefined,
+};
 
 export function buildDohKdvp(input: KdvpBuildInput): KdvpBuild {
   const { taxYear, rates } = input;
+  // The caller's own inputs: a malformed year or date would compare as text
+  // and quietly decide what is listed and which losses count.
+  if (!isTaxYear(taxYear)) {
+    throw new RangeError("taxYear must be a whole year from 2013");
+  }
+  if (!isIsoDate(input.coverageEnd)) {
+    throw new RangeError("coverageEnd must be an ISO date (YYYY-MM-DD)");
+  }
   const yearStart = `${String(taxYear)}-01-01`;
   const yearEnd = `${String(taxYear)}-12-31`;
-  const fifo = matchFifo(input.events);
+  // Dividends are Doh-Div's; anything else, unknown kinds included, goes to
+  // the engine, which refuses what it cannot use.
+  const fifo = matchFifo(
+    input.events.filter(
+      (e) => e.kind !== "dividend" && e.kind !== "withholding",
+    ),
+  );
   const inYear = (date: IsoDate) => date >= yearStart && date <= yearEnd;
   const sold = new Set(
     [...fifo.securities.values()]
@@ -258,19 +310,21 @@ export function buildDohKdvp(input: KdvpBuildInput): KdvpBuild {
     bearsOnYear(d, sold, yearStart, yearEnd),
   );
 
-  // A known BSI-versus-ECB difference is noted once per list, not per row.
+  // One lookup per trade, so a missing rate is reported once, and a known
+  // BSI-versus-ECB difference once per list.
   const ecbNoted = new Set<string>();
-  const lookup = (
-    money: Money,
-    date: IsoDate,
-    source: SourceRef,
-  ): BsiRate | null => {
-    const result = rates.lookup(money.currency, date);
+  const rateCache = new Map<TradeEvent, BsiRate | null>();
+  const rateOf = (trade: TradeEvent): BsiRate | null => {
+    const cached = rateCache.get(trade);
+    if (cached !== undefined) return cached;
+    const result = rates.lookup(trade.price.currency, trade.date);
+    let rate: BsiRate | null = null;
     if (result.ok) {
+      rate = result.rate;
       const { ecbRate, listCurrency, listDate, published } = result.rate;
-      const noted = `${listCurrency} ${listDate}`;
-      if (ecbRate !== undefined && !ecbNoted.has(noted)) {
-        ecbNoted.add(noted);
+      const list = `${listCurrency} ${listDate}`;
+      if (ecbRate !== undefined && !ecbNoted.has(list)) {
+        ecbNoted.add(list);
         diagnostics.push(
           diagnostic("info", "rateDiffersFromEcb", {
             currency: listCurrency,
@@ -280,35 +334,71 @@ export function buildDohKdvp(input: KdvpBuildInput): KdvpBuild {
           }),
         );
       }
-      return result.rate;
+    } else {
+      diagnostics.push(
+        diagnostic(
+          "blocking",
+          "rateUnavailable",
+          {
+            currency: trade.price.currency,
+            date: trade.date,
+            reason: result.error,
+          },
+          trade.source,
+        ),
+      );
     }
-    diagnostics.push(
-      diagnostic(
-        "blocking",
-        "rateUnavailable",
-        { currency: money.currency, date, reason: result.error },
-        source,
-      ),
-    );
-    return null;
+    rateCache.set(trade, rate);
+    return rate;
   };
 
   // Lists in ISIN order, so the same input always writes the same file.
   const histories = [...fifo.securities.values()].sort((a, b) =>
-    compare(a.isin, b.isin),
+    compareText(a.isin, b.isin),
   );
-
-  const lists: BuiltList[] = [];
+  const built: BuiltList[] = [];
   for (const history of histories) {
-    const built = buildList(history);
-    if (built !== null) lists.push(built);
+    const list = buildList(history);
+    if (list !== null) built.push(list);
   }
 
+  // The schema means list names to be unique; a repeated one gets the ISIN.
+  const uses = new Map<string, number>();
+  for (const { list } of built) {
+    uses.set(list.name, (uses.get(list.name) ?? 0) + 1);
+  }
+  const lists = built.map((b) =>
+    (uses.get(b.list.name) ?? 0) < 2
+      ? b
+      : {
+          ...b,
+          list: {
+            ...b.list,
+            name: `${truncate(b.list.name, NAME_LENGTH - 15)} (${b.list.isin})`,
+          },
+        },
+  );
+
   const estimate = estimateGainsTax(lists.flatMap((list) => list.lots));
-  const form: DohKdvp | null =
-    lists.length === 0 || hasBlocking(diagnostics)
-      ? null
-      : { taxYear, taxpayer: input.taxpayer, lists: lists.map((l) => l.list) };
+  const draft: DohKdvp = {
+    taxYear,
+    taxpayer: input.taxpayer,
+    lists: lists.map((l) => l.list),
+  };
+  // The writer's own rules, run here so that a form handed out is one the
+  // writer takes. Only when nothing else blocks: a missing rate or purchase
+  // leaves lists that break them too, and the review should show the cause.
+  if (lists.length > 0 && !hasBlocking(diagnostics)) {
+    for (const issue of validateDohKdvp(draft)) {
+      diagnostics.push(
+        diagnostic("blocking", "formIssue", {
+          code: issue.code,
+          path: issue.path,
+        }),
+      );
+    }
+  }
+  const form = lists.length === 0 || hasBlocking(diagnostics) ? null : draft;
   return { form, lists, estimate, diagnostics };
 
   function buildList(history: SecurityHistory): BuiltList | null {
@@ -321,23 +411,68 @@ export function buildDohKdvp(input: KdvpBuildInput): KdvpBuild {
     );
     const toBasis = (date: IsoDate) => splitFactor(history.splits, date, basis);
 
+    /** A trade's EUR per share of `basisDate`, as the form writes it. */
+    const unitIn = (trade: TradeEvent, basisDate: IsoDate): Decimal | null => {
+      const rate = rateOf(trade);
+      if (rate === null) return null;
+      return trade.price.amount
+        .dividedBy(splitFactor(history.splits, trade.date, basisDate))
+        .dividedBy(rate.rate)
+        .round(UNIT_SCALE, "halfUp");
+    };
+
+    /**
+     * A sale's lots in match order, each a gain or a loss as eDavki will
+     * value it (cents of the per-unit values as written), in shares of
+     * `basisDate`. Exempt lots are left out; null when a rate is missing.
+     */
+    const valued = (
+      disposal: Disposal,
+      basisDate: IsoDate,
+    ): ValuedMatch[] | null => {
+      const value = unitIn(disposal.sale, basisDate);
+      if (value === null) return null;
+      const factor = splitFactor(history.splits, disposal.sale.date, basisDate);
+      const out: ValuedMatch[] = [];
+      for (const match of disposal.matches) {
+        if (completedYears(match.purchase.date, disposal.sale.date) >= 15) {
+          continue;
+        }
+        const cost = unitIn(match.purchase, basisDate);
+        if (cost === null) return null;
+        const quantity = match.quantity.times(factor);
+        const loss = quantity
+          .times(value)
+          .round(2, "halfUp")
+          .lessThan(quantity.times(cost).round(2, "halfUp"));
+        out.push({ match, quantity, loss });
+      }
+      return out;
+    };
+    const lossShares = (lots: readonly ValuedMatch[]) =>
+      Decimal.sum(lots.filter((v) => v.loss).map((v) => v.match.quantity));
+
     // The purchases the year's sales consume, outside the 15-year exemption.
-    const consumed = new Map<string, Decimal>();
-    const listedSales: { disposal: Disposal; quantity: Decimal }[] = [];
+    const consumed = new Map<TradeEvent, Decimal>();
+    const listed: { disposal: Disposal; lots: ValuedMatch[] | null }[] = [];
     let exempt = Decimal.ZERO;
     for (const disposal of sales) {
-      let listed = Decimal.ZERO;
+      let shares = Decimal.ZERO;
       for (const match of disposal.matches) {
         const inBasis = match.quantity.times(toBasis(disposal.sale.date));
         if (completedYears(match.purchase.date, disposal.sale.date) >= 15) {
           exempt = exempt.plus(inBasis);
           continue;
         }
-        listed = listed.plus(inBasis);
-        const key = match.purchase.key;
-        consumed.set(key, (consumed.get(key) ?? Decimal.ZERO).plus(inBasis));
+        shares = shares.plus(inBasis);
+        consumed.set(
+          match.purchase,
+          (consumed.get(match.purchase) ?? Decimal.ZERO).plus(inBasis),
+        );
       }
-      if (listed.isPositive()) listedSales.push({ disposal, quantity: listed });
+      if (shares.isPositive()) {
+        listed.push({ disposal, lots: valued(disposal, basis) });
+      }
     }
     if (exempt.isPositive()) {
       diagnostics.push(
@@ -347,22 +482,32 @@ export function buildDohKdvp(input: KdvpBuildInput): KdvpBuild {
         }),
       );
     }
-    if (listedSales.length === 0) return null;
+    if (listed.length === 0) return null;
+
+    // The 30-day rule, over this year's losses and those of the weeks just
+    // before it, whose replacements this year's losses cannot use again.
+    const lookBack = addDays(yearStart, -2 * WASH_SALE_DAYS - 1);
+    const losses: LossSale[] = [];
+    for (const disposal of history.disposals) {
+      const date = disposal.sale.date;
+      if (date < lookBack || date > yearEnd) continue;
+      const lots = inYear(date)
+        ? (listed.find((l) => l.disposal === disposal)?.lots ?? null)
+        : valued(disposal, date);
+      if (lots === null) continue;
+      const quantity = lossShares(lots);
+      if (quantity.isPositive()) losses.push({ disposal, quantity });
+    }
+    const verdicts = washSaleVerdicts(history, losses, input.coverageEnd);
 
     const drafts: DraftRow[] = [];
-    /** Each listed purchase's per-unit cost as written, by purchase key. */
-    const purchaseUnit = new Map<string, Decimal>();
     for (const purchase of history.purchases) {
-      const quantity = consumed.get(purchase.key);
+      const quantity = consumed.get(purchase);
       if (quantity === undefined) continue;
-      const rate = lookup(purchase.price, purchase.date, purchase.source);
+      const rate = rateOf(purchase);
       if (rate === null) continue;
       const factor = toBasis(purchase.date);
       const unitPrice = purchase.price.amount.dividedBy(factor);
-      purchaseUnit.set(
-        purchase.key,
-        unitPrice.dividedBy(rate.rate).round(UNIT_SCALE, "halfUp"),
-      );
       drafts.push({
         kind: "purchase",
         date: purchase.date,
@@ -376,126 +521,89 @@ export function buildDohKdvp(input: KdvpBuildInput): KdvpBuild {
       });
     }
 
-    const saleUnits = new Map<string, { unit: Decimal; rate: BsiRate }>();
-    for (const { disposal } of listedSales) {
-      const rate = lookup(
-        disposal.sale.price,
-        disposal.sale.date,
-        disposal.sale.source,
-      );
-      if (rate === null) continue;
-      const unitPrice = disposal.sale.price.amount.dividedBy(
-        toBasis(disposal.sale.date),
-      );
-      saleUnits.set(disposal.sale.key, {
-        unit: unitPrice.dividedBy(rate.rate),
-        rate,
-      });
-    }
-    // F10 matters only where there is a loss. eDavki takes gains and losses
-    // lot by lot (each lot has its own holding period, research 04 §4.6),
-    // so a sale needs F10 when any of its listed lots, valued as eDavki will
-    // value them, loses money; the 30-day rule then decides it (04 §5.3).
-    const lossSales = listedSales
-      .filter(({ disposal }) => {
-        const sale = saleUnits.get(disposal.sale.key);
-        if (sale === undefined) return false;
-        const value = sale.unit.round(UNIT_SCALE, "halfUp");
-        return disposal.matches.some((match) => {
-          if (completedYears(match.purchase.date, disposal.sale.date) >= 15)
-            return false;
-          const cost = purchaseUnit.get(match.purchase.key);
-          if (cost === undefined) return false;
-          const quantity = match.quantity.times(toBasis(disposal.sale.date));
-          return quantity
-            .times(value)
-            .round(2, "halfUp")
-            .lessThan(quantity.times(cost).round(2, "halfUp"));
-        });
-      })
-      .map(({ disposal }) => disposal);
-    const verdicts = washSaleVerdicts(history, lossSales, input.coverageEnd);
-    const losses = new Set(lossSales.map((d) => d.sale.key));
-
-    for (const { disposal, quantity } of listedSales) {
+    for (const { disposal, lots } of listed) {
       const sale = disposal.sale;
-      const unit = saleUnits.get(sale.key);
-      if (unit === undefined) continue;
+      const rate = rateOf(sale);
+      if (rate === null || lots === null) continue;
       const factor = toBasis(sale.date);
+      const unitPrice = sale.price.amount.dividedBy(factor);
       const common = {
         kind: "sale" as const,
         date: sale.date,
-        unitEur: unit.unit,
-        price: {
-          amount: sale.price.amount.dividedBy(factor),
-          currency: sale.price.currency,
-        },
-        rate: unit.rate,
+        unitEur: unitPrice.dividedBy(rate.rate),
+        price: { amount: unitPrice, currency: sale.price.currency },
+        rate,
         broker: sale.broker,
         source: sale.source,
         factor,
       };
-      if (!losses.has(sale.key)) {
-        drafts.push({ ...common, quantity });
-        continue;
-      }
+
+      // Disallowed loss shares, in shares as of the sale date, taken from
+      // the sale's first loss lots.
       const verdict = verdicts.get(sale.key);
-      const params = { isin, date: sale.date };
-      switch (verdict?.status) {
-        case "allowed":
-          drafts.push({ ...common, quantity, lossReducesBase: true });
-          diagnostics.push(
-            diagnostic("info", "lossCounts", params, sale.source),
-          );
-          break;
-        case "disallowed":
-          drafts.push({ ...common, quantity, lossReducesBase: false });
-          diagnostics.push(
-            diagnostic("info", "lossDisallowed", params, sale.source),
-          );
-          break;
-        case "partial": {
-          // The replaced part first, as its own row: only it loses the
-          // deduction. Coming first, it takes the sale's oldest lots, the
-          // order eDavki matches rows in; FURS has no rule for which lots
-          // carry it (research 04, open questions). The rule counts the
-          // whole sale, so with exempt lots left off the replaced part can
-          // cover all that is listed.
-          const all = verdict.replaced.times(factor);
-          const replaced = all.lessThan(quantity) ? all : quantity;
-          drafts.push({
-            ...common,
-            quantity: replaced,
-            lossReducesBase: false,
-          });
-          const rest = quantity.minus(replaced);
-          if (rest.isPositive()) {
-            drafts.push({ ...common, quantity: rest, lossReducesBase: true });
-          }
-          diagnostics.push(
-            diagnostic(
-              "info",
-              "lossPartlyDisallowed",
-              {
-                ...params,
-                replaced: replaced.toPlain(QUANTITY_SCALE, "halfUp"),
-              },
-              sale.source,
-            ),
-          );
-          break;
+      const lost = lossShares(lots);
+      let disallow =
+        verdict === undefined
+          ? Decimal.ZERO
+          : verdict.status === "disallowed"
+            ? lost
+            : lesser(verdict.replaced, lost);
+      const runs: { kind: RunKind; quantity: Decimal }[] = [];
+      const add = (kind: RunKind, quantity: Decimal) => {
+        if (!quantity.isPositive()) return;
+        const last = runs.at(-1);
+        if (last?.kind === kind) last.quantity = last.quantity.plus(quantity);
+        else runs.push({ kind, quantity });
+      };
+      for (const lot of lots) {
+        if (!lot.loss) {
+          add("gain", lot.quantity);
+          continue;
         }
-        default:
-          drafts.push({ ...common, quantity });
-          diagnostics.push(
-            diagnostic(
-              "warning",
-              "washSaleWindowOpen",
-              { ...params, until: addDays(sale.date, WASH_SALE_DAYS) },
-              sale.source,
-            ),
-          );
+        const off = lesser(lot.match.quantity, disallow);
+        disallow = disallow.minus(off);
+        add("disallowed", off.times(factor));
+        add(
+          verdict?.status === "undetermined" ? "open" : "allowed",
+          lot.match.quantity.minus(off).times(factor),
+        );
       }
+      for (const run of runs) {
+        const f10 = RUN_F10[run.kind];
+        drafts.push({
+          ...common,
+          quantity: run.quantity,
+          ...(f10 === undefined ? {} : { lossReducesBase: f10 }),
+        });
+      }
+
+      if (!lost.isPositive() || verdict === undefined) continue;
+      const params = { isin, date: sale.date };
+      const replaced = runs
+        .filter((r) => r.kind === "disallowed")
+        .reduce((sum, r) => sum.plus(r.quantity), Decimal.ZERO);
+      diagnostics.push(
+        verdict.status === "allowed"
+          ? diagnostic("info", "lossCounts", params, sale.source)
+          : verdict.status === "disallowed"
+            ? diagnostic("info", "lossDisallowed", params, sale.source)
+            : verdict.status === "partial"
+              ? diagnostic(
+                  "info",
+                  "lossPartlyDisallowed",
+                  {
+                    ...params,
+                    replaced: replaced.toPlain(QUANTITY_SCALE, "halfUp"),
+                  },
+                  sale.source,
+                )
+              : diagnostic(
+                  "warning",
+                  "washSaleWindowOpen",
+                  { ...params, until: addDays(sale.date, WASH_SALE_DAYS) },
+                  sale.source,
+                ),
+      );
     }
 
     for (const split of history.splits) {
@@ -503,7 +611,8 @@ export function buildDohKdvp(input: KdvpBuildInput): KdvpBuild {
         diagnostics.push(
           diagnostic("info", "splitAdjusted", {
             isin,
-            ratio: `${split.to.toString()}:${split.from.toString()}`,
+            // Whole numbers: the engine refuses any other split term.
+            ratio: `${split.to.toFixed(0, "down")}:${split.from.toFixed(0, "down")}`,
             date: split.date,
           }),
         );
@@ -511,12 +620,13 @@ export function buildDohKdvp(input: KdvpBuildInput): KdvpBuild {
     }
 
     // Date order, purchases before sales on the same day (FIFO can then use
-    // a same-day purchase), each kind in its own order.
+    // a same-day purchase), each kind in its own order: a sale's runs stay
+    // together, in the order its lots are matched.
     const ordered = drafts
       .map((row, index) => ({ row, index }))
       .sort(
         (a, b) =>
-          compare(a.row.date, b.row.date) ||
+          compareText(a.row.date, b.row.date) ||
           (a.row.kind === b.row.kind
             ? 0
             : a.row.kind === "purchase"
@@ -582,15 +692,15 @@ export function buildDohKdvp(input: KdvpBuildInput): KdvpBuild {
       diagnostics.push(diagnostic("info", "quantitiesRounded", { isin }));
     }
 
-    // Broker names can carry tabs, line breaks or padding, which the form
-    // refuses; they are folded to single spaces and cut to the form's limits.
     const security = history.security;
-    const ticker = singleLine(security.symbol);
-    const name = singleLine(security.name) ?? ticker ?? isin;
+    const ticker = toPlainLine(security.symbol);
+    const name = toPlainLine(security.name) ?? ticker ?? isin;
     const list: KdvpList = {
       isin,
-      ...(ticker === undefined ? {} : { ticker: truncate(ticker, 10) }),
-      name: truncate(name, 100),
+      ...(ticker === undefined
+        ? {}
+        : { ticker: truncate(ticker, TICKER_LENGTH) }),
+      name: truncate(name, NAME_LENGTH),
       isFund: security.isFund === true,
       rows: rows.map((r) => r.row),
     };

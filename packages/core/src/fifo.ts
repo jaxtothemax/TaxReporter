@@ -6,11 +6,20 @@
  *
  * Quantities stay exact and in each trade's own currency here; conversion to
  * EUR and rounding to form fields happen later, per leg at its own date.
+ *
+ * The engine trusts no adapter. Every event is checked as it comes in, and
+ * one that fails blocks rather than being guessed at; and the result depends
+ * on the events alone, never on the order in which files were loaded.
  */
+import { isIsoDate, type IsoDate } from "./dates.js";
 import { Decimal } from "./decimal.js";
 import { diagnostic, type Diagnostic } from "./diagnostics.js";
+import { daysBetween } from "./holding.js";
+import { isIsin } from "./isin.js";
 import type {
+  IgnoredRow,
   LedgerEvent,
+  Money,
   SecurityRef,
   SplitEvent,
   TradeEvent,
@@ -42,10 +51,11 @@ export interface Disposal {
 
 export interface SecurityHistory {
   readonly isin: string;
-  /** Symbol and name from whichever event carried them first. */
+  /** Symbol and name, from the earliest event that carried them. */
   readonly security: SecurityRef;
   readonly purchases: readonly TradeEvent[];
   readonly disposals: readonly Disposal[];
+  /** Each split once, however many brokers reported it. */
   readonly splits: readonly SplitEvent[];
   /** Lots still held after the last event. */
   readonly open: readonly OpenLot[];
@@ -56,19 +66,249 @@ export interface FifoResult {
   readonly diagnostics: readonly Diagnostic[];
 }
 
+/** Code-unit order: the same on every machine, unlike `localeCompare`. */
+export function compareText(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/**
+ * Split terms are whole numbers up to this. Real splits are (50 for 1, 1 for
+ * 1,000), and the bound keeps a hostile ratio from making every quantity
+ * after it enormous.
+ */
+export const MAX_SPLIT_TERM = 10_000;
+
+/** More splits than this on one security is no real history. */
+export const MAX_SPLITS = 32;
+
+/**
+ * Brokers can date one split a few days apart: the ex-date, the day they
+ * booked it. Reports of one ratio from different brokers this close
+ * together are one split.
+ */
+export const SPLIT_REPORT_DAYS = 14;
+
+const MAX_TERM = Decimal.fromInteger(MAX_SPLIT_TERM);
+const CURRENCY = /^[A-Za-z]{3}$/;
+
 /**
  * Same-day order: a split first (trades on its effective day are already in
  * new shares), then purchases, then sales, so a sale can use shares bought
- * earlier that day; ties keep the order the events were read in.
+ * earlier that day. Ties go by broker and key, never by reading order: the
+ * time of day is not in the ledger, and loading the files in another order
+ * must not change the return.
  */
 const SAME_DAY_ORDER = { split: 0, buy: 1, sell: 2 } as const;
 
 type Step = TradeEvent | SplitEvent;
+type KeyedEvent = Exclude<LedgerEvent, IgnoredRow>;
 
 function rank(step: Step): number {
   return step.kind === "split"
     ? SAME_DAY_ORDER.split
     : SAME_DAY_ORDER[step.side];
+}
+
+const byTime = (a: Step, b: Step) =>
+  compareText(a.date, b.date) ||
+  rank(a) - rank(b) ||
+  compareText(a.broker, b.broker) ||
+  compareText(a.key, b.key);
+
+/** A property of a value of unknown shape. */
+function field(value: unknown, key: string): unknown {
+  return typeof value === "object" &&
+    value !== null &&
+    Object.hasOwn(value, key)
+    ? (value as Record<string, unknown>)[key]
+    : undefined;
+}
+
+const isText = (value: unknown): value is string =>
+  typeof value === "string" && value !== "";
+
+/**
+ * An event's ISIN and date as diagnostic parameters, each only when it has
+ * its proper shape, so that no text from a file is ever echoed.
+ */
+function identify(isin: unknown, date: unknown): Record<string, string> {
+  return {
+    ...(typeof isin === "string" && isIsin(isin) ? { isin } : {}),
+    ...(typeof date === "string" && isIsoDate(date) ? { date } : {}),
+  };
+}
+
+const isWholeTerm = (value: unknown): boolean =>
+  value instanceof Decimal &&
+  value.isPositive() &&
+  value.isExactAt(0) &&
+  !value.greaterThan(MAX_TERM);
+
+/** Why an event cannot be used, as a blocking diagnostic, or null. */
+function refusal(event: LedgerEvent): Diagnostic | null {
+  const kind: unknown = field(event, "kind");
+  const source = field(event, "source");
+  const sourceOk =
+    isText(field(source, "file")) && Number.isSafeInteger(field(source, "row"));
+  const at = sourceOk ? event.source : undefined;
+  if (kind === "ignored") return null;
+  if (
+    kind !== "trade" &&
+    kind !== "split" &&
+    kind !== "dividend" &&
+    kind !== "withholding"
+  ) {
+    return diagnostic("blocking", "unknownEvent", {}, at);
+  }
+  const base =
+    sourceOk && isText(field(event, "key")) && isText(field(event, "broker"));
+  if (kind === "trade") {
+    const security = field(event, "security");
+    const price = field(event, "price");
+    const side = field(event, "side");
+    const quantity = field(event, "quantity");
+    const amount = field(price, "amount");
+    const currency = field(price, "currency");
+    const ok =
+      base &&
+      typeof side === "string" &&
+      (side === "buy" || side === "sell") &&
+      isIsoDate(field(event, "date")) &&
+      isIsin(field(security, "isin")) &&
+      quantity instanceof Decimal &&
+      quantity.isPositive() &&
+      amount instanceof Decimal &&
+      !amount.isNegative() &&
+      typeof currency === "string" &&
+      CURRENCY.test(currency);
+    return ok
+      ? null
+      : diagnostic(
+          "blocking",
+          "invalidTrade",
+          identify(field(security, "isin"), field(event, "date")),
+          at,
+        );
+  }
+  if (kind === "split") {
+    const ok =
+      base &&
+      isIsoDate(field(event, "date")) &&
+      isIsin(field(event, "isin")) &&
+      isWholeTerm(field(event, "from")) &&
+      isWholeTerm(field(event, "to"));
+    return ok
+      ? null
+      : diagnostic(
+          "blocking",
+          "invalidSplit",
+          identify(field(event, "isin"), field(event, "date")),
+          at,
+        );
+  }
+  // Dividends and withholdings are the Doh-Div builder's to check.
+  return null;
+}
+
+const sameMoney = (a: Money, b: Money) =>
+  a.currency === b.currency && a.amount.equals(b.amount);
+
+/** Whether two reports of one event, read from different files, agree. */
+function sameContent(a: KeyedEvent, b: KeyedEvent): boolean {
+  switch (a.kind) {
+    case "trade":
+      return (
+        b.kind === "trade" &&
+        a.side === b.side &&
+        a.date === b.date &&
+        a.security.isin === b.security.isin &&
+        a.quantity.equals(b.quantity) &&
+        sameMoney(a.price, b.price)
+      );
+    case "split":
+      return (
+        b.kind === "split" &&
+        a.date === b.date &&
+        a.isin === b.isin &&
+        a.to.times(b.from).equals(b.to.times(a.from))
+      );
+    case "dividend":
+      return (
+        b.kind === "dividend" &&
+        a.date === b.date &&
+        a.security.isin === b.security.isin &&
+        sameMoney(a.gross, b.gross)
+      );
+    case "withholding":
+      return (
+        b.kind === "withholding" &&
+        a.date === b.date &&
+        a.isin === b.isin &&
+        a.dividendKey === b.dividendKey &&
+        sameMoney(a.amount, b.amount)
+      );
+  }
+}
+
+const isinOf = (event: KeyedEvent) =>
+  event.kind === "trade" || event.kind === "dividend"
+    ? event.security.isin
+    : event.isin;
+
+/**
+ * Removes events read twice from overlapping exports. An event's identity
+ * is its broker and its key, so two brokers' keys never collide. A repeat
+ * from another file that says the same is the overlap: dropped, and
+ * counted. A repeat within one file, or one that says something else,
+ * blocks instead: one export never lists a row twice, and which of two
+ * disagreeing reports is right is the user's call, not this function's.
+ */
+export function deduplicate(events: readonly LedgerEvent[]): {
+  readonly events: readonly LedgerEvent[];
+  readonly diagnostics: readonly Diagnostic[];
+} {
+  const seen = new Map<string, KeyedEvent>();
+  const kept: LedgerEvent[] = [];
+  const diagnostics: Diagnostic[] = [];
+  let duplicates = 0;
+  for (const event of events) {
+    if (event.kind === "ignored") {
+      kept.push(event);
+      continue;
+    }
+    const identity = JSON.stringify([event.broker, event.key]);
+    const first = seen.get(identity);
+    if (first === undefined) {
+      seen.set(identity, event);
+      kept.push(event);
+    } else if (first.source.file === event.source.file) {
+      diagnostics.push(
+        diagnostic(
+          "blocking",
+          "duplicateKeyInFile",
+          identify(isinOf(event), event.date),
+          event.source,
+        ),
+      );
+    } else if (!sameContent(first, event)) {
+      diagnostics.push(
+        diagnostic(
+          "blocking",
+          "duplicateKeyConflict",
+          identify(isinOf(event), event.date),
+          event.source,
+        ),
+      );
+    } else {
+      duplicates += 1;
+    }
+  }
+  if (duplicates > 0) {
+    diagnostics.unshift(
+      diagnostic("info", "duplicatesRemoved", { count: String(duplicates) }),
+    );
+  }
+  return { events: kept, diagnostics };
 }
 
 function mergeSecurity(
@@ -87,106 +327,125 @@ function mergeSecurity(
 }
 
 /**
- * Removes events read twice from overlapping exports, by their stable key.
- * The first occurrence wins; the count is reported, never silently dropped.
+ * One split reported by several brokers would otherwise restate every lot
+ * once per report. Reports of the same ratio from different brokers within
+ * SPLIT_REPORT_DAYS are one split, dated by the earliest; a different
+ * ratio blocks. When the dates differ, a trade at the later-reporting
+ * broker between them was in old shares there and new shares here, so it
+ * blocks too: which basis it used is for the user to settle.
  */
-export function deduplicate(events: readonly LedgerEvent[]): {
-  readonly events: readonly LedgerEvent[];
-  readonly diagnostics: readonly Diagnostic[];
-} {
-  const seen = new Set<string>();
-  const kept: LedgerEvent[] = [];
-  let duplicates = 0;
-  for (const event of events) {
-    if (event.kind !== "ignored") {
-      if (seen.has(event.key)) {
-        duplicates += 1;
-        continue;
-      }
-      seen.add(event.key);
+function mergeSplitReports(
+  isin: string,
+  ordered: readonly Step[],
+  diagnostics: Diagnostic[],
+): Step[] {
+  const kept: { split: SplitEvent; brokers: Set<string> }[] = [];
+  const dropped = new Set<Step>();
+  for (const step of ordered) {
+    if (step.kind !== "split") continue;
+    const near = kept.find(
+      (k) =>
+        !k.brokers.has(step.broker) &&
+        daysBetween(k.split.date, step.date) <= SPLIT_REPORT_DAYS,
+    );
+    if (near === undefined) {
+      kept.push({ split: step, brokers: new Set([step.broker]) });
+      continue;
     }
-    kept.push(event);
+    dropped.add(step);
+    const first = near.split;
+    if (!first.to.times(step.from).equals(step.to.times(first.from))) {
+      diagnostics.push(
+        diagnostic(
+          "blocking",
+          "splitConflict",
+          { isin, date: step.date },
+          step.source,
+        ),
+      );
+      continue;
+    }
+    near.brokers.add(step.broker);
+    const between = ordered.some(
+      (s) =>
+        s.kind === "trade" &&
+        s.broker === step.broker &&
+        s.date >= first.date &&
+        s.date < step.date,
+    );
+    diagnostics.push(
+      between
+        ? diagnostic(
+            "blocking",
+            "splitDateAmbiguous",
+            { isin, date: first.date, until: step.date },
+            step.source,
+          )
+        : diagnostic("info", "splitReportsMerged", { isin, date: first.date }),
+    );
   }
-  return {
-    events: kept,
-    diagnostics:
-      duplicates === 0
-        ? []
-        : [
-            diagnostic("info", "duplicatesRemoved", {
-              count: String(duplicates),
-            }),
-          ],
-  };
+  let splits = 0;
+  return ordered.filter((step) => {
+    if (dropped.has(step)) return false;
+    if (step.kind !== "split") return true;
+    splits += 1;
+    if (splits === MAX_SPLITS + 1) {
+      diagnostics.push(diagnostic("blocking", "tooManySplits", { isin }));
+    }
+    return splits <= MAX_SPLITS;
+  });
 }
 
 export function matchFifo(input: readonly LedgerEvent[]): FifoResult {
-  const { events, diagnostics: dedup } = deduplicate(input);
-  const diagnostics: Diagnostic[] = [...dedup];
+  const diagnostics: Diagnostic[] = [];
+  const checked: LedgerEvent[] = [];
+  for (const event of input) {
+    const problem = refusal(event);
+    if (problem === null) checked.push(event);
+    else diagnostics.push(problem);
+  }
+  const { events, diagnostics: dedup } = deduplicate(checked);
+  diagnostics.push(...dedup);
 
   const steps = new Map<string, Step[]>();
-  const securities = new Map<string, SecurityRef>();
   for (const event of events) {
-    if (event.kind === "trade") {
-      const isin = event.security.isin;
-      securities.set(isin, mergeSecurity(securities.get(isin), event.security));
-      steps.set(isin, [...(steps.get(isin) ?? []), event]);
-    } else if (event.kind === "split") {
-      steps.set(event.isin, [...(steps.get(event.isin) ?? []), event]);
-    }
+    if (event.kind !== "trade" && event.kind !== "split") continue;
+    const isin = event.kind === "trade" ? event.security.isin : event.isin;
+    const list = steps.get(isin);
+    if (list === undefined) steps.set(isin, [event]);
+    else list.push(event);
   }
 
   const result = new Map<string, SecurityHistory>();
-  for (const [isin, unsorted] of steps) {
-    // A stable sort, so events of one day keep their reading order.
-    const ordered = unsorted
-      .map((step, index) => ({ step, index }))
-      .sort(
-        (a, b) =>
-          a.step.date.localeCompare(b.step.date) ||
-          rank(a.step) - rank(b.step) ||
-          a.index - b.index,
-      )
-      .map(({ step }) => step);
+  for (const isin of [...steps.keys()].sort(compareText)) {
+    const ordered = mergeSplitReports(
+      isin,
+      (steps.get(isin) ?? []).sort(byTime),
+      diagnostics,
+    );
 
+    const mixed = mixedDays(ordered);
+    let security: SecurityRef | undefined;
+    // A queue read from `head`, so consuming a lot never copies the rest.
     let lots: OpenLot[] = [];
+    let head = 0;
     const purchases: TradeEvent[] = [];
     const disposals: Disposal[] = [];
     const splits: SplitEvent[] = [];
 
     for (const step of ordered) {
       if (step.kind === "split") {
-        if (!step.from.isPositive() || !step.to.isPositive()) {
-          diagnostics.push(
-            diagnostic(
-              "blocking",
-              "invalidSplit",
-              { isin, date: step.date },
-              step.source,
-            ),
-          );
-          continue;
-        }
         const ratio = step.to.dividedBy(step.from);
-        lots = lots.map((lot) => ({
+        lots = lots.slice(head).map((lot) => ({
           purchase: lot.purchase,
           quantity: lot.quantity.times(ratio),
           factor: lot.factor.times(ratio),
         }));
+        head = 0;
         splits.push(step);
         continue;
       }
-      if (!step.quantity.isPositive()) {
-        diagnostics.push(
-          diagnostic(
-            "blocking",
-            "invalidTrade",
-            { isin, date: step.date },
-            step.source,
-          ),
-        );
-        continue;
-      }
+      security = mergeSecurity(security, step.security);
       if (step.side === "buy") {
         purchases.push(step);
         lots.push({
@@ -194,12 +453,24 @@ export function matchFifo(input: readonly LedgerEvent[]): FifoResult {
           quantity: step.quantity,
           factor: Decimal.ONE,
         });
+        if (step.price.amount.isZero()) {
+          // A share received for nothing may be income, not a purchase.
+          diagnostics.push(
+            diagnostic(
+              "warning",
+              "zeroCostPurchase",
+              { isin, date: step.date },
+              step.source,
+            ),
+          );
+        }
         continue;
       }
       let need = step.quantity;
       const matches: LotMatch[] = [];
-      while (need.isPositive() && lots.length > 0) {
-        const [lot, ...rest] = lots as [OpenLot, ...OpenLot[]];
+      while (need.isPositive()) {
+        const lot = lots[head];
+        if (lot === undefined) break;
         const take = lot.quantity.lessThan(need) ? lot.quantity : need;
         matches.push({
           purchase: lot.purchase,
@@ -208,7 +479,24 @@ export function matchFifo(input: readonly LedgerEvent[]): FifoResult {
         });
         need = need.minus(take);
         const left = lot.quantity.minus(take);
-        lots = left.isPositive() ? [{ ...lot, quantity: left }, ...rest] : rest;
+        if (left.isPositive()) lots[head] = { ...lot, quantity: left };
+        else head += 1;
+      }
+      // The sale ends inside a day whose lots the ledger cannot order.
+      const last = matches.at(-1)?.purchase;
+      if (
+        last !== undefined &&
+        lots[head]?.purchase.date === last.date &&
+        mixed.has(last.date)
+      ) {
+        diagnostics.push(
+          diagnostic(
+            "warning",
+            "sameDayLotOrder",
+            { isin, date: step.date, purchased: last.date },
+            step.source,
+          ),
+        );
       }
       if (need.isPositive()) {
         // Never guess a purchase: the user has to add the earlier export.
@@ -228,12 +516,45 @@ export function matchFifo(input: readonly LedgerEvent[]): FifoResult {
 
     result.set(isin, {
       isin,
-      security: securities.get(isin) ?? { isin },
+      security: security ?? { isin },
       purchases,
       disposals,
       splits,
-      open: lots,
+      open: lots.slice(head),
     });
   }
   return { securities: result, diagnostics };
+}
+
+/**
+ * Purchase dates whose lots came from more than one broker at more than one
+ * price. The ledger has no time of day, so such a day's lots are queued by
+ * broker and key, and a sale that ends partway through the day might have
+ * been matched to other lots, at another cost, in another order.
+ */
+function mixedDays(steps: readonly Step[]): ReadonlySet<IsoDate> {
+  const days = new Map<
+    IsoDate,
+    { brokers: Set<string>; prices: Set<string> }
+  >();
+  for (const step of steps) {
+    if (step.kind !== "trade" || step.side !== "buy") continue;
+    const day = days.get(step.date) ?? {
+      brokers: new Set(),
+      prices: new Set(),
+    };
+    day.brokers.add(step.broker);
+    day.prices.add(
+      JSON.stringify([
+        step.price.currency,
+        step.price.amount.toFixed(12, "halfUp"),
+      ]),
+    );
+    days.set(step.date, day);
+  }
+  const mixed = new Set<IsoDate>();
+  for (const [date, day] of days) {
+    if (day.brokers.size > 1 && day.prices.size > 1) mixed.add(date);
+  }
+  return mixed;
 }

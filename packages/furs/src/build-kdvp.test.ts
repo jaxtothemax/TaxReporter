@@ -71,13 +71,14 @@ function split(
   date: string,
   from: string,
   to: string,
+  broker = "ibkr",
 ): SplitEvent {
   row += 1;
   return {
     kind: "split",
     key: `s${String(row)}`,
-    broker: "ibkr",
-    source: { file: "ibkr.csv", row },
+    broker,
+    source: { file: `${broker}.csv`, row },
     date,
     isin: security.isin,
     from: Decimal.parse(from),
@@ -417,18 +418,16 @@ describe("buildDohKdvp", () => {
     expect(cents(result.estimate.losses)).toBe("0.00");
   });
 
-  it("decides F10 for a sale whose lots mix a gain and a loss", () => {
+  it("decides F10 lot by lot for a sale that mixes a gain and a loss", () => {
     const result = build([
       trade(SAP, "buy", "2025-01-02", "5", "100"),
       trade(SAP, "buy", "2025-06-02", "5", "140"),
       trade(SAP, "sell", "2026-03-02", "10", "120"),
     ]);
-    expect(rowsOf(result, SAP.isin).at(-1)).toEqual([
-      "sale",
-      "2026-03-02",
-      "10",
-      "120.00000000",
-      true,
+    // The gain lot gets no F10; the loss lot may reduce the base.
+    expect(rowsOf(result, SAP.isin).slice(2)).toEqual([
+      ["sale", "2026-03-02", "5", "120.00000000", undefined],
+      ["sale", "2026-03-02", "5", "120.00000000", true],
     ]);
     expect(codes(result)).toEqual(["lossCounts"]);
     // +100 less 11 normed costs, then the 100 loss: nothing to tax.
@@ -436,6 +435,128 @@ describe("buildDohKdvp", () => {
     expect(cents(estimate.positiveByBucket["25"])).toBe("89.00");
     expect(cents(estimate.losses)).toBe("-100.00");
     expect(cents(estimate.tax)).toBe("0.00");
+  });
+
+  it("disallows only the loss shares a purchase replaces, never gain shares", () => {
+    // S1 sells 20: 10 bought at 50 (a gain) and 10 at 100 (a loss). S2 sells
+    // 10 more bought at 100 (a loss). 20 bought inside both windows replace
+    // both losses: S1's gain shares need no replacement and use none up.
+    const result = build([
+      trade(SAP, "buy", "2025-01-02", "10", "50"),
+      trade(SAP, "buy", "2025-02-03", "10", "100"),
+      trade(SAP, "buy", "2025-03-03", "10", "100"),
+      trade(SAP, "sell", "2026-03-02", "20", "80"),
+      trade(SAP, "sell", "2026-03-05", "10", "80"),
+      trade(SAP, "buy", "2026-03-20", "20", "85"),
+    ]);
+    expect(rowsOf(result, SAP.isin).filter((r) => r[0] === "sale")).toEqual([
+      ["sale", "2026-03-02", "10", "80.00000000", undefined],
+      ["sale", "2026-03-02", "10", "80.00000000", false],
+      ["sale", "2026-03-05", "10", "80.00000000", false],
+    ]);
+    expect(codes(result)).toEqual(["lossDisallowed", "lossDisallowed"]);
+    expect(cents(result.estimate.losses)).toBe("0.00");
+  });
+
+  it("puts the disallowed part on the loss lots, not on gain lots before them", () => {
+    // 15 sold: 10 bought at 50 (a gain), then 5 at 100 (a loss); 5 bought
+    // back inside the window disallow exactly the loss.
+    const result = build([
+      trade(SAP, "buy", "2025-01-02", "10", "50"),
+      trade(SAP, "buy", "2025-02-03", "10", "100"),
+      trade(SAP, "sell", "2026-03-02", "15", "80"),
+      trade(SAP, "buy", "2026-03-16", "5", "85"),
+    ]);
+    expect(rowsOf(result, SAP.isin).filter((r) => r[0] === "sale")).toEqual([
+      ["sale", "2026-03-02", "10", "80.00000000", undefined],
+      ["sale", "2026-03-02", "5", "80.00000000", false],
+    ]);
+    // The gain counts; the replaced loss of 100 does not.
+    const { estimate } = result;
+    expect(cents(estimate.losses)).toBe("0.00");
+    expect(cents(estimate.positiveByBucket["25"])).toBe("287.00");
+  });
+
+  it("lets a December loss use its replacement first", () => {
+    // The purchase of 5 January replaced the December loss, so it cannot
+    // replace the January loss as well: that one counts.
+    const result = build([
+      trade(SAP, "buy", "2025-06-02", "20", "100"),
+      trade(SAP, "sell", "2025-12-19", "10", "80"),
+      trade(SAP, "buy", "2026-01-05", "10", "85"),
+      trade(SAP, "sell", "2026-01-12", "10", "80"),
+    ]);
+    expect(rowsOf(result, SAP.isin).filter((r) => r[0] === "sale")).toEqual([
+      ["sale", "2026-01-12", "10", "80.00000000", true],
+    ]);
+    expect(codes(result)).toEqual(["lossCounts"]);
+  });
+
+  it("marks what is already replaced while the window is still open", () => {
+    const result = build(
+      [
+        trade(SAP, "buy", "2025-01-02", "10", "100"),
+        trade(SAP, "sell", "2026-12-18", "10", "80"),
+        trade(SAP, "buy", "2026-12-28", "4", "85"),
+      ],
+      { coverageEnd: "2026-12-31" },
+    );
+    expect(rowsOf(result, SAP.isin).filter((r) => r[0] === "sale")).toEqual([
+      ["sale", "2026-12-18", "4", "80.00000000", false],
+      ["sale", "2026-12-18", "6", "80.00000000", undefined],
+    ]);
+    expect(codes(result)).toEqual(["washSaleWindowOpen"]);
+  });
+
+  it("applies a split once, however many brokers report it", () => {
+    const once = build([
+      trade(SAP, "buy", "2020-01-02", "10", "100"),
+      trade(SAP, "buy", "2020-01-02", "10", "100", "EUR", "trading212"),
+      split(SAP, "2025-06-10", "1", "4"),
+      split(SAP, "2025-06-10", "1", "4", "trading212"),
+      trade(SAP, "sell", "2026-03-02", "80", "30"),
+    ]);
+    expect(rowsOf(once, SAP.isin)).toEqual([
+      ["purchase", "2020-01-02", "40", "25.00000000"],
+      ["purchase", "2020-01-02", "40", "25.00000000"],
+      ["sale", "2026-03-02", "80", "30.00000000", undefined],
+    ]);
+    expect(once.form).not.toBeNull();
+  });
+
+  it("hands out the same return whatever order the files were loaded in", () => {
+    const events = demoEvents();
+    const forward = build(events);
+    const backward = build([...events].reverse());
+    if (forward.form === null || backward.form === null) {
+      throw new Error("no form");
+    }
+    expect(writeDohKdvp(backward.form)).toBe(writeDohKdvp(forward.form));
+  });
+
+  it("cleans names it cannot write, and tells repeated names apart", () => {
+    const rlm = String.fromCodePoint(0x200f);
+    const nel = String.fromCodePoint(0x85);
+    const sold = (security: SecurityRef) => [
+      trade(security, "buy", "2025-01-02", "1", "100"),
+      trade(security, "sell", "2026-03-02", "1", "120"),
+    ];
+    const result = build([
+      ...sold({ isin: "US0378331005", name: `Apple${rlm} Inc.${nel}` }),
+      ...sold({ isin: "US5949181045", name: "Twin Corp" }),
+      ...sold({ isin: "US67066G1040", name: "Twin Corp" }),
+    ]);
+    expect(result.form?.lists.map((l) => l.name)).toEqual([
+      "Apple Inc.",
+      "Twin Corp (US5949181045)",
+      "Twin Corp (US67066G1040)",
+    ]);
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it("refuses a tax year or coverage date it cannot compare", () => {
+    expect(() => build([], { taxYear: 2026.5 })).toThrow(RangeError);
+    expect(() => build([], { coverageEnd: "2027-1-5" })).toThrow(RangeError);
   });
 
   it("restates rows before a split in the shares of the year's last sale", () => {

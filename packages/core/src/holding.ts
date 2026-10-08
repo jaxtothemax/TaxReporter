@@ -7,16 +7,17 @@
 import { Decimal } from "./decimal.js";
 import type { IsoDate } from "./ledger.js";
 
-export const HOLDING_BUCKETS = ["25", "20", "15", "0"] as const;
+export const HOLDING_BUCKETS = Object.freeze(["25", "20", "15", "0"] as const);
 export type HoldingBucket = (typeof HOLDING_BUCKETS)[number];
 
 /** Each bucket's rate as a fraction. */
-export const BUCKET_RATES: Readonly<Record<HoldingBucket, Decimal>> = {
-  "25": Decimal.parse("0.25"),
-  "20": Decimal.parse("0.20"),
-  "15": Decimal.parse("0.15"),
-  "0": Decimal.ZERO,
-};
+export const BUCKET_RATES: Readonly<Record<HoldingBucket, Decimal>> =
+  Object.freeze({
+    "25": Decimal.parse("0.25"),
+    "20": Decimal.parse("0.20"),
+    "15": Decimal.parse("0.15"),
+    "0": Decimal.ZERO,
+  });
 
 /**
  * Whole years from acquisition to disposal: "po dopolnjenih petih letih",

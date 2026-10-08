@@ -6,6 +6,17 @@
 > **Implementation status (2026-10-07):** decided during project setup; nothing ships with
 > this ADR yet beyond the package skeleton. Remove this note when the first implementation
 > merges.
+>
+> **Ledger contract as implemented (2026-10-08, `packages/core/src/fifo.ts`).** An event's
+> identity is its broker and its key: two brokers' keys never collide. A repeat from another
+> file with the same content is an overlap and is dropped (counted); a repeat inside one file,
+> or one with other content, blocks. A split happens to the security, so reports of one ratio
+> from different brokers within 14 days are applied once; a different ratio, or a trade at the
+> later-reporting broker between the two dates, blocks. The engine checks every event as it
+> comes in and orders same-day events by broker and key, never by loading order. Still open,
+> from the threat model of the import boundary, for the architecture review: an account scope
+> on every event, reconciling overlapping files per account, and an opaque file ID in place of
+> the file name in `SourceRef`.
 
 ## Context
 

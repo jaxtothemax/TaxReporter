@@ -6,20 +6,23 @@
  *
  * - the window is 61 days, the sale day plus 30 on each side;
  * - replacement is measured by quantity, and only the replaced part of the
- *   loss is disallowed;
+ *   loss is disallowed. The quantity is the shares sold at a loss: the rule
+ *   applies only to losses, so a sale's gain shares need no replacement and
+ *   use none up;
  * - loss sales are taken in date order, and each acquisition can replace
  *   only once;
  * - the lots a sale consumes, including the unsold rest of a lot it sells
  *   from, are never its own replacement (so selling the whole position,
  *   window purchases included, keeps the whole loss).
  *
- * Whether a sale is a loss depends on EUR values, so the caller decides that
- * and passes the loss sales in. Family members and companies the taxpayer
+ * Which shares a sale lost on depends on EUR values, so the caller decides
+ * that and passes the loss sales in, each with its loss quantity. Family members and companies the taxpayer
  * holds 25% of are the other trigger of the rule; broker data cannot show
  * them, so the app has to ask.
  */
+import { isIsoDate } from "./dates.js";
 import { Decimal } from "./decimal.js";
-import type { Disposal, SecurityHistory } from "./fifo.js";
+import { compareText, type Disposal, type SecurityHistory } from "./fifo.js";
 import { addDays } from "./holding.js";
 import type { IsoDate, SplitEvent } from "./ledger.js";
 
@@ -71,34 +74,59 @@ function inSharesOf(
     : quantity.dividedBy(factorBetween(splits, date, purchased));
 }
 
+/** A sale at a loss, and how many of its shares lost. */
+export interface LossSale {
+  readonly disposal: Disposal;
+  /**
+   * The shares sold at a loss, in shares as of the sale date: the lots the
+   * sale consumed that lose money at eDavki's valuation, exempt lots aside.
+   * Only these need replacing.
+   */
+  readonly quantity: Decimal;
+}
+
 /**
  * Verdicts for the loss sales of one security, keyed by the sale's event
- * key. `lossSales` are disposals the caller found to be losses; the order
- * they are given in does not matter.
+ * key. Sales are taken in date order whatever order they come in, ties by
+ * broker and key, so the result never depends on how files were loaded.
+ * Losses of earlier years belong in `losses` too: a purchase that replaced
+ * a December loss cannot replace a January one as well.
  */
 export function washSaleVerdicts(
   history: SecurityHistory,
-  lossSales: readonly Disposal[],
+  losses: readonly LossSale[],
   coverageEnd: IsoDate,
 ): ReadonlyMap<string, WashSaleVerdict> {
-  const purchases = [...history.purchases].sort((a, b) =>
-    a.date.localeCompare(b.date),
+  // A malformed date would compare as text and decide verdicts it cannot.
+  if (!isIsoDate(coverageEnd)) {
+    throw new RangeError("coverageEnd must be an ISO date (YYYY-MM-DD)");
+  }
+  const purchases = [...history.purchases].sort(
+    (a, b) =>
+      compareText(a.date, b.date) ||
+      compareText(a.broker, b.broker) ||
+      compareText(a.key, b.key),
   );
   // Replacement capacity left per purchase, in that purchase's own shares.
   const capacity = new Map<string, Decimal>(
     purchases.map((p) => [p.key, p.quantity]),
   );
   const verdicts = new Map<string, WashSaleVerdict>();
-  const ordered = [...lossSales].sort((a, b) =>
-    a.sale.date.localeCompare(b.sale.date),
-  );
+  const ordered = losses
+    .filter((loss) => loss.quantity.isPositive())
+    .sort(
+      (a, b) =>
+        compareText(a.disposal.sale.date, b.disposal.sale.date) ||
+        compareText(a.disposal.sale.broker, b.disposal.sale.broker) ||
+        compareText(a.disposal.sale.key, b.disposal.sale.key),
+    );
 
-  for (const disposal of ordered) {
+  for (const { disposal, quantity } of ordered) {
     const sale = disposal.sale;
     const own = new Set(disposal.matches.map((m) => m.purchase.key));
     const first = addDays(sale.date, -WASH_SALE_DAYS);
     const last = addDays(sale.date, WASH_SALE_DAYS);
-    let need = sale.quantity;
+    let need = quantity;
     let replaced = Decimal.ZERO;
     for (const purchase of purchases) {
       if (!need.isPositive()) break;
