@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { LOCKED, lockDown } from "./lockdown";
 
@@ -43,6 +43,16 @@ describe("lockDown", () => {
     expect(() => {
       lockDown(scope);
     }).toThrow();
+  });
+
+  it("refuses to start when a name still answers after it was shadowed", () => {
+    // A global object that takes the definitions without applying them:
+    // only the check that follows them can tell.
+    const scope = workerScope();
+    vi.spyOn(Object, "defineProperty").mockImplementation((target) => target);
+    expect(() => {
+      lockDown(scope);
+    }).toThrow("The engine could not lock down");
   });
 
   it("names the network, storage and other contexts", () => {

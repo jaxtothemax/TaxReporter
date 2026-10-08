@@ -72,7 +72,8 @@ describe("createWorkerEngine", () => {
     worker.reply({ ...readReply(1), findings: [{ code: "nope" }] });
     worker.reply("<script>");
     worker.reply(readReply(1));
-    expect((await pending).kind).toBe("read");
+    // Settled by the one reply that is one, not by the first to arrive.
+    expect(await pending).toEqual(readReply(1));
   });
 
   it("settles every waiting request as failed when the worker fails", async () => {
