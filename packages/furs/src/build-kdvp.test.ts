@@ -12,6 +12,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import {
   addDays,
   Decimal,
+  type DividendEvent,
   type LedgerEvent,
   type SecurityRef,
   type SplitEvent,
@@ -658,6 +659,46 @@ describe("buildDohKdvp", () => {
     ]);
     expect(elsewhere.diagnostics).toEqual([]);
     expect(elsewhere.form?.lists.map((l) => l.isin)).toEqual([SAP.isin]);
+  });
+
+  it("turns details the writer would refuse into a blocking finding", () => {
+    const result = buildDohKdvp({
+      taxYear: 2026,
+      taxpayer: { taxNumber: "1234" },
+      events: [
+        trade(SAP, "buy", "2025-01-02", "10", "100"),
+        trade(SAP, "sell", "2026-03-02", "10", "120"),
+      ],
+      rates,
+      coverageEnd: "2027-01-31",
+    });
+    expect(result.diagnostics).toEqual([
+      {
+        severity: "blocking",
+        code: "formIssue",
+        params: { code: "taxNumber", path: "taxpayer.taxNumber" },
+      },
+    ]);
+    expect(result.form).toBeNull();
+  });
+
+  it("leaves dividends, and their duplicates, to Doh-Div", () => {
+    const payout: DividendEvent = {
+      kind: "dividend",
+      key: "dividend-1",
+      broker: "ibkr",
+      source: { file: "ibkr.csv", row: 1 },
+      date: "2026-02-12",
+      security: SAP,
+      gross: { amount: Decimal.parse("5"), currency: "EUR" },
+    };
+    const result = build([
+      trade(SAP, "buy", "2025-01-02", "10", "100"),
+      trade(SAP, "sell", "2026-03-02", "10", "120"),
+      payout,
+      { ...payout, source: { file: "other.csv", row: 1 } },
+    ]);
+    expect(result.diagnostics).toEqual([]);
   });
 
   it("files nothing for a year without sales", () => {

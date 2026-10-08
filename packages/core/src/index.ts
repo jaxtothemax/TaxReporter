@@ -1,6 +1,7 @@
 /**
  * @taxreporter/core — the domain model: decimal money, the ledger, the FIFO lot
- * engine, the 30-day rule, the gains-tax estimate and diagnostics.
+ * engine, the 30-day rule, the gains-tax and dividend-tax estimates and
+ * diagnostics.
  *
  * This package is meant to run in the browser app as well as the CLI, so it
  * stays platform-neutral: no Node.js built-ins. `make build` compiles src/
@@ -19,6 +20,12 @@ export {
   type DiagnosticCode,
   type Severity,
 } from "./diagnostics.js";
+export {
+  DIVIDEND_TAX_RATE,
+  dividendCredit,
+  treatyDividendRate,
+  type DividendCredit,
+} from "./dividends.js";
 export {
   estimateGainsTax,
   lotBase,

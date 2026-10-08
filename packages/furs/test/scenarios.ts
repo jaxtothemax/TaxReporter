@@ -230,7 +230,7 @@ export const divResearchExample: DohDiv = {
   ],
 };
 
-const REALTY_INCOME: DividendPayer = {
+export const REALTY_INCOME: DividendPayer = {
   name: "Realty Income Corp.",
   address: "11995 El Camino Real, San Diego, CA 92130, United States",
   country: "US",
@@ -239,28 +239,28 @@ const REALTY_INCOME: DividendPayer = {
   identificationNumber: "US7561091049",
 };
 
-const APPLE: DividendPayer = {
+export const APPLE: DividendPayer = {
   name: "Apple Inc.",
   address: "One Apple Park Way, Cupertino, CA 95014, United States",
   country: "US",
   identificationNumber: "US0378331005",
 };
 
-const ATT: DividendPayer = {
+export const ATT: DividendPayer = {
   name: "AT&T Inc.",
   address: "208 S. Akard St., Dallas, TX 75202, United States",
   country: "US",
   identificationNumber: "US00206R1023",
 };
 
-const UNILEVER: DividendPayer = {
+export const UNILEVER: DividendPayer = {
   name: "Unilever PLC",
   address: "100 Victoria Embankment, London EC4Y 0DY, United Kingdom",
   country: "GB",
   identificationNumber: "GB00B10RZP78",
 };
 
-const ALLIANZ: DividendPayer = {
+export const ALLIANZ: DividendPayer = {
   name: "Allianz SE",
   address: "Königinstraße 28, 80802 München, Germany",
   country: "DE",

@@ -45,7 +45,20 @@ export type DiagnosticCode =
   | "splitAdjusted"
   | "quantitiesRounded"
   | "quantityTooSmall"
-  | "formIssue";
+  | "formIssue"
+  // The Doh-Div builder (furs)
+  | "withholdingWithoutDividend"
+  | "withholdingIsinMismatch"
+  | "withholdingForOtherYear"
+  | "dividendNotPositive"
+  | "foreignTaxNegative"
+  | "payerUnknown"
+  | "sourceCountryUnknown"
+  | "slovenianPayer"
+  | "payerIdIsIsin"
+  | "treatyRateUnknown"
+  | "excessWithholding"
+  | "payerIdsNumbered";
 
 export interface Diagnostic {
   readonly severity: Severity;

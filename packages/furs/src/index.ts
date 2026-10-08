@@ -1,8 +1,8 @@
 /**
  * @taxreporter/furs — FURS eDavki forms: the business-rule validators and the
  * schema-ordered XML writers for Doh-KDVP (capital gains) and Doh-Div
- * (dividends), ADR 0007, and the builder that turns ledger events and BSI
- * rates into the Doh-KDVP inventory lists.
+ * (dividends), ADR 0007, and the builders that turn ledger events and BSI
+ * rates into those forms: Doh-KDVP inventory lists and Doh-Div records.
  *
  * The official schemas are vendored byte-for-byte under ../schemas/ — see
  * schemas/README.md for their sources and SHA-256 pins. The tests validate
@@ -17,6 +17,14 @@ export const PACKAGE = "@taxreporter/furs";
 // The ISIN check lives in core with the engine that also needs it.
 export { isIsin } from "@taxreporter/core";
 
+export {
+  buildDohDiv,
+  type BuiltDividend,
+  type DivBuild,
+  type DivBuildInput,
+  type DividendsEstimate,
+  type PayerInfo,
+} from "./build-div.js";
 export {
   buildDohKdvp,
   type BuiltList,
