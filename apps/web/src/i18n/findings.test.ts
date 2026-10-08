@@ -30,13 +30,27 @@ describe("the findings catalog", () => {
     ).toMatch(/^AAPL, 3 Mar 2026: a trade/);
   });
 
+  it("names the line a file stopped at, but not for a file refused whole", () => {
+    expect(
+      findingsEn.unreadableFile({ reason: "a cell is too long", row: "12" }),
+    ).toMatch(/^This file cannot be read: a cell is too long \(line 12\)\. /);
+    expect(
+      findingsEn.unreadableFile({ reason: "the file is too large", row: "0" }),
+    ).toMatch(/^This file cannot be read: the file is too large\. /);
+    expect(
+      findingsSl.unreadableFile({ reason: "ima preveč vrstic", row: "0" }),
+    ).toMatch(/^Datoteke ni mogoče prebrati: ima preveč vrstic\. /);
+  });
+
   it("has the same closed lists in both languages", () => {
     for (const list of [
       "kinds",
       "refusals",
-      "csvErrors",
+      "unreadable",
       "rateErrors",
       "brokers",
+      "sections",
+      "tradeChecks",
     ] as const) {
       expect(Object.keys(wordsSl[list]).sort(), list).toEqual(
         Object.keys(wordsEn[list]).sort(),

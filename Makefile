@@ -55,7 +55,10 @@ format-check:  ## Check Prettier formatting without writing (used by the pre-com
 format:  ## Rewrite the application and its config in Prettier style
 	pnpm run format
 
-typecheck:  ## tsc -b over every project reference in tsconfig.json (tests and config included)
+typecheck:  ## tsc -b --force over every project reference in tsconfig.json (tests and config included)
+	@# Forced: the apps import package sources through the "source" condition,
+	@# not project references, so an incremental build skips an app whose own
+	@# files did not change after a package did. A full check takes seconds.
 	pnpm run typecheck
 
 test:  ## Vitest over every package, with v8 coverage to coverage/cobertura-coverage.xml

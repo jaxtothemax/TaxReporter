@@ -9,12 +9,12 @@
  * tells the user what to type into eDavki; it says what happened and what to
  * do about it in TaxReporter.
  */
-import type { CsvErrorCode } from "@taxreporter/brokers";
 import type {
   DiagnosticCode,
   DiagnosticParams,
   FileRefusal,
   KeyedEvent,
+  UnreadableReason,
 } from "@taxreporter/core";
 import type { RateError } from "@taxreporter/fx";
 
@@ -31,9 +31,23 @@ export interface FindingWords {
   readonly kinds: Readonly<Record<KeyedEvent["kind"], string>>;
   /** Why a file was refused, completing "This file …". */
   readonly refusals: Readonly<Record<FileRefusal, string>>;
-  readonly csvErrors: Readonly<Record<CsvErrorCode, string>>;
+  /** Why a CSV or XML file could not be read, after "This file cannot be read: ". */
+  readonly unreadable: Readonly<Record<UnreadableReason, string>>;
   readonly rateErrors: Readonly<Record<RateError, string>>;
   readonly brokers: Readonly<Record<string, string>>;
+  /** A Flex Query section, as Interactive Brokers' own screens name it. */
+  readonly sections: Readonly<
+    Record<DiagnosticParams["summaryOnly"]["section"], string>
+  >;
+  /** Which of a trade's figures disagree, after "a trade's figures disagree: ". */
+  readonly tradeChecks: Readonly<
+    Record<DiagnosticParams["tradeInconsistent"]["check"], string>
+  >;
+}
+
+/** "(line 12)", or nothing for a file refused as a whole (row 0). */
+function line(row: string, word: string): string {
+  return row === "0" ? "" : ` (${word} ${row})`;
 }
 
 /**
@@ -112,6 +126,11 @@ export const findingsEn: FindingMessages = {
     at(
       p,
       `${p.missing} of the shares sold have no purchase in your files. Add the export that covers when you bought them.`,
+    ),
+  splitPositionMismatch: (p) =>
+    at(
+      p,
+      `the broker says this split changed your number of shares by ${p.reported}, but its ratio, applied to the shares your files show at that broker, gives ${p.expected}. Nothing is restated on a guess: check that your files cover every purchase before the split.`,
     ),
   // The Doh-KDVP builder
   rateUnavailable: (p) =>
@@ -194,11 +213,11 @@ export const findingsEn: FindingMessages = {
   // Intake and the broker adapters
   fileRefused: (p) => `This file ${p.reason}.`,
   unreadableFile: (p) =>
-    `This file cannot be read as CSV: ${p.reason} (line ${p.row}). Export it again from your broker, unchanged.`,
+    `This file cannot be read: ${p.reason}${line(p.row, "line")}. Export it again from your broker, unchanged.`,
   diagnosticsTruncated: (p) =>
     `More findings for this file are not shown (${p.dropped}).`,
   unknownFormat: () =>
-    "TaxReporter does not recognize this export. It reads Trading 212 history CSV for now; more brokers are coming.",
+    "TaxReporter does not recognize this export. It reads Trading 212 history CSV and Interactive Brokers Activity Flex Query XML for now; more brokers are coming.",
   ambiguousFormat: () =>
     "This export matches more than one known format, so it is not read.",
   derivativesNotSupported: (p) =>
@@ -230,6 +249,54 @@ export const findingsEn: FindingMessages = {
     at(p, `the split's two rows give the position different values.`),
   interestNotCovered: (p) =>
     `${p.broker}: interest rows (${p.count}) are not on these returns. Interest is filed on Doh-Obr, which TaxReporter does not prepare yet.`,
+  derivativesNotCovered: (p) =>
+    `${p.broker}: option, future, CFD and warrant trades (${p.count}) are not on these returns. Derivatives are filed on D-IFI, which TaxReporter does not prepare yet.`,
+  // Interactive Brokers Flex statements
+  statementCountMismatch: (p) =>
+    `The file says it holds ${p.declared} statements, but ${p.found} are in it, so it was cut short or changed. Export it again from Interactive Brokers, unchanged.`,
+  accountMismatch: () =>
+    "A row names a different account from the statement it is in, so the file was changed or pieced together. Export it again from Interactive Brokers, unchanged.",
+  accountIdInvalid: () =>
+    "A statement is for an account TaxReporter does not read: only individual and joint Interactive Brokers accounts, whose number is U and digits, are supported.",
+  paperAccount: () =>
+    "This statement is from a paper trading account. Its trades were simulated and are not taxed: export the statement of your real account.",
+  tooManyAccounts: (p) =>
+    `The file holds statements for more accounts than TaxReporter reads at once (at most ${p.limit}). Export your own accounts only.`,
+  unsupportedDateFormat: () =>
+    "The file writes dates in a format TaxReporter does not read. In the Flex Query's settings, set the date format back to yyyyMMdd and export again.",
+  statementPeriodInvalid: () =>
+    "A statement's period cannot be right: it runs backwards, ends after the statement was made, or is longer than a year. Export it again from Interactive Brokers, unchanged.",
+  rowAfterStatement: (p) =>
+    at(
+      p,
+      `a row is dated after its statement was made, which a real statement cannot hold. Export it again from your broker, unchanged.`,
+    ),
+  unknownElement: (p) =>
+    `The file has an element, “${p.element}”, that TaxReporter does not know. The file is not read rather than read in part; please report the element's name.`,
+  unknownDetailLevel: (p) =>
+    `A row's level of detail, “${p.level}”, is one TaxReporter does not know. It is not guessed at; please report it.`,
+  summaryOnly: (p) =>
+    `The statement's “${p.section}” section has totals only, no single transactions. In the Flex Query, choose its detail rows (Executions for Trades, Detail for Cash Transactions) and export again.`,
+  withholdingUnlinked: (p) =>
+    at(
+      p,
+      `tax was withheld, but its statement has no usable dividend of the same security, currency and day to join it to. It is not assigned on a guess. If it corrects tax on an earlier dividend, TaxReporter cannot read that yet; please report it.`,
+    ),
+  withholdingAmbiguous: (p) =>
+    at(
+      p,
+      `tax was withheld, and more than one dividend of the same security, currency and day could be the one it belongs to. It is not assigned on a guess; please report it.`,
+    ),
+  dividendReversalUnmatched: (p) =>
+    at(
+      p,
+      `a dividend is reversed, but its statement has no earlier dividend of that amount, with tax that cancels too, for the reversal to undo. It is not netted on a guess; please report it.`,
+    ),
+  tradeInconsistent: (p) =>
+    at(
+      p,
+      `a trade's figures disagree: ${p.check}. It is not read on a guess: export the file again from your broker, unchanged, and if that does not help, please report it.`,
+    ),
   fundFromName: (p) =>
     `${p.isin}: marked as a fund because its name says ETF or UCITS. Exports carry no fund flag.`,
 };
@@ -243,16 +310,18 @@ export const wordsEn: FindingWords = {
   },
   refusals: {
     tooLarge: "is larger than any broker export (over 64 MiB)",
-    zip: "is a ZIP or Excel file: export CSV from your broker",
-    spreadsheet: "is an old Excel file: export CSV from your broker",
-    pdf: "is a PDF: export CSV from your broker",
-    gzip: "is compressed: export CSV from your broker",
+    zip: "is a ZIP or Excel file: export CSV or XML from your broker instead",
+    spreadsheet:
+      "is an old Excel file: export CSV or XML from your broker instead",
+    pdf: "is a PDF: export CSV or XML from your broker instead",
+    gzip: "is compressed: export CSV or XML from your broker instead",
     utf16: "is UTF-16 text: export it again from your broker, unchanged",
     utf32: "is UTF-32 text: export it again from your broker, unchanged",
     binary: "contains binary data",
     notUtf8: "is not UTF-8 text: export it again from your broker, unchanged",
   },
-  csvErrors: {
+  unreadable: {
+    // CSV
     tooLarge: "the file is too large",
     tooManyRows: "it has too many rows",
     tooManyColumns: "it has too many columns",
@@ -264,6 +333,29 @@ export const wordsEn: FindingWords = {
     emptyHeaderName: "a column has no name",
     duplicateHeaderName: "two columns have the same name",
     rowLength: "a row has a different number of cells from the header",
+    // XML
+    declaration: "its XML declaration is not for UTF-8 XML 1.0",
+    doctype:
+      "it declares a document type (DOCTYPE), which TaxReporter never reads",
+    processingInstruction: "it has a processing instruction",
+    cdata: "it has a CDATA section",
+    comment: "a comment is malformed",
+    entity: "it refers to an entity XML does not define",
+    characterReference: "a character reference names no allowed character",
+    illegalCharacter: "it holds a character XML does not allow",
+    name: "an element or attribute has a name no broker writes",
+    duplicateAttribute: "an element has the same attribute twice",
+    attributeSyntax: "an attribute is malformed",
+    tooManyAttributes: "an element has too many attributes",
+    valueTooLong: "a value is too long",
+    lessThanInValue: "a value holds a “<”",
+    text: "it has text outside its elements",
+    mismatchedEnd: "an element is closed under another name",
+    tooDeep: "its elements are nested too deep",
+    tooManyElements: "it has too many elements",
+    afterRoot: "something follows the end of the document",
+    noRoot: "it holds no XML document",
+    truncated: "it ends before its document does, so it was cut short",
   },
   rateErrors: {
     invalidDate: "the date cannot be read",
@@ -275,6 +367,17 @@ export const wordsEn: FindingWords = {
     noRate: "Banka Slovenije published none for that day",
   },
   brokers: { trading212: "Trading 212", ibkr: "Interactive Brokers" },
+  sections: {
+    Trades: "Trades",
+    CashTransactions: "Cash Transactions",
+    CorporateActions: "Corporate Actions",
+  },
+  tradeChecks: {
+    sign: "its buy or sell does not match the sign of its quantity",
+    multiplier: "its multiplier is not 1, as a share's is",
+    amount: "its value is not its quantity times its price",
+    cusip: "its CUSIP does not match its ISIN",
+  },
 };
 
 const REPORT_SL =
@@ -341,6 +444,11 @@ export const findingsSl: FindingMessages = {
     at(
       p,
       `za del prodanih delnic (${p.missing}) v datotekah ni nakupa. Dodajte izvoz, ki zajema čas, ko ste jih kupili.`,
+    ),
+  splitPositionMismatch: (p) =>
+    at(
+      p,
+      `posrednik navaja, da se je število vaših delnic ob razdelitvi spremenilo za ${p.reported}, razmerje razdelitve pa za delnice, ki jih pri tem posredniku izkazujejo vaše datoteke, da ${p.expected}. Nič ni preračunano na slepo: preverite, ali datoteke zajemajo vse nakupe pred razdelitvijo.`,
     ),
   // The Doh-KDVP builder
   rateUnavailable: (p) =>
@@ -432,11 +540,11 @@ export const findingsSl: FindingMessages = {
   // Intake and the broker adapters
   fileRefused: (p) => `Ta datoteka ${p.reason}.`,
   unreadableFile: (p) =>
-    `Datoteke ni mogoče prebrati kot CSV: ${p.reason} (vrstica ${p.row}). Pri posredniku jo izvozite znova, nespremenjeno.`,
+    `Datoteke ni mogoče prebrati: ${p.reason}${line(p.row, "vrstica")}. Pri posredniku jo izvozite znova, nespremenjeno.`,
   diagnosticsTruncated: (p) =>
     `Nadaljnjih ugotovitev za to datoteko (${p.dropped}) ni prikazanih.`,
   unknownFormat: () =>
-    "TaxReporter tega izvoza ne prepozna. Zaenkrat bere zgodovino Trading 212 v obliki CSV; drugi posredniki prihajajo.",
+    "TaxReporter tega izvoza ne prepozna. Zaenkrat bere zgodovino Trading 212 v obliki CSV in poročila Activity Flex Query pri Interactive Brokers v obliki XML; drugi posredniki prihajajo.",
   ambiguousFormat: () => "Izvoz ustreza več znanim oblikam, zato ni prebran.",
   derivativesNotSupported: (p) =>
     `${p.broker}: izvoz je iz računa CFD ali drugih izvedenih finančnih instrumentov. Ti se prijavijo na obrazcu D-IFI, ki ga TaxReporter še ne pripravlja.`,
@@ -469,6 +577,54 @@ export const findingsSl: FindingMessages = {
     at(p, `vrstici razdelitve navajata različno vrednost pozicije.`),
   interestNotCovered: (p) =>
     `${p.broker}: vrstice z obrestmi (${p.count}) niso v teh napovedih. Obresti se prijavijo na obrazcu Doh-Obr, ki ga TaxReporter še ne pripravlja.`,
+  derivativesNotCovered: (p) =>
+    `${p.broker}: posli z opcijami, terminskimi pogodbami, CFD in varanti (${p.count}) niso v teh napovedih. Izvedeni finančni instrumenti se prijavijo na obrazcu D-IFI, ki ga TaxReporter še ne pripravlja.`,
+  // Interactive Brokers Flex statements
+  statementCountMismatch: (p) =>
+    `Število izpiskov, ki ga navaja datoteka (${p.declared}), se ne ujema s številom izpiskov v njej (${p.found}), zato je bila odrezana ali spremenjena. Pri Interactive Brokers jo izvozite znova, nespremenjeno.`,
+  accountMismatch: () =>
+    "Vrstica navaja drug račun kot izpisek, v katerem je, zato je bila datoteka spremenjena ali sestavljena iz več datotek. Pri Interactive Brokers jo izvozite znova, nespremenjeno.",
+  accountIdInvalid: () =>
+    "Izpisek je za račun, ki ga TaxReporter ne bere: podprti so samo osebni in skupni računi pri Interactive Brokers, katerih številka je črka U in števke.",
+  paperAccount: () =>
+    "Ta izpisek je iz demo računa (paper trading). Posli na njem so bili simulirani in niso obdavčeni: izvozite izpisek pravega računa.",
+  tooManyAccounts: (p) =>
+    `Datoteka vsebuje izpiske za več računov, kot jih TaxReporter prebere naenkrat (največ ${p.limit}). Izvozite samo svoje račune.`,
+  unsupportedDateFormat: () =>
+    "Datoteka zapisuje datume v obliki, ki je TaxReporter ne bere. V nastavitvah poročila Flex Query obliko datuma vrnite na yyyyMMdd in izvozite znova.",
+  statementPeriodInvalid: () =>
+    "Obdobje izpiska ne more biti pravilno: teče nazaj, konča se po nastanku izpiska ali je daljše od leta dni. Pri Interactive Brokers ga izvozite znova, nespremenjenega.",
+  rowAfterStatement: (p) =>
+    at(
+      p,
+      `vrstica je datirana po nastanku svojega izpiska, česar pravi izpisek ne more vsebovati. Pri posredniku ga izvozite znova, nespremenjenega.`,
+    ),
+  unknownElement: (p) =>
+    `Datoteka vsebuje element »${p.element}«, ki ga TaxReporter ne pozna. Datoteka ni prebrana, namesto da bi bila prebrana le delno; sporočite ime elementa.`,
+  unknownDetailLevel: (p) =>
+    `Ravni podrobnosti v vrstici, »${p.level}«, TaxReporter ne pozna. Ne ugiba; sporočite jo.`,
+  summaryOnly: (p) =>
+    `Razdelek »${p.section}« v izpisku vsebuje le seštevke, ne posameznih transakcij. V poročilu Flex Query zanj izberite podrobne vrstice (Executions pri Trades, Detail pri Cash Transactions) in izvozite znova.`,
+  withholdingUnlinked: (p) =>
+    at(
+      p,
+      `davek je bil odtegnjen, vendar v njegovem izpisku ni uporabne dividende istega vrednostnega papirja, valute in dne, h kateri bi spadal. Ne pripiše se na slepo. Če popravlja davek od prejšnje dividende, ga TaxReporter še ne zna prebrati; sporočite to.`,
+    ),
+  withholdingAmbiguous: (p) =>
+    at(
+      p,
+      `davek je bil odtegnjen, spadal pa bi lahko k več dividendam istega vrednostnega papirja, valute in dne. Ne pripiše se na slepo; sporočite to.`,
+    ),
+  dividendReversalUnmatched: (p) =>
+    at(
+      p,
+      `dividenda je stornirana, vendar v njenem izpisku ni prejšnje dividende enakega zneska, katere davek bi se prav tako izničil, da bi jo storno razveljavil. Ne pobota se na slepo; sporočite to.`,
+    ),
+  tradeInconsistent: (p) =>
+    at(
+      p,
+      `podatki posla se ne ujemajo: ${p.check}. Posel ni prebran na slepo: pri posredniku datoteko izvozite znova, nespremenjeno, in če to ne pomaga, nam to sporočite.`,
+    ),
   fundFromName: (p) =>
     `${p.isin}: označen kot sklad, ker ime vsebuje ETF ali UCITS. Izvozi oznake sklada nimajo.`,
 };
@@ -483,10 +639,11 @@ export const wordsSl: FindingWords = {
   refusals: {
     tooLarge:
       "je večja od katerega koli izvoza borznega posrednika (več kot 64 MiB)",
-    zip: "je datoteka ZIP ali Excel: pri posredniku izvozite CSV",
-    spreadsheet: "je stara datoteka Excel: pri posredniku izvozite CSV",
-    pdf: "je PDF: pri posredniku izvozite CSV",
-    gzip: "je stisnjena: pri posredniku izvozite CSV",
+    zip: "je datoteka ZIP ali Excel: pri posredniku raje izvozite CSV ali XML",
+    spreadsheet:
+      "je stara datoteka Excel: pri posredniku raje izvozite CSV ali XML",
+    pdf: "je PDF: pri posredniku raje izvozite CSV ali XML",
+    gzip: "je stisnjena: pri posredniku raje izvozite CSV ali XML",
     utf16:
       "je besedilo UTF-16: pri posredniku jo izvozite znova, nespremenjeno",
     utf32:
@@ -495,7 +652,8 @@ export const wordsSl: FindingWords = {
     notUtf8:
       "ni besedilo UTF-8: pri posredniku jo izvozite znova, nespremenjeno",
   },
-  csvErrors: {
+  unreadable: {
+    // CSV
     tooLarge: "datoteka je prevelika",
     tooManyRows: "ima preveč vrstic",
     tooManyColumns: "ima preveč stolpcev",
@@ -507,6 +665,29 @@ export const wordsSl: FindingWords = {
     emptyHeaderName: "stolpec nima imena",
     duplicateHeaderName: "dva stolpca imata isto ime",
     rowLength: "vrstica ima drugačno število celic kot glava",
+    // XML
+    declaration: "njena deklaracija XML ni za XML 1.0 v UTF-8",
+    doctype:
+      "navaja vrsto dokumenta (DOCTYPE), ki je TaxReporter nikoli ne bere",
+    processingInstruction: "vsebuje navodilo za obdelavo",
+    cdata: "vsebuje razdelek CDATA",
+    comment: "komentar je napačno zapisan",
+    entity: "sklicuje se na entiteto, ki je XML ne določa",
+    characterReference: "sklic na znak ne navaja dovoljenega znaka",
+    illegalCharacter: "vsebuje znak, ki ga XML ne dovoljuje",
+    name: "element ali atribut ima ime, ki ga noben posrednik ne zapiše",
+    duplicateAttribute: "element ima isti atribut dvakrat",
+    attributeSyntax: "atribut je napačno zapisan",
+    tooManyAttributes: "element ima preveč atributov",
+    valueTooLong: "vrednost je predolga",
+    lessThanInValue: "vrednost vsebuje znak »<«",
+    text: "vsebuje besedilo zunaj elementov",
+    mismatchedEnd: "element je zaprt pod drugim imenom",
+    tooDeep: "elementi so pregloboko vgnezdeni",
+    tooManyElements: "ima preveč elementov",
+    afterRoot: "za koncem dokumenta je še nekaj",
+    noRoot: "ne vsebuje dokumenta XML",
+    truncated: "konča se pred koncem dokumenta, zato je bila odrezana",
   },
   rateErrors: {
     invalidDate: "datuma ni mogoče prebrati",
@@ -518,4 +699,16 @@ export const wordsSl: FindingWords = {
     noRate: "ga Banka Slovenije za ta dan ni objavila",
   },
   brokers: { trading212: "Trading 212", ibkr: "Interactive Brokers" },
+  // Interactive Brokers' screens are not in Slovenian: their own names.
+  sections: {
+    Trades: "Trades",
+    CashTransactions: "Cash Transactions",
+    CorporateActions: "Corporate Actions",
+  },
+  tradeChecks: {
+    sign: "nakup ali prodaja se ne ujema s predznakom količine",
+    multiplier: "množitelj ni 1, kot je pri delnici",
+    amount: "vrednost ni enaka količini, pomnoženi s ceno",
+    cusip: "koda CUSIP se ne ujema s kodo ISIN",
+  },
 };
