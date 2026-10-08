@@ -18,6 +18,7 @@
     "@taxreporter/core": "workspace:*",
     "@taxreporter/furs": "workspace:*",
     "@taxreporter/fx": "workspace:*",
+    "@taxreporter/pipeline": "workspace:*",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },

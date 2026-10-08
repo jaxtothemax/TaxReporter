@@ -50,6 +50,9 @@ importers:
       '@taxreporter/fx':
         specifier: workspace:*
         version: link:../../packages/fx
+      '@taxreporter/pipeline':
+        specifier: workspace:*
+        version: link:../../packages/pipeline
 
   apps/web:
     dependencies:
@@ -74,6 +77,9 @@ importers:
       '@taxreporter/fx':
         specifier: workspace:*
         version: link:../../packages/fx
+      '@taxreporter/pipeline':
+        specifier: workspace:*
+        version: link:../../packages/pipeline
       react:
         specifier: ^19.3.0
         version: 19.3.0
@@ -124,6 +130,21 @@ importers:
       '@taxreporter/core':
         specifier: workspace:*
         version: link:../core
+
+  packages/pipeline:
+    dependencies:
+      '@taxreporter/brokers':
+        specifier: workspace:*
+        version: link:../brokers
+      '@taxreporter/core':
+        specifier: workspace:*
+        version: link:../core
+      '@taxreporter/furs':
+        specifier: workspace:*
+        version: link:../furs
+      '@taxreporter/fx':
+        specifier: workspace:*
+        version: link:../fx
 
 packages:
 

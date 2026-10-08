@@ -7,6 +7,7 @@
     { "path": "./packages/fx" },
     { "path": "./packages/furs" },
     { "path": "./packages/brokers" },
+    { "path": "./packages/pipeline" },
     { "path": "./apps/cli" },
     { "path": "./apps/web" }
   ]

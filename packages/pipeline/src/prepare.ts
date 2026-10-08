@@ -1,9 +1,12 @@
 /**
  * From exports to returns: every file through `importFile`, every event
  * through `validateLedger`, then both builders over the one ledger. The CLI
- * and, later, the web app run the same steps, so the same files give the
- * same XML (spec v0.1, "Command-line interface"); this module is the part
- * they share, kept free of I/O.
+ * and the web app run exactly these steps, so the same files give the same
+ * XML in both (ADR 0013 §1). Free of I/O, Node.js and the DOM.
+ *
+ * `readExports` is the first half alone, for a screen that comes before the
+ * taxpayer's details are known: nothing that needs a tax number runs without
+ * one, so no placeholder taxpayer ever exists.
  */
 import { importFile, type ImportResult } from "@taxreporter/brokers";
 import {
@@ -41,9 +44,12 @@ export interface ExportFile {
  */
 export type AccountChoice = "same" | "separate";
 
-export interface PrepareInput {
+export interface ReadInput {
   readonly files: readonly ExportFile[];
   readonly accounts?: AccountChoice;
+}
+
+export interface BuildInput {
   readonly taxYear: number;
   readonly taxpayer: Taxpayer;
   readonly rates: RateTable;
@@ -53,7 +59,10 @@ export interface PrepareInput {
   readonly coverageEnd?: IsoDate;
 }
 
-export interface Prepared {
+export type PrepareInput = ReadInput & BuildInput;
+
+/** The files read and their events checked: everything but the returns. */
+export interface ReadExports {
   /** Each distinct file, in the order given. */
   readonly imports: readonly {
     readonly file: string;
@@ -78,6 +87,9 @@ export interface Prepared {
   readonly notRead: readonly string[];
   /** Every event, checked, and every finding from reading the files. */
   readonly ledger: ValidatedLedger;
+}
+
+export interface Prepared extends ReadExports {
   /** The coverage end the 30-day rule used. */
   readonly coverageEnd: IsoDate;
   readonly kdvp: KdvpBuild;
@@ -111,7 +123,8 @@ export function coverageOf(
 const sameBytes = (a: Uint8Array, b: Uint8Array) =>
   a.length === b.length && a.every((byte, i) => byte === b[i]);
 
-export function prepareReturns(input: PrepareInput): Prepared {
+/** Reads every file and checks the session's events together. */
+export function readExports(input: ReadInput): ReadExports {
   // Byte-identical files are one file (ADR 0011 §1). A file ID is 64 bits
   // of a hash, so a repeated ID is checked against the bytes themselves.
   const seen = new Map<FileId, ExportFile>();
@@ -141,7 +154,7 @@ export function prepareReturns(input: PrepareInput): Prepared {
   );
   // Once the session holds more events than it may, the rest of the files
   // are left unread: the ledger refuses the session anyway.
-  const imports: Prepared["imports"][number][] = [];
+  const imports: ReadExports["imports"][number][] = [];
   const notRead: string[] = [];
   let events = 0;
   for (const { file, fileId, bytes } of distinct) {
@@ -162,10 +175,16 @@ export function prepareReturns(input: PrepareInput): Prepared {
     imports.flatMap((i) => i.result.events),
     [...carried, ...imports.flatMap((i) => i.result.diagnostics)],
   );
+  return { imports, repeats, clashes, notRead, ledger };
+}
+
+/** Both returns over what `readExports` read. */
+export function buildReturns(read: ReadExports, input: BuildInput): Prepared {
+  const { ledger } = read;
   // No export reaches past the rates it can be converted at: a row dated
   // later, a deposit in 2099, must not close every 30-day window.
   const reached = coverageOf(
-    imports.map((i) => i.result),
+    read.imports.map((i) => i.result),
     input.taxYear,
   );
   const coverageEnd =
@@ -187,14 +206,10 @@ export function prepareReturns(input: PrepareInput): Prepared {
     rates: input.rates,
     payers: input.payers,
   });
-  return {
-    imports,
-    repeats,
-    clashes,
-    notRead,
-    ledger,
-    coverageEnd,
-    kdvp,
-    div,
-  };
+  return { ...read, coverageEnd, kdvp, div };
+}
+
+/** Reads the files and builds both returns: `readExports`, then `buildReturns`. */
+export function prepareReturns(input: PrepareInput): Prepared {
+  return buildReturns(readExports(input), input);
 }

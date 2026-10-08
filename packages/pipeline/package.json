@@ -1,19 +1,20 @@
 {
-  "name": "@taxreporter/cli",
+  "name": "@taxreporter/pipeline",
   "version": "0.0.0",
   "private": true,
-  "description": "TaxReporter command-line interface: broker exports in, FURS eDavki XML out.",
+  "description": "TaxReporter's one way from broker exports to returns, shared by the CLI and the web app.",
   "license": "AGPL-3.0-or-later",
   "type": "module",
-  "bin": {
-    "taxreporter": "./dist/bin.js"
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
   },
   "files": [
     "dist"
   ],
-  "engines": {
-    "node": ">=24"
-  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json"
   },
@@ -21,7 +22,6 @@
     "@taxreporter/brokers": "workspace:*",
     "@taxreporter/core": "workspace:*",
     "@taxreporter/furs": "workspace:*",
-    "@taxreporter/fx": "workspace:*",
-    "@taxreporter/pipeline": "workspace:*"
+    "@taxreporter/fx": "workspace:*"
   }
 }

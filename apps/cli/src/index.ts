@@ -40,9 +40,9 @@ import {
   type PayerInfo,
 } from "@taxreporter/furs";
 import { RateTable } from "@taxreporter/fx";
+import { prepareReturns, type AccountChoice } from "@taxreporter/pipeline";
 
 import { readExport, uniqueLabels, type IntakeRefusal } from "./intake.js";
-import { prepareReturns, type AccountChoice } from "./prepare.js";
 
 /** Where `main` writes: the process streams in the bin, buffers in tests. */
 export interface Output {

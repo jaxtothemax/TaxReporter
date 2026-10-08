@@ -140,7 +140,7 @@ branch; add one only if the project starts maintaining patch lines for older min
 - Use **US English** in code, comments and English docs — "color" not "colour", "canceled" not "cancelled". Slovenian is used verbatim for FURS/BSI terms and quotations (`Doh-KDVP`, *popisni list*, *tečajnica*)
 - When writing complex business logic (lot matching, rate selection, rounding, form-field mapping), add a comment explaining **why** — the legal rule or constraint, with a pointer to the `docs/research/` section — not what
 
-**Tech stack:** TypeScript (strict, ESM) on Node 24 LTS · pnpm workspaces (`packages/core`, `packages/fx`, `packages/furs`, `packages/brokers`, `apps/cli`, `apps/web`) · Vitest · ESLint + Prettier · React + Vite static web app and a Node CLI · Astro Starlight docs site (`website/`) on GitHub Pages · GitHub Actions. No backend, no database. Architecture: `docs/adr/`.
+**Tech stack:** TypeScript (strict, ESM) on Node 24 LTS · pnpm workspaces (`packages/core`, `packages/fx`, `packages/furs`, `packages/brokers`, `packages/pipeline`, `apps/cli`, `apps/web`) · Vitest · ESLint + Prettier · React + Vite static web app and a Node CLI · Astro Starlight docs site (`website/`) on GitHub Pages · GitHub Actions. No backend, no database. Architecture: `docs/adr/`.
 
 ---
 

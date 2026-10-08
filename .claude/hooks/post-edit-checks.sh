@@ -26,9 +26,10 @@ messages = []
 # ── Agent reminders for this repo's sensitive paths ──────────────────────────
 
 # Untrusted input: broker adapters parse hostile files, the rate-snapshot
-# builder parses XML downloaded from Banka Slovenije, and the CLI reads any
-# path it is given.
-if re.search(r"packages/brokers/src/|packages/fx/(src|scripts)/|apps/cli/src/", file_path):
+# builder parses XML downloaded from Banka Slovenije, the CLI reads any
+# path it is given, and the pipeline and the web app's worker run every
+# file a user adds (ADR 0013).
+if re.search(r"packages/(brokers|pipeline)/src/|packages/fx/(src|scripts)/|apps/cli/src/|apps/web/src/engine/", file_path):
     messages.append(
         "untrusted-input handling modified — run the security-review agent\n"
         "   (size limits, no DTD/external entities, no eval, ReDoS-safe regexes)"

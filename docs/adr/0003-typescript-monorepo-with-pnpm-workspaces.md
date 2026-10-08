@@ -27,13 +27,14 @@ through `make lint/typecheck/test/build`, so the stack must slot into those targ
 | `packages/fx` | Banka Slovenije rate snapshot, lookup and provenance (ADR 0005) |
 | `packages/furs` | FURS form builders, schema-ordered XML writers, business-rule validation, vendored XSDs (ADR 0007) |
 | `packages/brokers` | Broker adapters and format detection (ADR 0004) |
+| `packages/pipeline` | Exports in, returns out: the one run both apps call (ADR 0013) |
 | `apps/cli` | Node command-line interface |
 | `apps/web` | React + Vite static single-page app |
 
 - **Tooling:** Vitest for tests, ESLint and Prettier, and `tsc` project references for type
   checking. The `make` targets call them so hooks, CI and agents agree on what "passes" means.
 - **Dependency direction:** packages depend inward only: brokers → core, furs → core + fx,
-  apps → everything. `core` has no I/O.
+  pipeline → brokers + core + furs + fx (added by ADR 0013), apps → everything. `core` has no I/O.
 
 ## Consequences
 
