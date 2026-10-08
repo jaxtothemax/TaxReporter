@@ -95,3 +95,11 @@ why:  The only focus move after a screen change. Without it keyboard and screen-
 path: apps/web/src/screens/FilesStep.tsx
 call: listHeading.current?.focus();
 why:  Keeps focus in the file list after a removal deletes the focused button. Delete it and focus falls to the page body with every test still green.
+
+path: apps/web/src/App.tsx
+call: if (!listed.has(id)) bytes.current.delete(id);
+why:  The only place a file's bytes leave memory once the user removes it, swaps it for the demo or starts over (ADR 0013 §6). Delete it and they stay in the tab until it closes; the screen tests render without effects and cannot see it.
+
+path: apps/web/src/App.tsx
+call: window.addEventListener("beforeunload", ask);
+why:  The only warning before a reload or a closed tab loses the user's files (ADR 0013 §6). Delete it and they vanish without a word; the screen tests render without effects and cannot see it.
