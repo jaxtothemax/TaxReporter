@@ -23,6 +23,7 @@
 import { isIsoDate } from "./dates.js";
 import { Decimal } from "./decimal.js";
 import { compareText, type Disposal, type SecurityHistory } from "./fifo.js";
+import type { TradeEvent } from "./ledger.js";
 import { addDays } from "./holding.js";
 import type { IsoDate, SplitEvent } from "./ledger.js";
 
@@ -86,9 +87,12 @@ export interface LossSale {
 }
 
 /**
- * Verdicts for the loss sales of one security, keyed by the sale's event
- * key. Sales are taken in date order whatever order they come in, ties by
- * broker and key, so the result never depends on how files were loaded.
+ * Verdicts for the loss sales of one security, by the sale event itself.
+ * Purchases and sales are told apart as the objects FIFO matched, never by
+ * key: a key is unique only within its broker, and two brokers' purchases
+ * under one key are two purchases. Sales are taken in date order whatever
+ * order they come in, ties by broker and key, so the result never depends
+ * on how files were loaded.
  * Losses of earlier years belong in `losses` too: a purchase that replaced
  * a December loss cannot replace a January one as well.
  */
@@ -96,7 +100,7 @@ export function washSaleVerdicts(
   history: SecurityHistory,
   losses: readonly LossSale[],
   coverageEnd: IsoDate,
-): ReadonlyMap<string, WashSaleVerdict> {
+): ReadonlyMap<TradeEvent, WashSaleVerdict> {
   // A malformed date would compare as text and decide verdicts it cannot.
   if (!isIsoDate(coverageEnd)) {
     throw new RangeError("coverageEnd must be an ISO date (YYYY-MM-DD)");
@@ -108,10 +112,10 @@ export function washSaleVerdicts(
       compareText(a.key, b.key),
   );
   // Replacement capacity left per purchase, in that purchase's own shares.
-  const capacity = new Map<string, Decimal>(
-    purchases.map((p) => [p.key, p.quantity]),
+  const capacity = new Map<TradeEvent, Decimal>(
+    purchases.map((p) => [p, p.quantity]),
   );
-  const verdicts = new Map<string, WashSaleVerdict>();
+  const verdicts = new Map<TradeEvent, WashSaleVerdict>();
   const ordered = losses
     .filter((loss) => loss.quantity.isPositive())
     .sort(
@@ -123,7 +127,7 @@ export function washSaleVerdicts(
 
   for (const { disposal, quantity } of ordered) {
     const sale = disposal.sale;
-    const own = new Set(disposal.matches.map((m) => m.purchase.key));
+    const own = new Set(disposal.matches.map((m) => m.purchase));
     const first = addDays(sale.date, -WASH_SALE_DAYS);
     const last = addDays(sale.date, WASH_SALE_DAYS);
     let need = quantity;
@@ -131,8 +135,8 @@ export function washSaleVerdicts(
     for (const purchase of purchases) {
       if (!need.isPositive()) break;
       if (purchase.date < first || purchase.date > last) continue;
-      if (own.has(purchase.key)) continue;
-      const left = capacity.get(purchase.key) ?? Decimal.ZERO;
+      if (own.has(purchase)) continue;
+      const left = capacity.get(purchase) ?? Decimal.ZERO;
       if (!left.isPositive()) continue;
       const available = inSharesOf(
         history.splits,
@@ -144,7 +148,7 @@ export function washSaleVerdicts(
       replaced = replaced.plus(take);
       need = need.minus(take);
       capacity.set(
-        purchase.key,
+        purchase,
         left.minus(inSharesOf(history.splits, take, sale.date, purchase.date)),
       );
     }
@@ -155,7 +159,7 @@ export function washSaleVerdicts(
         : replaced.isZero()
           ? "allowed"
           : "partial";
-    verdicts.set(sale.key, { status, replaced });
+    verdicts.set(sale, { status, replaced });
   }
   return verdicts;
 }

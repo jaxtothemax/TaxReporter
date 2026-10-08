@@ -209,15 +209,16 @@ describe("matchFifo", () => {
       { ...split("2025-06-10", "2", "3"), to: Decimal.parse("1.5") },
       { ...split("2025-06-10", "1", "2"), to: Decimal.fromInteger(100_000) },
     ]);
+    // Listed by file and row (ibkr.csv before test.csv), not as loaded.
     expect(diagnostics.map((d) => [d.code, d.params])).toEqual([
+      ["invalidSplit", { isin: ISIN, date: "2025-06-10" }],
+      ["invalidSplit", { isin: ISIN, date: "2025-06-10" }],
       ["invalidTrade", { isin: ISIN }],
       ["invalidTrade", { date: "2025-01-02" }],
       ["invalidTrade", { isin: ISIN, date: "2025-01-02" }],
       ["invalidTrade", { isin: ISIN, date: "2025-01-02" }],
       ["invalidTrade", { isin: ISIN, date: "2025-01-02" }],
       ["unknownEvent", {}],
-      ["invalidSplit", { isin: ISIN, date: "2025-06-10" }],
-      ["invalidSplit", { isin: ISIN, date: "2025-06-10" }],
     ]);
     expect(JSON.stringify(diagnostics)).not.toContain("U1234567");
   });
@@ -246,6 +247,41 @@ describe("matchFifo", () => {
     const other = matchFifo([buy, { ...buy, broker: "trading212" }]);
     expect(other.diagnostics).toEqual([]);
     expect(other.securities.get(ISIN)?.purchases).toHaveLength(2);
+  });
+
+  it("keeps the report read first by file and row, whatever the order", () => {
+    const a = trade("buy", "2025-01-02", "10", "100", {
+      key: "same",
+      security: { isin: ISIN, name: "Apple Inc" },
+      source: { file: "a.csv", row: 5 },
+    });
+    const b = {
+      ...a,
+      security: { isin: ISIN, name: "APPLE INC." },
+      source: { file: "b.csv", row: 2 },
+    };
+    for (const order of [
+      [a, b],
+      [b, a],
+    ]) {
+      const { apple } = history(order);
+      expect(apple.security.name).toBe("Apple Inc");
+      expect(apple.purchases[0]?.source.file).toBe("a.csv");
+    }
+  });
+
+  it("blocks a key repeated inside any one file, not only the first", () => {
+    const a = trade("buy", "2025-01-02", "10", "100", {
+      key: "k",
+      source: { file: "a.csv", row: 1 },
+    });
+    const b1 = { ...a, source: { file: "b.csv", row: 1 } };
+    const b2 = { ...a, source: { file: "b.csv", row: 2 } };
+    const { diagnostics } = matchFifo([a, b1, b2]);
+    expect(diagnostics.map((d) => [d.code, d.source])).toEqual([
+      ["duplicatesRemoved", undefined],
+      ["duplicateKeyInFile", { file: "b.csv", row: 2 }],
+    ]);
   });
 
   it("gives the same result whatever order the events come in", () => {

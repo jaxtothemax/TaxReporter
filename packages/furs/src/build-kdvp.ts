@@ -540,7 +540,7 @@ export function buildDohKdvp(input: KdvpBuildInput): KdvpBuild {
 
       // Disallowed loss shares, in shares as of the sale date, taken from
       // the sale's first loss lots.
-      const verdict = verdicts.get(sale.key);
+      const verdict = verdicts.get(sale);
       const lost = lossShares(lots);
       let disallow =
         verdict === undefined

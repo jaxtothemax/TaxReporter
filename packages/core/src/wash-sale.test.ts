@@ -27,7 +27,7 @@ function verdicts(
     coverageEnd,
   );
   return losses.map((x) => {
-    const verdict = result.get(x.sale.key);
+    const verdict = result.get(x.sale);
     return [x.sale.date, verdict?.status, verdict?.replaced.toString()];
   });
 }
@@ -156,10 +156,35 @@ describe("washSaleVerdicts", () => {
       history,
       [{ disposal, quantity: Decimal.parse("5") }],
       "2026-12-31",
-    ).get(disposal.sale.key);
+    ).get(disposal.sale);
     expect([verdict?.status, verdict?.replaced.toString()]).toEqual([
       "disallowed",
       "5",
+    ]);
+  });
+
+  it("counts a replacement bought at another broker under the same key", () => {
+    // Keys are unique only within a broker: Trading 212's purchase "t1"
+    // is not IBKR's sale "t1", and it still replaces the loss.
+    const buy = trade("buy", "2025-01-02", "10", "100", { key: "t1" });
+    const sale = trade("sell", "2026-03-01", "10", "80", { key: "t2" });
+    const replacement = trade("buy", "2026-03-10", "10", "85", {
+      key: "t1",
+      broker: "trading212",
+      source: { file: "t212.csv", row: 1 },
+    });
+    const history = matchFifo([buy, sale, replacement]).securities.get(ISIN);
+    if (history === undefined) throw new Error("no history");
+    const [disposal] = history.disposals;
+    if (disposal === undefined) throw new Error("no sale");
+    const verdict = washSaleVerdicts(
+      history,
+      [{ disposal, quantity: disposal.sale.quantity }],
+      "2026-12-31",
+    ).get(disposal.sale);
+    expect([verdict?.status, verdict?.replaced.toString()]).toEqual([
+      "disallowed",
+      "10",
     ]);
   });
 

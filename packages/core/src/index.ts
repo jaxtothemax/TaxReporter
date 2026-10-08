@@ -29,6 +29,7 @@ export {
 export {
   compareText,
   deduplicate,
+  eventId,
   matchFifo,
   MAX_SPLIT_TERM,
   MAX_SPLITS,

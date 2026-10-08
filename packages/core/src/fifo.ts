@@ -88,8 +88,15 @@ export const MAX_SPLITS = 32;
  */
 export const SPLIT_REPORT_DAYS = 14;
 
+/** How many brokers' reports of one split the merge expects at most. */
+const MAX_SPLIT_REPORTERS = 4;
+
 const MAX_TERM = Decimal.fromInteger(MAX_SPLIT_TERM);
-const CURRENCY = /^[A-Za-z]{3}$/;
+/**
+ * ISO codes in capitals, or the pence and cents codes the rate table
+ * scales. Never case-folded: GBp is not GBP, a hundredfold difference.
+ */
+const CURRENCY = /^(?:[A-Z]{3}|GBp|ZAc)$/;
 
 /**
  * Same-day order: a split first (trades on its effective day are already in
@@ -255,60 +262,89 @@ const isinOf = (event: KeyedEvent) =>
     ? event.security.isin
     : event.isin;
 
+/** An event's identity: a key is unique only within its broker. */
+export function eventId(event: {
+  readonly broker: string;
+  readonly key: string;
+}): string {
+  return JSON.stringify([event.broker, event.key]);
+}
+
+/** Order by where an event was read: file label, then row. */
+const bySource = (a: KeyedEvent, b: KeyedEvent) =>
+  compareText(a.source.file, b.source.file) || a.source.row - b.source.row;
+
 /**
  * Removes events read twice from overlapping exports. An event's identity
- * is its broker and its key, so two brokers' keys never collide. A repeat
- * from another file that says the same is the overlap: dropped, and
- * counted. A repeat within one file, or one that says something else,
- * blocks instead: one export never lists a row twice, and which of two
- * disagreeing reports is right is the user's call, not this function's.
+ * is its broker and its key, so two brokers' keys never collide. Of the
+ * reports of one event, the one read first by file and row stands, so the
+ * names and sources that come with it never depend on the order in which
+ * files were loaded. A repeat from another file that says the same is the
+ * overlap: dropped, and counted. A repeat within one file, or one that says
+ * something else, blocks instead: one export never lists a row twice, and
+ * which of two disagreeing reports is right is the user's call.
  */
 export function deduplicate(events: readonly LedgerEvent[]): {
   readonly events: readonly LedgerEvent[];
   readonly diagnostics: readonly Diagnostic[];
 } {
-  const seen = new Map<string, KeyedEvent>();
-  const kept: LedgerEvent[] = [];
-  const diagnostics: Diagnostic[] = [];
-  let duplicates = 0;
+  const groups = new Map<string, KeyedEvent[]>();
+  const order: (string | IgnoredRow)[] = [];
   for (const event of events) {
     if (event.kind === "ignored") {
-      kept.push(event);
+      order.push(event);
       continue;
     }
-    const identity = JSON.stringify([event.broker, event.key]);
-    const first = seen.get(identity);
-    if (first === undefined) {
-      seen.set(identity, event);
-      kept.push(event);
-    } else if (first.source.file === event.source.file) {
-      diagnostics.push(
-        diagnostic(
-          "blocking",
-          "duplicateKeyInFile",
-          identify(isinOf(event), event.date),
-          event.source,
-        ),
-      );
-    } else if (!sameContent(first, event)) {
-      diagnostics.push(
-        diagnostic(
-          "blocking",
-          "duplicateKeyConflict",
-          identify(isinOf(event), event.date),
-          event.source,
-        ),
-      );
+    const id = eventId(event);
+    const group = groups.get(id);
+    if (group === undefined) {
+      groups.set(id, [event]);
+      order.push(id);
     } else {
-      duplicates += 1;
+      group.push(event);
     }
   }
+  const diagnostics: Diagnostic[] = [];
+  let duplicates = 0;
+  const survivors = new Map<string, KeyedEvent>();
+  for (const [id, group] of groups) {
+    const reports = [...group].sort(bySource);
+    const [survivor] = reports as [KeyedEvent, ...KeyedEvent[]];
+    survivors.set(id, survivor);
+    const files = new Set([survivor.source.file]);
+    for (const report of reports.slice(1)) {
+      const where = identify(isinOf(report), report.date);
+      if (files.has(report.source.file)) {
+        diagnostics.push(
+          diagnostic("blocking", "duplicateKeyInFile", where, report.source),
+        );
+      } else if (!sameContent(survivor, report)) {
+        diagnostics.push(
+          diagnostic("blocking", "duplicateKeyConflict", where, report.source),
+        );
+      } else {
+        duplicates += 1;
+      }
+      files.add(report.source.file);
+    }
+  }
+  diagnostics.sort((a, b) =>
+    a.source === undefined || b.source === undefined
+      ? 0
+      : compareText(a.source.file, b.source.file) ||
+        a.source.row - b.source.row,
+  );
   if (duplicates > 0) {
     diagnostics.unshift(
       diagnostic("info", "duplicatesRemoved", { count: String(duplicates) }),
     );
   }
-  return { events: kept, diagnostics };
+  return {
+    events: order.map((entry) =>
+      typeof entry === "string" ? (survivors.get(entry) as KeyedEvent) : entry,
+    ),
+    diagnostics,
+  };
 }
 
 function mergeSecurity(
@@ -341,8 +377,17 @@ function mergeSplitReports(
 ): Step[] {
   const kept: { split: SplitEvent; brokers: Set<string> }[] = [];
   const dropped = new Set<Step>();
+  // Bounded before the merge, whose search is per report: room for every
+  // allowed split reported by a few brokers, and no more.
+  const reports = ordered.filter((s) => s.kind === "split");
+  if (reports.length > MAX_SPLITS * MAX_SPLIT_REPORTERS) {
+    diagnostics.push(diagnostic("blocking", "tooManySplits", { isin }));
+    for (const extra of reports.slice(MAX_SPLITS * MAX_SPLIT_REPORTERS)) {
+      dropped.add(extra);
+    }
+  }
   for (const step of ordered) {
-    if (step.kind !== "split") continue;
+    if (step.kind !== "split" || dropped.has(step)) continue;
     const near = kept.find(
       (k) =>
         !k.brokers.has(step.broker) &&
@@ -404,6 +449,12 @@ export function matchFifo(input: readonly LedgerEvent[]): FifoResult {
     if (problem === null) checked.push(event);
     else diagnostics.push(problem);
   }
+  diagnostics.sort((a, b) =>
+    a.source === undefined || b.source === undefined
+      ? 0
+      : compareText(a.source.file, b.source.file) ||
+        a.source.row - b.source.row,
+  );
   const { events, diagnostics: dedup } = deduplicate(checked);
   diagnostics.push(...dedup);
 
