@@ -47,6 +47,8 @@ export type DiagnosticCode =
   | "quantityTooSmall"
   | "formIssue"
   // The Doh-Div builder (furs)
+  | "invalidDividend"
+  | "invalidWithholding"
   | "withholdingWithoutDividend"
   | "withholdingIsinMismatch"
   | "withholdingForOtherYear"

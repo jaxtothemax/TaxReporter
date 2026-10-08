@@ -334,7 +334,7 @@ describe("buildDohDiv", () => {
 
   it("takes the source country from the ISIN, or from the payer where it names none", () => {
     const greek: SecurityRef = { isin: "GRS419003009", name: "OPAP S.A." };
-    const bond: SecurityRef = { isin: "XS1234567890", name: "A note" };
+    const bond: SecurityRef = { isin: "XS1234567896", name: "A note" };
     const payer = (name: string, country: PayerInfo["country"]) => ({
       name,
       address: "Somewhere 1",
@@ -491,6 +491,47 @@ describe("buildDohDiv", () => {
       },
     ]);
     expect(result.form).toBeNull();
+  });
+
+  it("refuses dividend events it cannot trust, without repeating them", () => {
+    const good = dividend(AAPL, "2026-03-02", "10.00");
+    const loose = (overrides: Record<string, unknown>) =>
+      ({
+        ...good,
+        key: `${good.key}-${String(Object.keys(overrides))}`,
+        ...overrides,
+      }) as never;
+    const result = build([
+      loose({ date: "2026-3-2" }),
+      loose({ security: { isin: "us0378331005" } }),
+      loose({ gross: { amount: Decimal.parse("10"), currency: "U1234567" } }),
+      loose({ gross: { amount: 10, currency: "USD" } }),
+      withholding(good, "1.50", "2026-03-02", { dividendKey: "" }),
+    ]);
+    expect(result.diagnostics.map((d) => [d.code, d.params])).toEqual([
+      ["invalidDividend", { isin: AAPL.isin }],
+      ["invalidDividend", { date: "2026-03-02" }],
+      ["invalidDividend", { isin: AAPL.isin, date: "2026-03-02" }],
+      ["invalidDividend", { isin: AAPL.isin, date: "2026-03-02" }],
+      ["invalidWithholding", { isin: AAPL.isin, date: "2026-03-02" }],
+    ]);
+    expect(JSON.stringify(result.diagnostics)).not.toContain("U1234567");
+    expect(result.form).toBeNull();
+  });
+
+  it("keeps two brokers' dividends apart, even under one key", () => {
+    const ibkr = dividend(AAPL, "2026-03-02", "10.00");
+    const t212 = {
+      ...ibkr,
+      broker: "trading212",
+      source: { file: "t212.csv", row: 1 },
+    };
+    const result = build([ibkr, t212]);
+    expect(result.dividends).toHaveLength(2);
+  });
+
+  it("refuses a tax year it cannot use", () => {
+    expect(() => build([], { taxYear: 2026.5 })).toThrow(RangeError);
   });
 
   it("files nothing for a year without dividends", () => {

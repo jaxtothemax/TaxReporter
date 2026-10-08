@@ -28,6 +28,8 @@ import {
   Decimal,
   deduplicate,
   diagnostic,
+  isIsin,
+  isIsoDate,
   dividendCredit,
   DIVIDEND_TAX_RATE,
   hasBlocking,
@@ -44,7 +46,7 @@ import {
 } from "@taxreporter/core";
 import type { BsiRate, RateTable } from "@taxreporter/fx";
 
-import type { Taxpayer } from "./common.js";
+import { isTaxYear, type Taxpayer } from "./common.js";
 import { fursCountryFromIso, type FursCountry } from "./countries.js";
 import {
   validateDohDiv,
@@ -123,6 +125,58 @@ const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 const cents = (value: Decimal) => value.round(2, "halfUp");
 
+const CURRENCY = /^[A-Za-z]{3}$/;
+
+/** A property of a value of unknown shape. */
+function field(value: unknown, key: string): unknown {
+  return typeof value === "object" &&
+    value !== null &&
+    Object.hasOwn(value, key)
+    ? (value as Record<string, unknown>)[key]
+    : undefined;
+}
+
+const isText = (value: unknown): value is string =>
+  typeof value === "string" && value !== "";
+
+/** Why a dividend or withholding event cannot be used, or null. */
+function refusal(event: DividendEvent | WithholdingEvent): Diagnostic | null {
+  const source = field(event, "source");
+  const sourceOk =
+    isText(field(source, "file")) && Number.isSafeInteger(field(source, "row"));
+  const isin =
+    event.kind === "dividend"
+      ? field(field(event, "security"), "isin")
+      : field(event, "isin");
+  const money = field(event, event.kind === "dividend" ? "gross" : "amount");
+  const amount = field(money, "amount");
+  const currency = field(money, "currency");
+  const ok =
+    sourceOk &&
+    isText(field(event, "key")) &&
+    isText(field(event, "broker")) &&
+    isIsoDate(field(event, "date")) &&
+    isIsin(isin) &&
+    amount instanceof Decimal &&
+    typeof currency === "string" &&
+    CURRENCY.test(currency) &&
+    (event.kind === "dividend" || isText(field(event, "dividendKey")));
+  if (ok) return null;
+  const date = field(event, "date");
+  return diagnostic(
+    "blocking",
+    event.kind === "dividend" ? "invalidDividend" : "invalidWithholding",
+    {
+      ...(typeof isin === "string" && isIsin(isin) ? { isin } : {}),
+      ...(typeof date === "string" && isIsoDate(date) ? { date } : {}),
+    },
+    sourceOk ? event.source : undefined,
+  );
+}
+
+/** An event's identity: its key is unique only within its broker. */
+const identity = (broker: string, key: string) => JSON.stringify([broker, key]);
+
 /** A payer ID as eDavki compares it: case and spacing aside. */
 const idKey = (id: string) => id.replace(/\s+/g, "").toUpperCase();
 
@@ -130,22 +184,34 @@ export function buildDohDiv(input: DivBuildInput): DivBuild {
   const year = `${String(input.taxYear)}-`;
   const inYear = (date: IsoDate) => date.startsWith(year);
 
-  const { events, diagnostics: dedup } = deduplicate(
-    input.events.filter(
-      (e) => e.kind === "dividend" || e.kind === "withholding",
-    ),
-  );
-  const diagnostics: Diagnostic[] = [...dedup];
+  if (!isTaxYear(input.taxYear)) {
+    throw new RangeError("taxYear must be a whole year from 2013");
+  }
+  // The engine checks trades; dividends and the tax on them are checked
+  // here, and one that fails blocks without its text being echoed.
+  const diagnostics: Diagnostic[] = [];
+  const checked: (DividendEvent | WithholdingEvent)[] = [];
+  for (const event of input.events) {
+    if (event.kind !== "dividend" && event.kind !== "withholding") continue;
+    const problem = refusal(event);
+    if (problem === null) checked.push(event);
+    else diagnostics.push(problem);
+  }
+  const { events, diagnostics: dedup } = deduplicate(checked);
+  diagnostics.push(...dedup);
   const lookup = rateLookup(input.rates, diagnostics);
 
   const dividends = new Map<string, DividendEvent>();
   for (const event of events) {
-    if (event.kind === "dividend") dividends.set(event.key, event);
+    if (event.kind === "dividend") {
+      dividends.set(identity(event.broker, event.key), event);
+    }
   }
   const withheld = new Map<string, WithholdingEvent[]>();
   for (const event of events) {
     if (event.kind !== "withholding") continue;
-    const dividend = dividends.get(event.dividendKey);
+    // A withholding names its dividend's key within its own broker.
+    const dividend = dividends.get(identity(event.broker, event.dividendKey));
     // Each finding is reported by the return of the year it was booked in.
     if (dividend === undefined) {
       if (inYear(event.date)) {
@@ -181,10 +247,8 @@ export function buildDohDiv(input: DivBuildInput): DivBuild {
         );
       }
     } else {
-      withheld.set(dividend.key, [
-        ...(withheld.get(dividend.key) ?? []),
-        event,
-      ]);
+      const at = identity(dividend.broker, dividend.key);
+      withheld.set(at, [...(withheld.get(at) ?? []), event]);
     }
   }
 
@@ -194,6 +258,7 @@ export function buildDohDiv(input: DivBuildInput): DivBuild {
       (a, b) =>
         compare(a.date, b.date) ||
         compare(a.security.isin, b.security.isin) ||
+        compare(a.broker, b.broker) ||
         compare(a.key, b.key),
     );
 
@@ -223,7 +288,8 @@ export function buildDohDiv(input: DivBuildInput): DivBuild {
     if (rate === null) continue;
 
     // The tax converts at the payment date's rate, in its own currency.
-    const withholdings = withheld.get(dividend.key) ?? [];
+    const withholdings =
+      withheld.get(identity(dividend.broker, dividend.key)) ?? [];
     let foreignTax = Decimal.ZERO;
     let convertible = true;
     for (const w of withholdings) {
