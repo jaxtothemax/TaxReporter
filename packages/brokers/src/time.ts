@@ -35,6 +35,8 @@ const pad = (value: number, width: number) =>
 export interface UtcStamp {
   /** The date in Ljubljana. */
   readonly date: IsoDate;
+  /** The date in UTC, as the file wrote it. */
+  readonly utcDate: IsoDate;
   /** The instant to the second, for telling rows apart ("2026-03-01T01:10:00Z"). */
   readonly second: string;
 }
@@ -67,6 +69,7 @@ export function fromUtcStamp(text: string): UtcStamp | null {
   const local = new Date(instant + (summer ? 2 : 1) * HOUR);
   return {
     date: `${pad(local.getUTCFullYear(), 4)}-${pad(local.getUTCMonth() + 1, 2)}-${pad(local.getUTCDate(), 2)}`,
+    utcDate: `${pad(year, 4)}-${pad(month, 2)}-${pad(day, 2)}`,
     second: `${pad(year, 4)}-${pad(month, 2)}-${pad(day, 2)}T${pad(hour, 2)}:${pad(minute, 2)}:${pad(second, 2)}Z`,
   };
 }

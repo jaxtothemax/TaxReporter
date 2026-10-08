@@ -367,10 +367,30 @@ describe("importFile", () => {
     ]);
   });
 
-  it("moves a late-evening UTC trade to the next day in Ljubljana", () => {
+  it("moves a late-evening UTC trade to the next day in Ljubljana, and says so", () => {
     const result = v4(
       "Market buy,2026-07-15 22:30:00+00:00,US1912161007,KO,Coca-Cola,,EOF1,2,69.5,USD,,,,118.55,EUR,,",
     );
     expect(result.events[0]).toMatchObject({ date: "2026-07-16" });
+    expect(
+      result.diagnostics.map((d) => [d.severity, d.code, d.params]),
+    ).toEqual([
+      [
+        "warning",
+        "dateMovedToLjubljana",
+        { date: "2026-07-16", utcDate: "2026-07-15" },
+      ],
+    ]);
+  });
+
+  it("refuses numbers of an absurd size", () => {
+    const result = v4(
+      "Market buy,2026-01-06 14:31:02+00:00,US1912161007,KO,Coca-Cola,,EOF1,1234567890123456,69.5,USD,,,,1,EUR,,",
+      "Market buy,2026-01-06 14:31:02+00:00,US1912161007,KO,Coca-Cola,,EOF2,0.1234567890123,69.5,USD,,,,1,EUR,,",
+    );
+    expect(blocking(result)).toEqual([
+      ["invalidNumber", 2],
+      ["invalidNumber", 3],
+    ]);
   });
 });

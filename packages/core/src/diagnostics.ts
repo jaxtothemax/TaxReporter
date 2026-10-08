@@ -70,6 +70,7 @@ export type DiagnosticCode =
   | "unknownAction"
   | "unsupportedAction"
   | "invalidTime"
+  | "dateMovedToLjubljana"
   | "invalidIsin"
   | "invalidNumber"
   | "invalidQuantity"

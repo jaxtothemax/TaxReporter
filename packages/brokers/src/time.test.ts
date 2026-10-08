@@ -36,6 +36,13 @@ describe("fromUtcStamp", () => {
     expect(date("2026-10-25 23:00:00")).toBe("2026-10-26");
   });
 
+  it("keeps the UTC date beside the Ljubljana one", () => {
+    expect(fromUtcStamp("2026-07-15 22:30:00")).toMatchObject({
+      date: "2026-07-16",
+      utcDate: "2026-07-15",
+    });
+  });
+
   it("keeps the instant to the second, whatever fraction was written", () => {
     expect(fromUtcStamp("2023-12-18 14:30:03.613")?.second).toBe(
       "2023-12-18T14:30:03Z",

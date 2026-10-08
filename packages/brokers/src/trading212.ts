@@ -194,6 +194,12 @@ function revision(header: readonly string[]): string {
  */
 const FUND_NAME = /\b(?:ETF|UCITS)\b/;
 
+/**
+ * A number as T212 writes it: an optional minus, at most 15 whole digits
+ * and 12 decimals. Each column's sign is checked where it is read.
+ */
+const NUMBER = /^-?\d{1,15}(?:\.\d{1,12})?$/;
+
 /** Ratios are whole numbers up to this on either side: real splits are. */
 const MAX_SPLIT_TERM = 10_000;
 /** T212 writes positions to 10 decimals, so a split rounds within this. */
@@ -273,11 +279,10 @@ function read(table: CsvTable, file: string): ImportResult {
   const amount = (row: CsvRow, column: string): Decimal | null => {
     const value = text(row, column);
     if (value === "") return null;
-    try {
-      return Decimal.parse(value);
-    } catch {
-      throw new BadCell(column);
-    }
+    // T212 writes plain decimals with up to 10 places; anything else, an
+    // exponent, a comma, an absurd size, is not trusted as a number.
+    if (!NUMBER.test(value)) throw new BadCell(column);
+    return Decimal.parse(value);
   };
 
   const occurrences = new Map<string, number>();
@@ -348,6 +353,20 @@ function read(table: CsvTable, file: string): ImportResult {
     if (!isIsin(isin)) {
       block("invalidIsin");
       continue;
+    }
+    // The Ljubljana date decides the tax year, the rate and the 30-day
+    // window; where it differs from the UTC date T212 shows, say so. Which
+    // clock defines a trade date has no FURS source yet (research 06, open
+    // questions).
+    if (stamp.date !== stamp.utcDate) {
+      diagnostics.push(
+        diagnostic(
+          "warning",
+          "dateMovedToLjubljana",
+          { date: stamp.date, utcDate: stamp.utcDate },
+          source,
+        ),
+      );
     }
     let quantity: Decimal | null;
     let price: Decimal | null;
