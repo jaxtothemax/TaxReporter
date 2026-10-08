@@ -48,6 +48,11 @@ packages/furs/schemas/*.xsd -text
 # comparison, so the line endings are pinned to what the writers produce.
 packages/*/test/fixtures/golden/*.xml text eol=lf
 
+# The Banka Slovenije rate snapshot — generated with LF and read by a parser
+# that splits on LF only. A CRLF checkout would leave a carriage return in
+# every last cell, and an app built from it would refuse its own rates.
+packages/fx/data/*.csv text eol=lf
+
 # Binary files — do not diff or merge
 *.png   binary
 *.jpg   binary
