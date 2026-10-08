@@ -54,3 +54,11 @@ private/
 # scripts/wt per-worktree files (direnv env, ownership marker)
 .envrc
 .wt-owner
+
+# Conflict copies that iCloud Drive and Finder make beside a synced file
+# ("intake 2.ts", "fixtures 2"). Some were committed once; git is the source
+# of truth, so a copy is never wanted. Real names here have no " N" suffix.
+* [0-9]
+* [0-9].*
+* [0-9][0-9]
+* [0-9][0-9].*
