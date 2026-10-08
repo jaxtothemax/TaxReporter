@@ -185,7 +185,11 @@ export function parseSnapshotCsv(
     }
     const rates = cells.slice(lead.length).map((cell) => {
       if (cell === "") return undefined;
-      if (!RATE.test(cell)) throw new Error("Bad rate in rate snapshot");
+      // A rate divides every amount converted with it, so zero is refused
+      // here, before any conversion could divide by it.
+      if (!RATE.test(cell) || !/[1-9]/.test(cell)) {
+        throw new Error("Bad rate in rate snapshot");
+      }
       return cell;
     });
     return kind === "monthly" ? { key, date: second, rates } : { key, rates };

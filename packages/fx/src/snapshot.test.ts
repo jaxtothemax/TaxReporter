@@ -84,6 +84,7 @@ describe("parseSnapshotCsv", () => {
       "date,USD\n2026-10-05\n",
       "date,USD\n2026-10-06,1\n2026-10-05,1\n",
       "date,USD\n2026-10-05,1e3\n",
+      "date,USD\n2026-10-05,0.0000\n",
     ]) {
       expect(
         () => parseSnapshotCsv(bad, "daily"),
