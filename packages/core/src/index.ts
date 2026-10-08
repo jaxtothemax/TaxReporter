@@ -35,9 +35,12 @@ export {
   type DiagnosticParams,
   type ExportedDiagnostic,
   type ExportedValue,
+  type CsvReason,
   type FileRef,
   type FileRefusal,
   type NumberColumn,
+  type UnreadableReason,
+  type XmlReason,
   type UntrustedText,
   type Severity,
 } from "./diagnostics.js";
@@ -97,6 +100,7 @@ export {
   accountScope,
   fileIdOf,
   keyBuilder,
+  keyOf,
   type KeyBuilder,
   type KeyPart,
 } from "./keys.js";

@@ -70,6 +70,10 @@ const IGNORED_REASONS: ReadonlySet<unknown> = new Set<IgnoredReason>([
   "cashTransfer",
   "header",
   "pairedRow",
+  "summary",
+  "reversed",
+  "securitiesTransfer",
+  "derivative",
 ]);
 
 const KINDS = ["trade", "split", "dividend", "withholding"] as const;
@@ -214,11 +218,13 @@ function refusal(event: unknown): Diagnostic | null {
   }
   if (kind === "split") {
     const isin = field(event, "isin");
+    const change = field(event, "positionChange");
     const ok =
       base &&
       isIsin(isin) &&
       isWholeTerm(field(event, "from")) &&
-      isWholeTerm(field(event, "to"));
+      isWholeTerm(field(event, "to")) &&
+      (change === undefined || (Decimal.isDecimal(change) && !change.isZero()));
     return ok
       ? null
       : diagnostic("blocking", "invalidSplit", identify(isin, date), source);

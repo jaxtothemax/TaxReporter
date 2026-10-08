@@ -18,8 +18,10 @@ import {
 } from "@taxreporter/core";
 
 import { CsvError, readCsv, type CsvTable } from "./csv.js";
+import { ibkr } from "./ibkr.js";
 import { decodeUtf8, sniff } from "./intake.js";
 import { trading212, trading212Cfd } from "./trading212.js";
+import { peekRoot, XmlError, type XmlElement } from "./xml.js";
 
 /** How far a file reaches for one account it covers. */
 export interface AccountReach {
@@ -64,6 +66,15 @@ export interface CsvAdapter {
   read(table: CsvTable, context: ReadContext): ImportResult;
 }
 
+/** An adapter for an XML export. */
+export interface XmlAdapter {
+  readonly broker: string;
+  /** Recognizes the export by its root element alone. */
+  matches(root: XmlElement): boolean;
+  /** Scans the text itself; an XmlError it throws refuses the file. */
+  read(text: string, context: ReadContext): ImportResult;
+}
+
 /** One file to import. */
 export interface ImportRequest extends ReadContext {
   readonly bytes: Uint8Array;
@@ -98,6 +109,9 @@ export const CSV_ADAPTERS: readonly CsvAdapter[] = Object.freeze([
   trading212Cfd,
 ]);
 
+/** Every XML adapter; a file must match exactly one of them. */
+export const XML_ADAPTERS: readonly XmlAdapter[] = Object.freeze([ibkr]);
+
 function refused<C extends DiagnosticCode>(
   code: C,
   params: DiagnosticParams[C],
@@ -122,6 +136,21 @@ function looksLikeXml(text: string): boolean {
   return false;
 }
 
+/** The XML family: the root picks the adapter, which reads the rest. */
+function importXml(text: string, context: ReadContext): ImportResult {
+  try {
+    const root = peekRoot(text);
+    const matching = XML_ADAPTERS.filter((a) => a.matches(root));
+    const [adapter] = matching;
+    if (adapter === undefined) return refused("unknownFormat", {});
+    if (matching.length > 1) return refused("ambiguousFormat", {});
+    return capped(adapter.read(text, context));
+  } catch (error) {
+    if (!(error instanceof XmlError)) throw error;
+    return refused("unreadableFile", { reason: error.code, row: error.line });
+  }
+}
+
 /**
  * Reads one export: the byte cap, the sniff, strict UTF-8, the family by
  * content, then exactly one adapter of that family. A file none recognizes,
@@ -135,8 +164,7 @@ export function importFile(request: ImportRequest): ImportResult {
   if (refusal !== null) return refused("fileRefused", { reason: refusal });
   const text = decodeUtf8(bytes);
   if (text === null) return refused("fileRefused", { reason: "notUtf8" });
-  // No XML adapter yet: Interactive Brokers' Flex statements come next.
-  if (looksLikeXml(text)) return refused("unknownFormat", {});
+  if (looksLikeXml(text)) return importXml(text, { fileId, accountGroup });
   let table: CsvTable;
   try {
     table = readCsv(text);

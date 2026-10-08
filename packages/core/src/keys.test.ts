@@ -14,6 +14,7 @@ import {
   digest,
   fileIdOf,
   keyBuilder,
+  keyOf,
   sha256Prefix,
 } from "./keys.js";
 
@@ -98,6 +99,21 @@ describe("keyBuilder", () => {
     expect(() => keyBuilder().key("trade", [1.5])).toThrow(RangeError);
     expect(() => keyBuilder().key("trade", [2 ** 53])).toThrow(RangeError);
     expect(keyBuilder().key("trade", [7])).toBe(digest(["v1", "trade", 7, 0]));
+  });
+});
+
+describe("keyOf", () => {
+  it("gives an event the broker identifies itself one key, however often it appears", () => {
+    expect(keyOf("trade", ["700000102"])).toBe(
+      "c3e9bed099a593f1edfeae9f3926db72",
+    );
+    expect(keyOf("trade", ["700000102"])).toBe(keyOf("trade", ["700000102"]));
+    expect(keyOf("trade", ["700000102"])).not.toBe(
+      keyBuilder().key("trade", ["700000102"]),
+    );
+    expect(keyOf("dividend", ["700000102"])).not.toBe(
+      keyOf("trade", ["700000102"]),
+    );
   });
 });
 

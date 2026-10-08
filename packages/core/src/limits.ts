@@ -10,6 +10,12 @@ export const LIMITS = Object.freeze({
   fileBytes: 64 * 1024 * 1024,
   /** Files in one session: ten years of two brokers' yearly exports, and more. */
   filesPerSession: 100,
+  /**
+   * Accounts one file may hold: an Interactive Brokers statement lists one
+   * per account, and a Slovenian client migrated between IB entities has a
+   * few. More is an advisor's file, not one taxpayer's.
+   */
+  accountsPerFile: 10,
   /** Rows or records in one file; refused beyond, never truncated. */
   recordsPerFile: 200_000,
   /** Ledger events across a session. */

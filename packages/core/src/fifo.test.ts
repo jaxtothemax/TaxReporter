@@ -4,7 +4,7 @@ import "./ledger.js";
 import { describe, expect, it } from "vitest";
 
 import { account, ISIN, split, trade, validated } from "../test/events.js";
-import type { Decimal } from "./decimal.js";
+import { Decimal } from "./decimal.js";
 import { matchFifo } from "./fifo.js";
 import type { LedgerEvent } from "./ledger.js";
 
@@ -277,6 +277,31 @@ describe("matchFifo", () => {
     ]);
     expect(diagnostics.map((d) => d.code)).toEqual(["splitReportsMerged"]);
     expect(shares(apple.open)).toEqual(["40", "40", "4"]);
+  });
+
+  it("checks a split reported as a share change against the broker's shares", () => {
+    const at = (positionChange: string) => ({
+      ...split("2025-06-10", "1", "4"),
+      positionChange: Decimal.parse(positionChange),
+    });
+    const held = [trade("buy", "2025-01-02", "10")];
+    // 10 shares, 4 for 1: 30 more.
+    expect(history([...held, at("30")]).diagnostics).toEqual([]);
+    const off = history([...held, at("20")]);
+    expect(off.diagnostics.map((d) => [d.code, d.params])).toEqual([
+      [
+        "splitPositionMismatch",
+        { isin: ISIN, date: "2025-06-10", expected: "30", reported: "20" },
+      ],
+    ]);
+    // A broker holding none of it cannot report a split of it.
+    const elsewhere = history([
+      trade("buy", "2025-01-02", "10", "100", { broker: "trading212" }),
+      at("30"),
+    ]);
+    expect(elsewhere.diagnostics.map((d) => d.code)).toEqual([
+      "splitPositionMismatch",
+    ]);
   });
 
   it("applies a split once when two accounts at one broker report it", () => {

@@ -9,7 +9,7 @@
  * CRLF line ends, and empty lines, which carry no data and are skipped.
  * Errors name a rule and a row number, never a value from the file.
  */
-import { LIMITS } from "@taxreporter/core";
+import { LIMITS, type CsvReason } from "@taxreporter/core";
 
 export interface CsvLimits {
   /** Characters of text, checked before anything is read. */
@@ -35,18 +35,8 @@ export const CSV_LIMITS: CsvLimits = Object.freeze({
   maxCellLength: LIMITS.cellLength,
 });
 
-export type CsvErrorCode =
-  | "tooLarge"
-  | "tooManyRows"
-  | "tooManyColumns"
-  | "cellTooLong"
-  | "unterminatedQuote"
-  | "strayQuote"
-  | "strayCarriageReturn"
-  | "noHeader"
-  | "emptyHeaderName"
-  | "duplicateHeaderName"
-  | "rowLength";
+/** The codes are core's, so a diagnostic can only carry one of them. */
+export type CsvErrorCode = CsvReason;
 
 export class CsvError extends Error {
   constructor(

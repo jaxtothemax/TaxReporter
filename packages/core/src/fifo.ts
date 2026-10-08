@@ -255,6 +255,9 @@ export function matchFifo(ledger: ValidatedLedger): FifoResult {
     for (const step of ordered) {
       if (step.kind === "split") {
         const ratio = step.to.dividedBy(step.from);
+        if (step.positionChange !== undefined) {
+          checkSplit(step, ratio, lots.slice(head), diagnostics);
+        }
         lots = lots.slice(head).map((lot) => ({
           purchase: lot.purchase,
           quantity: lot.quantity.times(ratio),
@@ -343,6 +346,45 @@ export function matchFifo(ledger: ValidatedLedger): FifoResult {
     });
   }
   return { securities: result, diagnostics };
+}
+
+/**
+ * A split whose broker reported the shares it gained rather than the ratio:
+ * the ratio, read from the broker's wording, has to turn the shares that
+ * broker's accounts held into the change it reported. Otherwise the ratio
+ * would restate every lot of the security, other brokers' too, on a guess.
+ * The broker's shares are the lots it sold or bought, so shares moved in
+ * from another broker make the check block rather than pass.
+ */
+function checkSplit(
+  split: SplitEvent,
+  ratio: Decimal,
+  lots: readonly OpenLot[],
+  diagnostics: Diagnostic[],
+): void {
+  const held = Decimal.sum(
+    lots
+      .filter((lot) => lot.purchase.broker === split.broker)
+      .map((lot) => lot.quantity),
+  );
+  const expected = held.times(ratio).minus(held);
+  const reported = split.positionChange ?? Decimal.ZERO;
+  if (held.isZero() || !expected.equals(reported)) {
+    diagnostics.push(
+      diagnostic(
+        "blocking",
+        "splitPositionMismatch",
+        {
+          isin: split.isin,
+          date: split.date,
+          // A reverse split's change can repeat forever; shown, never used.
+          expected: expected.toPlain(10, "halfUp"),
+          reported: reported.toPlain(10, "halfUp"),
+        },
+        split.source,
+      ),
+    );
+  }
 }
 
 /**

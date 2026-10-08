@@ -114,6 +114,12 @@ export interface SplitEvent extends EventBase {
   readonly isin: string;
   readonly from: Decimal;
   readonly to: Decimal;
+  /**
+   * The shares the reporting broker's accounts gained (or, in a reverse
+   * split, lost) by the split, where the broker reports that and not the
+   * ratio itself (Interactive Brokers). FIFO checks the ratio against it.
+   */
+  readonly positionChange?: Decimal;
 }
 
 export interface DividendEvent extends EventBase {
@@ -157,7 +163,26 @@ export type IgnoredReason =
    * The second row of a pair whose first row carries the event, such as
    * the "open" half of a Trading 212 split.
    */
-  | "pairedRow";
+  | "pairedRow"
+  /**
+   * A row that totals or repeats others the same file holds in detail,
+   * such as Interactive Brokers' summary, order and closed-lot rows.
+   */
+  | "summary"
+  /** A dividend and the reversal that cancels it, both left out. */
+  | "reversed"
+  /**
+   * Shares moved between accounts. A move creates and ends no lot: the
+   * purchases come from the account's own history, and a sale without one
+   * still blocks.
+   */
+  | "securitiesTransfer"
+  /**
+   * A derivative traded beside shares (an option, a future): taxed on
+   * D-IFI, which this version does not build. Exercises and assignments,
+   * which make share trades, are refused, never left out.
+   */
+  | "derivative";
 
 export interface IgnoredRow {
   readonly kind: "ignored";

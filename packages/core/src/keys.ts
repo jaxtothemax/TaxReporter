@@ -72,6 +72,19 @@ export interface KeyBuilder {
   key(kind: KeyedEvent["kind"], parts: readonly KeyPart[]): EventKey;
 }
 
+/**
+ * The key of an event the broker identifies itself, by an ID it never
+ * reuses (Interactive Brokers' transactionID): no ordinal, so a row that
+ * appears twice in one file gets one key twice, and validateLedger blocks it
+ * as a repeat instead of counting it twice.
+ */
+export function keyOf(
+  kind: KeyedEvent["kind"],
+  parts: readonly KeyPart[],
+): EventKey {
+  return digest([KEY_VERSION, kind, ...parts.map(canonical), "id"]) as EventKey;
+}
+
 /** A key builder for one file: ordinals count within the file only. */
 export function keyBuilder(): KeyBuilder {
   // Seen tuples by their digest, so memory stays a few dozen bytes a row.
