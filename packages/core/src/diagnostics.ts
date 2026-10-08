@@ -60,7 +60,57 @@ export const isFileRef = (value: unknown): value is FileRef =>
  * them, never a header as a file wrote it.
  */
 export type NumberColumn =
-  "No. of shares" | "Price / share" | "Withholding tax" | "Total";
+  | "No. of shares"
+  | "Price / share"
+  | "Withholding tax"
+  | "Total"
+  | "quantity"
+  | "tradePrice"
+  | "tradeMoney"
+  | "multiplier"
+  | "amount"
+  | "ibCommission";
+
+/** Why a CSV export could not be read (packages/brokers/src/csv.ts). */
+export type CsvReason =
+  | "tooLarge"
+  | "tooManyRows"
+  | "tooManyColumns"
+  | "cellTooLong"
+  | "unterminatedQuote"
+  | "strayQuote"
+  | "strayCarriageReturn"
+  | "noHeader"
+  | "emptyHeaderName"
+  | "duplicateHeaderName"
+  | "rowLength";
+
+/** Why an XML export could not be read (packages/brokers/src/xml.ts). */
+export type XmlReason =
+  | "declaration"
+  | "doctype"
+  | "processingInstruction"
+  | "cdata"
+  | "comment"
+  | "entity"
+  | "characterReference"
+  | "illegalCharacter"
+  | "name"
+  | "duplicateAttribute"
+  | "attributeSyntax"
+  | "tooManyAttributes"
+  | "valueTooLong"
+  | "lessThanInValue"
+  | "text"
+  | "mismatchedEnd"
+  | "tooDeep"
+  | "tooManyElements"
+  | "afterRoot"
+  | "noRoot"
+  | "truncated";
+
+/** A closed list, so that no text from a file can pass for a reason. */
+export type UnreadableReason = CsvReason | XmlReason;
 
 /** A security and a day, when both have their proper shape. */
 interface Where {
@@ -133,6 +183,11 @@ export interface DiagnosticParams {
   sameDayLotOrder: Where & { readonly purchased: IsoDate };
   zeroCostPurchase: Where;
   insufficientHistory: Where & { readonly missing: string };
+  /** The ratio a broker gave disagrees with the share change it reported. */
+  splitPositionMismatch: Where & {
+    readonly expected: string;
+    readonly reported: string;
+  };
   // The Doh-KDVP builder (furs)
   rateUnavailable: {
     readonly currency: string;
@@ -175,7 +230,8 @@ export interface DiagnosticParams {
   payerIdsNumbered: { readonly date: IsoDate; readonly count: number };
   // Intake and broker adapters (brokers)
   fileRefused: { readonly reason: FileRefusal };
-  unreadableFile: { readonly reason: string; readonly row: number };
+  /** `row` is the CSV row, or the XML line, the reader stopped at. */
+  unreadableFile: { readonly reason: UnreadableReason; readonly row: number };
   diagnosticsTruncated: { readonly dropped: number };
   unknownFormat: None;
   ambiguousFormat: None;
@@ -201,6 +257,30 @@ export interface DiagnosticParams {
   splitRatioUnclear: Where;
   splitHalvesDisagree: Where;
   interestNotCovered: { readonly broker: string; readonly count: number };
+  derivativesNotCovered: { readonly broker: string; readonly count: number };
+  // Interactive Brokers Flex statements (brokers)
+  statementCountMismatch: {
+    readonly declared: number;
+    readonly found: number;
+  };
+  accountMismatch: None;
+  accountIdInvalid: None;
+  paperAccount: None;
+  tooManyAccounts: { readonly limit: number };
+  unsupportedDateFormat: None;
+  statementPeriodInvalid: None;
+  rowAfterStatement: MaybeWhere;
+  unknownElement: { readonly element: UntrustedText };
+  unknownDetailLevel: { readonly level: UntrustedText };
+  summaryOnly: {
+    readonly section: "Trades" | "CashTransactions" | "CorporateActions";
+  };
+  withholdingUnlinked: MaybeWhere;
+  withholdingAmbiguous: MaybeWhere;
+  dividendReversalUnmatched: MaybeWhere;
+  tradeInconsistent: MaybeWhere & {
+    readonly check: "sign" | "multiplier" | "amount" | "cusip";
+  };
   fundFromName: Isin;
 }
 

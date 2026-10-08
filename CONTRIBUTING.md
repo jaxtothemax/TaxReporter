@@ -147,9 +147,10 @@ adapter never touches them. A new adapter PR needs:
   blocking diagnostic — nothing is dropped silently;
 - the import contract of `docs/adr/0011-import-contract-for-broker-files.md`:
   - `read` takes a `ReadContext`, the file's ID and account group, and never sees a file
-    name;
+    name; a CSV adapter gets the parsed table, an XML adapter the text, which it reads with
+    the strict scanner in `packages/brokers/src/xml.ts`;
   - every event carries its account, the broker's own clock (`at`) and a key from core's
-    `keyBuilder()`;
+    `keyBuilder()`, or `keyOf()` where the broker gives each row an ID it never reuses;
   - dates come from core's `taxDate`, never from a rule of the adapter's own;
   - text copied from the file reaches a finding only through `untrusted()`;
 - synthetic or anonymized fixtures only, plus a short `docs/research/` note on where the

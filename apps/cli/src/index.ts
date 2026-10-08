@@ -63,7 +63,8 @@ const USAGE = `Usage: taxreporter <exports...> --year <YYYY> --tax-number <8 dig
                    [--payers <payers.json>] [--coverage-end <YYYY-MM-DD>]
                    [--accounts same|separate] [--json]
 
-Reads broker exports (Trading 212 history CSV) and writes the eDavki returns
+Reads broker exports (Trading 212 history CSV, Interactive Brokers Activity
+Flex Query XML) and writes the eDavki returns
 Doh_KDVP_<year>.xml and Doh_Div_<year>.xml into --out. Nothing leaves this
 computer and nothing is filed: review the files, then import them in eDavki.
 
@@ -324,15 +325,25 @@ export function main(
     intake.ok ? [{ name: names[i] ?? intake.name, bytes: intake.bytes }] : [],
   );
 
-  const prepared = prepareReturns({
-    files,
-    accounts,
-    taxYear: year,
-    taxpayer: { taxNumber },
-    rates: dependencies.loadRates(),
-    payers,
-    ...(coverageEnd === undefined ? {} : { coverageEnd }),
-  });
+  let prepared;
+  try {
+    prepared = prepareReturns({
+      files,
+      accounts,
+      taxYear: year,
+      taxpayer: { taxNumber },
+      rates: dependencies.loadRates(),
+      payers,
+      ...(coverageEnd === undefined ? {} : { coverageEnd }),
+    });
+  } catch {
+    // A fault of TaxReporter's, never of the files: they are refused with
+    // findings. The error itself is not printed, as it could quote them.
+    io.stderr.write(
+      "taxreporter: stopped on an internal error; nothing was written. Please report it, without attaching your files.\n",
+    );
+    return 1;
+  }
   const { kdvp, div } = prepared;
   const labels = new Map(prepared.imports.map((i) => [i.fileId, i.file]));
   // A file refused for what it is, said as such, like one that could not

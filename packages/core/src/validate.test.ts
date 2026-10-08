@@ -155,6 +155,19 @@ describe("validateLedger", () => {
     expect(codes([{ ...night, date: "2025-01-01" }])).toEqual(["invalidTrade"]);
   });
 
+  it("takes a split's reported share change only as a nonzero Decimal", () => {
+    const base = split("2025-06-10", "1", "4");
+    expect(codes([{ ...base, positionChange: Decimal.parse("30") }])).toEqual(
+      [],
+    );
+    expect(codes([{ ...base, positionChange: Decimal.ZERO }])).toEqual([
+      "invalidSplit",
+    ]);
+    expect(codes([{ ...base, positionChange: 30 } as never])).toEqual([
+      "invalidSplit",
+    ]);
+  });
+
   it("refuses a trade of no shares, and a split with a zero term", () => {
     expect(
       codes([

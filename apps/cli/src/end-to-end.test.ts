@@ -155,3 +155,87 @@ function centsAt(usd: string, rate: string): string {
   const cents = (scaled * 2n + r) / (2n * r);
   return `${String(cents / 100n)}.${String(cents % 100n).padStart(2, "0")}`;
 }
+
+describe("Trading 212 and Interactive Brokers exports together", () => {
+  const files = [
+    "packages/brokers/test/fixtures/trading212/t212-invest-v3-2025.csv",
+    "packages/brokers/test/fixtures/trading212/t212-invest-v4-2026.csv",
+    "packages/brokers/test/fixtures/ibkr/flex-activity-2025-2026.xml",
+  ].map((path) => {
+    const bytes = readFileSync(new URL(path, root));
+    return importFile({ bytes, fileId: fileIdOf(bytes), accountGroup: 1 });
+  });
+  const both = validateLedger(
+    files.flatMap((f) => f.events),
+    files.flatMap((f) => f.diagnostics),
+  );
+
+  it("reads all three files with nothing blocking", () => {
+    expect(files.map((f) => f.format)).toEqual([
+      "trading212-csv-v3",
+      "trading212-csv-v4",
+      "ibkr-flex-xml",
+    ]);
+    expect(both.diagnostics.filter((d) => d.severity === "blocking")).toEqual(
+      [],
+    );
+  });
+
+  it("matches each security first in, first out across both brokers", () => {
+    const kdvp = buildDohKdvp({
+      taxYear: 2026,
+      taxpayer,
+      ledger: both,
+      rates,
+      coverageEnd: "2026-09-10",
+    });
+    const form = kdvp.form;
+    if (form === null) throw new Error("no form");
+    expect(form.lists.map((l) => l.isin)).toEqual([
+      "IE00BK5BQT80",
+      "US00000ACME1",
+      "US0378331005",
+      "US1912161007",
+    ]);
+    // The Interactive Brokers sale, from the lot bought before the move
+    // between IB entities: the split comes after it, so nothing is restated.
+    const apple = form.lists.find((l) => l.isin === "US0378331005");
+    expect(
+      apple?.rows.map((r) => [r.kind, r.date, r.quantity.toString()]),
+    ).toEqual([
+      ["purchase", "2025-03-03", "4"],
+      ["sale", "2026-02-10", "4"],
+    ]);
+    expect(() => writeDohKdvp(form)).not.toThrow();
+  });
+
+  it("files each broker's dividend payments as records of their own", () => {
+    const div = buildDohDiv({
+      taxYear: 2026,
+      taxpayer,
+      ledger: both,
+      rates,
+      payers: new Map([
+        [
+          "US1912161007",
+          {
+            name: "The Coca-Cola Company",
+            address: "One Coca-Cola Plaza, Atlanta, GA 30313, United States",
+            country: "US",
+          },
+        ],
+      ]),
+    });
+    const form = div.form;
+    if (form === null) throw new Error("no form");
+    expect(
+      form.dividends.map((d) => [d.date, d.payer.identificationNumber]),
+    ).toEqual([
+      // Two payments by one payer on one day are numbered, as FURS asks.
+      ["2026-04-01", "1"],
+      ["2026-04-01", "2"],
+      ["2026-07-03", "US1912161007"],
+    ]);
+    expect(() => writeDohDiv(form)).not.toThrow();
+  });
+});

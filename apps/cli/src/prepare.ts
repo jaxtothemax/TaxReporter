@@ -11,6 +11,7 @@ import {
   diagnostic,
   fileIdOf,
   fileRef,
+  isIsoDate,
   LIMITS,
   validateLedger,
   type Diagnostic,
@@ -96,6 +97,8 @@ export function coverageOf(
 ): IsoDate {
   const latest = new Map<string, IsoDate>();
   for (const { account, lastDate } of imports.flatMap((i) => i.reach)) {
+    // An adapter's date is checked here too: coverage decides 30-day rules.
+    if (!isIsoDate(lastDate)) continue;
     const seen = latest.get(account);
     if (seen === undefined || compareText(lastDate, seen) > 0) {
       latest.set(account, lastDate);

@@ -100,6 +100,9 @@ We will change the import contract as follows, before the IBKR adapter is built.
      and known answers computed with `shasum` pin both.
    - No raw account or order number survives in a key.
    - Of several reports of one event, the one with the smallest `(fileId, part, row)` stands.
+   - A broker that gives every row an ID it never reuses (Interactive Brokers) keys on it with
+     `keyOf`, which adds no ordinal, so a row repeated in one file blocks as a repeat
+     ([ADR 0012](0012-interactive-brokers-flex-xml-import.md) §9).
 6. **Overlap reconciliation**, per account, file pair and kind, on the broker's own clock.
    - The overlap is the time both files recorded, read from their events, since no export
      states its range.
