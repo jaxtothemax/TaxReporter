@@ -1,13 +1,14 @@
 /**
- * Builds the Doh-Div return from ledger events: one record per dividend paid
- * in the tax year, with its foreign tax, and the tax estimate.
+ * Builds the Doh-Div return from a validated ledger: one record per dividend
+ * paid in the tax year, with its foreign tax, and the tax estimate.
  *
  * Choices, and why (docs/research/02-furs-doh-div-and-others.md §3.4–§6,
  * 04 §7):
  *
  * - **One record per payment**, never summed: FURS rejects merged payments
- *   (02 §5). Tax withheld joins its dividend by the dividend's key, never by
- *   date or amount, and a reversal nets against what it reverses.
+ *   (02 §5). Tax withheld joins its dividend by the dividend's key in the
+ *   same account, never by date or amount, and a reversal nets against what
+ *   it reverses.
  * - **EUR at the BSI rate of the payment date**, for the gross amount and the
  *   foreign tax alike, whatever day the tax was booked (02 §3.4).
  * - **Type 4 for fund units, 1 for shares** (02 §4.1).
@@ -21,17 +22,16 @@
  * - **No ReliefStatement.** FURS frames it as a claim to a treaty exemption,
  *   while a resident gets a credit, so it is left to the user's explicit
  *   choice (02 §6).
- * - **No form while anything blocks**; the dividends still come back for the
- *   review.
+ * - **No form while anything blocks**, here or in the ledger's own checks;
+ *   the dividends still come back for the review.
  */
 import {
+  compareText,
   Decimal,
-  deduplicate,
   diagnostic,
-  isIsin,
-  isIsoDate,
   dividendCredit,
   DIVIDEND_TAX_RATE,
+  eventId,
   hasBlocking,
   treatyDividendRate,
   type Diagnostic,
@@ -39,9 +39,9 @@ import {
   type DividendEvent,
   type IsoDate,
   type Money,
-  type LedgerEvent,
   type SecurityRef,
   type SourceRef,
+  type ValidatedLedger,
   type WithholdingEvent,
 } from "@taxreporter/core";
 import type { BsiRate, RateTable } from "@taxreporter/fx";
@@ -65,7 +65,7 @@ export interface PayerInfo extends DividendPayer {
 export interface DivBuildInput {
   readonly taxYear: number;
   readonly taxpayer: Taxpayer;
-  readonly events: readonly LedgerEvent[];
+  readonly ledger: ValidatedLedger;
   readonly rates: RateTable;
   /** Who pays each security's dividends, by ISIN. */
   readonly payers: ReadonlyMap<string, PayerInfo>;
@@ -112,7 +112,7 @@ export interface DividendsEstimate {
 export interface DivBuild {
   /**
    * Null when no dividend was paid in the year (there is no Doh-Div to
-   * file), or while a blocking diagnostic stands.
+   * file), or while a blocking diagnostic stands, here or in the ledger.
    */
   readonly form: DohDiv | null;
   readonly dividends: readonly BuiltDividend[];
@@ -120,62 +120,7 @@ export interface DivBuild {
   readonly diagnostics: readonly Diagnostic[];
 }
 
-/** Code-unit order: the same on every machine, unlike `localeCompare`. */
-const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
-
 const cents = (value: Decimal) => value.round(2, "halfUp");
-
-const CURRENCY = /^[A-Za-z]{3}$/;
-
-/** A property of a value of unknown shape. */
-function field(value: unknown, key: string): unknown {
-  return typeof value === "object" &&
-    value !== null &&
-    Object.hasOwn(value, key)
-    ? (value as Record<string, unknown>)[key]
-    : undefined;
-}
-
-const isText = (value: unknown): value is string =>
-  typeof value === "string" && value !== "";
-
-/** Why a dividend or withholding event cannot be used, or null. */
-function refusal(event: DividendEvent | WithholdingEvent): Diagnostic | null {
-  const source = field(event, "source");
-  const sourceOk =
-    isText(field(source, "file")) && Number.isSafeInteger(field(source, "row"));
-  const isin =
-    event.kind === "dividend"
-      ? field(field(event, "security"), "isin")
-      : field(event, "isin");
-  const money = field(event, event.kind === "dividend" ? "gross" : "amount");
-  const amount = field(money, "amount");
-  const currency = field(money, "currency");
-  const ok =
-    sourceOk &&
-    isText(field(event, "key")) &&
-    isText(field(event, "broker")) &&
-    isIsoDate(field(event, "date")) &&
-    isIsin(isin) &&
-    amount instanceof Decimal &&
-    typeof currency === "string" &&
-    CURRENCY.test(currency) &&
-    (event.kind === "dividend" || isText(field(event, "dividendKey")));
-  if (ok) return null;
-  const date = field(event, "date");
-  return diagnostic(
-    "blocking",
-    event.kind === "dividend" ? "invalidDividend" : "invalidWithholding",
-    {
-      ...(typeof isin === "string" && isIsin(isin) ? { isin } : {}),
-      ...(typeof date === "string" && isIsoDate(date) ? { date } : {}),
-    },
-    sourceOk ? event.source : undefined,
-  );
-}
-
-/** An event's identity: its key is unique only within its broker. */
-const identity = (broker: string, key: string) => JSON.stringify([broker, key]);
 
 /** A payer ID as eDavki compares it: case and spacing aside. */
 const idKey = (id: string) => id.replace(/\s+/g, "").toUpperCase();
@@ -187,31 +132,21 @@ export function buildDohDiv(input: DivBuildInput): DivBuild {
   if (!isTaxYear(input.taxYear)) {
     throw new RangeError("taxYear must be a whole year from 2013");
   }
-  // The engine checks trades; dividends and the tax on them are checked
-  // here, and one that fails blocks without its text being echoed.
   const diagnostics: Diagnostic[] = [];
-  const checked: (DividendEvent | WithholdingEvent)[] = [];
-  for (const event of input.events) {
-    if (event.kind !== "dividend" && event.kind !== "withholding") continue;
-    const problem = refusal(event);
-    if (problem === null) checked.push(event);
-    else diagnostics.push(problem);
-  }
-  const { events, diagnostics: dedup } = deduplicate(checked);
-  diagnostics.push(...dedup);
   const lookup = rateLookup(input.rates, diagnostics);
+  const { events } = input.ledger;
 
   const dividends = new Map<string, DividendEvent>();
   for (const event of events) {
-    if (event.kind === "dividend") {
-      dividends.set(identity(event.broker, event.key), event);
-    }
+    if (event.kind === "dividend") dividends.set(eventId(event), event);
   }
   const withheld = new Map<string, WithholdingEvent[]>();
   for (const event of events) {
     if (event.kind !== "withholding") continue;
-    // A withholding names its dividend's key within its own broker.
-    const dividend = dividends.get(identity(event.broker, event.dividendKey));
+    // A withholding names its dividend's key within its own account.
+    const dividend = dividends.get(
+      eventId({ account: event.account, key: event.dividendKey }),
+    );
     // Each finding is reported by the return of the year it was booked in.
     if (dividend === undefined) {
       if (inYear(event.date)) {
@@ -247,8 +182,8 @@ export function buildDohDiv(input: DivBuildInput): DivBuild {
         );
       }
     } else {
-      const at = identity(dividend.broker, dividend.key);
-      withheld.set(at, [...(withheld.get(at) ?? []), event]);
+      const id = eventId(dividend);
+      withheld.set(id, [...(withheld.get(id) ?? []), event]);
     }
   }
 
@@ -256,10 +191,12 @@ export function buildDohDiv(input: DivBuildInput): DivBuild {
     .filter((d) => inYear(d.date))
     .sort(
       (a, b) =>
-        compare(a.date, b.date) ||
-        compare(a.security.isin, b.security.isin) ||
-        compare(a.broker, b.broker) ||
-        compare(a.key, b.key),
+        compareText(a.date, b.date) ||
+        compareText(a.security.isin, b.security.isin) ||
+        compareText(a.at.instant ?? "", b.at.instant ?? "") ||
+        compareText(a.broker, b.broker) ||
+        compareText(a.account, b.account) ||
+        compareText(a.key, b.key),
     );
 
   const once = new Set<string>();
@@ -288,8 +225,7 @@ export function buildDohDiv(input: DivBuildInput): DivBuild {
     if (rate === null) continue;
 
     // The tax converts at the payment date's rate, in its own currency.
-    const withholdings =
-      withheld.get(identity(dividend.broker, dividend.key)) ?? [];
+    const withholdings = withheld.get(eventId(dividend)) ?? [];
     let foreignTax = Decimal.ZERO;
     let convertible = true;
     for (const w of withholdings) {
@@ -437,10 +373,17 @@ export function buildDohDiv(input: DivBuildInput): DivBuild {
   // The writer's own rules, run here so that a form handed out is one the
   // writer takes: a payer's details can still break them. Only when nothing
   // else blocks, so the review shows causes, not their echoes.
-  if (records.length > 0 && !hasBlocking(diagnostics)) {
-    diagnostics.push(...formIssues(validateDohDiv(draft)));
+  const ledgerBlocks = hasBlocking(input.ledger.diagnostics);
+  if (records.length > 0 && !ledgerBlocks && !hasBlocking(diagnostics)) {
+    // One by one: spread into a call, a long list overflows the stack.
+    for (const issue of formIssues(validateDohDiv(draft))) {
+      diagnostics.push(issue);
+    }
   }
-  const form = records.length === 0 || hasBlocking(diagnostics) ? null : draft;
+  const form =
+    records.length === 0 || ledgerBlocks || hasBlocking(diagnostics)
+      ? null
+      : draft;
   return { form, dividends: built, estimate, diagnostics };
 }
 

@@ -7,6 +7,13 @@
 > this ADR yet beyond the package skeleton. Remove this note when the first implementation
 > merges.
 >
+> **Superseded in part by [ADR 0011](0011-import-contract-for-broker-files.md) (2026-10-08).**
+> The note below describes the contract before ADR 0011. Under ADR 0011, an event's identity is
+> its account and its key, and the checks live in `validateLedger`
+> (`packages/core/src/validate.ts`), not in the engine. A day's events are ordered by the
+> brokers' timestamps first, and splits merge per account. Provenance is a file ID, part and
+> row, never a file name.
+>
 > **Ledger contract as implemented (2026-10-08, `packages/core/src/fifo.ts`).** An event's
 > identity is its broker and its key: two brokers' keys never collide. A repeat from another
 > file with the same content is an overlap and is dropped (counted); a repeat inside one file,

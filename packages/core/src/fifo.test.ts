@@ -3,13 +3,13 @@ import "./ledger.js";
 
 import { describe, expect, it } from "vitest";
 
-import { ISIN, split, trade } from "../test/events.js";
-import { Decimal } from "./decimal.js";
+import { account, ISIN, split, trade, validated } from "../test/events.js";
+import type { Decimal } from "./decimal.js";
 import { matchFifo } from "./fifo.js";
 import type { LedgerEvent } from "./ledger.js";
 
 const history = (events: LedgerEvent[]) => {
-  const result = matchFifo(events);
+  const result = matchFifo(validated(events));
   const apple = result.securities.get(ISIN);
   if (apple === undefined) throw new Error("no history");
   return { ...result, apple };
@@ -92,32 +92,6 @@ describe("matchFifo", () => {
     ]);
   });
 
-  it("drops events read twice from overlapping exports, and says so", () => {
-    const buy = trade("buy", "2025-01-02", "10");
-    const { apple, diagnostics } = history([
-      buy,
-      trade("sell", "2026-03-01", "10"),
-      { ...buy, source: { file: "other.csv", row: 1 } },
-    ]);
-    expect(apple.purchases).toHaveLength(1);
-    expect(apple.open).toEqual([]);
-    expect(diagnostics).toEqual([
-      { severity: "info", code: "duplicatesRemoved", params: { count: 1 } },
-    ]);
-  });
-
-  it("refuses a split with a zero side and a trade without quantity", () => {
-    const { diagnostics } = history([
-      trade("buy", "2025-01-02", "10"),
-      split("2025-06-02", "0", "2"),
-      trade("buy", "2025-07-02", "0"),
-    ]);
-    expect(diagnostics.map((x) => x.code)).toEqual([
-      "invalidSplit",
-      "invalidTrade",
-    ]);
-  });
-
   it("keeps the first name and symbol any event carried", () => {
     const { apple } = history([
       trade("buy", "2025-01-02", "1", "1", { security: { isin: ISIN } }),
@@ -131,10 +105,7 @@ describe("matchFifo", () => {
   it("applies a split once when several brokers report it", () => {
     const events = [
       trade("buy", "2025-01-02", "10"),
-      trade("buy", "2025-01-02", "10", "100", {
-        broker: "trading212",
-        source: { file: "t212.csv", row: 1 },
-      }),
+      trade("buy", "2025-01-02", "10", "100", { broker: "trading212" }),
       split("2025-06-10", "1", "4"),
       split("2025-06-12", "2", "8", "trading212"),
     ];
@@ -164,10 +135,7 @@ describe("matchFifo", () => {
     const between = history([
       trade("buy", "2025-01-02", "10"),
       split("2025-06-10", "1", "4"),
-      trade("buy", "2025-06-11", "5", "50", {
-        broker: "trading212",
-        source: { file: "t212.csv", row: 2 },
-      }),
+      trade("buy", "2025-06-11", "5", "50", { broker: "trading212" }),
       split("2025-06-12", "1", "4", "trading212"),
     ]);
     expect(between.diagnostics).toEqual([
@@ -196,100 +164,11 @@ describe("matchFifo", () => {
     expect(many.apple.splits).toHaveLength(32);
   });
 
-  it("refuses events it cannot trust, without repeating what they say", () => {
-    const bad = (overrides: Record<string, unknown>) =>
-      ({ ...trade("buy", "2025-01-02", "1"), ...overrides }) as never;
-    const { diagnostics } = matchFifo([
-      bad({ date: "2025-1-2" }),
-      bad({ security: { isin: "us0378331005" } }),
-      bad({ side: "BUY" }),
-      bad({ price: { amount: Decimal.parse("-1"), currency: "USD" } }),
-      bad({ price: { amount: Decimal.parse("1"), currency: "U1234567" } }),
-      { ...trade("buy", "2025-01-02", "1"), kind: "spinoff" } as never,
-      { ...split("2025-06-10", "2", "3"), to: Decimal.parse("1.5") },
-      { ...split("2025-06-10", "1", "2"), to: Decimal.fromInteger(100_000) },
-    ]);
-    // Listed by file and row (ibkr.csv before test.csv), not as loaded.
-    expect(diagnostics.map((d) => [d.code, d.params])).toEqual([
-      ["invalidSplit", { isin: ISIN, date: "2025-06-10" }],
-      ["invalidSplit", { isin: ISIN, date: "2025-06-10" }],
-      ["invalidTrade", { isin: ISIN }],
-      ["invalidTrade", { date: "2025-01-02" }],
-      ["invalidTrade", { isin: ISIN, date: "2025-01-02" }],
-      ["invalidTrade", { isin: ISIN, date: "2025-01-02" }],
-      ["invalidTrade", { isin: ISIN, date: "2025-01-02" }],
-      ["unknownEvent", {}],
-    ]);
-    expect(JSON.stringify(diagnostics)).not.toContain("U1234567");
-  });
-
-  it("refuses a key repeated in one file, or reported twice with other content", () => {
-    const buy = trade("buy", "2025-01-02", "10");
-    const inFile = matchFifo([
-      buy,
-      { ...buy, source: { ...buy.source, row: 99 } },
-    ]);
-    expect(inFile.diagnostics.map((d) => d.code)).toEqual([
-      "duplicateKeyInFile",
-    ]);
-    const changed = matchFifo([
-      buy,
-      {
-        ...buy,
-        quantity: Decimal.parse("20"),
-        source: { file: "b.csv", row: 1 },
-      },
-    ]);
-    expect(changed.diagnostics.map((d) => d.code)).toEqual([
-      "duplicateKeyConflict",
-    ]);
-    // The same key from another broker is another trade.
-    const other = matchFifo([buy, { ...buy, broker: "trading212" }]);
-    expect(other.diagnostics).toEqual([]);
-    expect(other.securities.get(ISIN)?.purchases).toHaveLength(2);
-  });
-
-  it("keeps the report read first by file and row, whatever the order", () => {
-    const a = trade("buy", "2025-01-02", "10", "100", {
-      key: "same",
-      security: { isin: ISIN, name: "Apple Inc" },
-      source: { file: "a.csv", row: 5 },
-    });
-    const b = {
-      ...a,
-      security: { isin: ISIN, name: "APPLE INC." },
-      source: { file: "b.csv", row: 2 },
-    };
-    for (const order of [
-      [a, b],
-      [b, a],
-    ]) {
-      const { apple } = history(order);
-      expect(apple.security.name).toBe("Apple Inc");
-      expect(apple.purchases[0]?.source.file).toBe("a.csv");
-    }
-  });
-
-  it("blocks a key repeated inside any one file, not only the first", () => {
-    const a = trade("buy", "2025-01-02", "10", "100", {
-      key: "k",
-      source: { file: "a.csv", row: 1 },
-    });
-    const b1 = { ...a, source: { file: "b.csv", row: 1 } };
-    const b2 = { ...a, source: { file: "b.csv", row: 2 } };
-    const { diagnostics } = matchFifo([a, b1, b2]);
-    expect(diagnostics.map((d) => [d.code, d.source])).toEqual([
-      ["duplicatesRemoved", undefined],
-      ["duplicateKeyInFile", { file: "b.csv", row: 2 }],
-    ]);
-  });
-
   it("gives the same result whatever order the events come in", () => {
     const events = [
       trade("buy", "2025-02-03", "10", "100", { security: { isin: ISIN } }),
       trade("buy", "2025-02-03", "10", "130", {
         broker: "trading212",
-        source: { file: "t212.csv", row: 1 },
         security: { isin: ISIN, symbol: "AAPL", name: "Apple Inc." },
       }),
       trade("sell", "2026-05-04", "15"),
@@ -316,13 +195,10 @@ describe("matchFifo", () => {
     }
   });
 
-  it("warns when the order of one day's lots at two brokers decided a sale", () => {
+  it("warns when the order of one day's untimed lots decided a sale", () => {
     const { diagnostics } = history([
       trade("buy", "2025-02-03", "10", "100"),
-      trade("buy", "2025-02-03", "10", "130", {
-        broker: "trading212",
-        source: { file: "t212.csv", row: 1 },
-      }),
+      trade("buy", "2025-02-03", "10", "130", { broker: "trading212" }),
       trade("sell", "2026-05-04", "15"),
     ]);
     expect(diagnostics.map((d) => [d.code, d.params])).toEqual([
@@ -331,6 +207,90 @@ describe("matchFifo", () => {
         { isin: ISIN, date: "2026-05-04", purchased: "2025-02-03" },
       ],
     ]);
+  });
+
+  it("warns as well when one broker's untimed lots of a day decided a sale", () => {
+    const { diagnostics } = history([
+      trade("buy", "2025-02-03", "10", "100"),
+      trade("buy", "2025-02-03", "10", "130"),
+      trade("sell", "2026-05-04", "15"),
+    ]);
+    expect(diagnostics.map((d) => d.code)).toEqual(["sameDayLotOrder"]);
+    // At one price, the order cannot change the cost: nothing to say.
+    const same = history([
+      trade("buy", "2025-02-03", "10", "100"),
+      trade("buy", "2025-02-03", "10", "100"),
+      trade("sell", "2026-05-04", "15"),
+    ]);
+    expect(same.diagnostics).toEqual([]);
+  });
+
+  it("takes one day's lots in the order the brokers' clocks give", () => {
+    const at = (instant: string) => ({ instant, brokerDate: null });
+    const late = trade("buy", "2025-02-03", "10", "130", {
+      broker: "trading212",
+      at: at("2025-02-03T15:30:00Z"),
+    });
+    const early = trade("buy", "2025-02-03", "10", "100", {
+      broker: "trading212",
+      at: at("2025-02-03T09:00:00Z"),
+    });
+    // Another broker's lot an hour later still comes between them.
+    const ibkr = trade("buy", "2025-02-03", "1", "120", {
+      at: at("2025-02-03T10:00:00Z"),
+    });
+    const { apple, diagnostics } = history([
+      late,
+      ibkr,
+      early,
+      trade("sell", "2026-05-04", "15"),
+    ]);
+    expect(apple.disposals[0]?.matches.map((m) => m.purchase)).toEqual([
+      early,
+      ibkr,
+      late,
+    ]);
+    expect(diagnostics).toEqual([]);
+
+    // Two prices at one instant leave the order open again.
+    const tied = history([
+      trade("buy", "2025-02-03", "10", "100", {
+        at: at("2025-02-03T09:00:00Z"),
+      }),
+      trade("buy", "2025-02-03", "10", "130", {
+        at: at("2025-02-03T09:00:00Z"),
+      }),
+      trade("sell", "2026-05-04", "15"),
+    ]);
+    expect(tied.diagnostics.map((d) => d.code)).toEqual(["sameDayLotOrder"]);
+  });
+
+  it("lets a trade in the account that reported a split first stand", () => {
+    // Account 2 books the split two days after account 1. Account 1's own
+    // trade in between is in its new shares; nothing is ambiguous.
+    const { apple, diagnostics } = history([
+      trade("buy", "2025-01-02", "10"),
+      trade("buy", "2025-01-02", "10", "100", { account: account("ibkr", 2) }),
+      split("2025-06-10", "1", "4"),
+      trade("buy", "2025-06-11", "4", "25"),
+      split("2025-06-12", "1", "4", "ibkr", 2),
+    ]);
+    expect(diagnostics.map((d) => d.code)).toEqual(["splitReportsMerged"]);
+    expect(shares(apple.open)).toEqual(["40", "40", "4"]);
+  });
+
+  it("applies a split once when two accounts at one broker report it", () => {
+    const { apple, diagnostics } = history([
+      trade("buy", "2025-01-02", "10"),
+      trade("buy", "2025-01-02", "10", "100", {
+        account: account("ibkr", 2),
+      }),
+      split("2025-06-10", "1", "4"),
+      split("2025-06-10", "1", "4", "ibkr", 2),
+    ]);
+    expect(apple.splits).toHaveLength(1);
+    expect(shares(apple.open)).toEqual(["40", "40"]);
+    expect(diagnostics.map((d) => d.code)).toEqual(["splitReportsMerged"]);
   });
 
   it("warns of a purchase at no cost, which may be income", () => {

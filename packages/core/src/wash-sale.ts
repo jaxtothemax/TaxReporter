@@ -16,16 +16,15 @@
  *   window purchases included, keeps the whole loss).
  *
  * Which shares a sale lost on depends on EUR values, so the caller decides
- * that and passes the loss sales in, each with its loss quantity. Family members and companies the taxpayer
- * holds 25% of are the other trigger of the rule; broker data cannot show
- * them, so the app has to ask.
+ * that and passes the loss sales in, each with its loss quantity. Family
+ * members and companies the taxpayer holds 25% of are the other trigger of
+ * the rule; broker data cannot show them, so the app has to ask.
  */
-import { isIsoDate } from "./dates.js";
+import { isIsoDate, type IsoDate } from "./dates.js";
 import { Decimal } from "./decimal.js";
-import { compareText, type Disposal, type SecurityHistory } from "./fifo.js";
-import type { TradeEvent } from "./ledger.js";
+import { chronological, type Disposal, type SecurityHistory } from "./fifo.js";
 import { addDays } from "./holding.js";
-import type { IsoDate, SplitEvent } from "./ledger.js";
+import type { SplitEvent, TradeEvent } from "./ledger.js";
 
 export const WASH_SALE_DAYS = 30;
 
@@ -89,10 +88,10 @@ export interface LossSale {
 /**
  * Verdicts for the loss sales of one security, by the sale event itself.
  * Purchases and sales are told apart as the objects FIFO matched, never by
- * key: a key is unique only within its broker, and two brokers' purchases
- * under one key are two purchases. Sales are taken in date order whatever
- * order they come in, ties by broker and key, so the result never depends
- * on how files were loaded.
+ * key: a key is unique only within its account, and two accounts' purchases
+ * under one key are two purchases. Purchases and sales are taken in the
+ * order they happened, whatever order they come in, so the result never
+ * depends on how files were loaded.
  * Losses of earlier years belong in `losses` too: a purchase that replaced
  * a December loss cannot replace a January one as well.
  */
@@ -105,12 +104,7 @@ export function washSaleVerdicts(
   if (!isIsoDate(coverageEnd)) {
     throw new RangeError("coverageEnd must be an ISO date (YYYY-MM-DD)");
   }
-  const purchases = [...history.purchases].sort(
-    (a, b) =>
-      compareText(a.date, b.date) ||
-      compareText(a.broker, b.broker) ||
-      compareText(a.key, b.key),
-  );
+  const purchases = [...history.purchases].sort(chronological);
   // Replacement capacity left per purchase, in that purchase's own shares.
   const capacity = new Map<TradeEvent, Decimal>(
     purchases.map((p) => [p, p.quantity]),
@@ -118,12 +112,7 @@ export function washSaleVerdicts(
   const verdicts = new Map<TradeEvent, WashSaleVerdict>();
   const ordered = losses
     .filter((loss) => loss.quantity.isPositive())
-    .sort(
-      (a, b) =>
-        compareText(a.disposal.sale.date, b.disposal.sale.date) ||
-        compareText(a.disposal.sale.broker, b.disposal.sale.broker) ||
-        compareText(a.disposal.sale.key, b.disposal.sale.key),
-    );
+    .sort((a, b) => chronological(a.disposal.sale, b.disposal.sale));
 
   for (const { disposal, quantity } of ordered) {
     const sale = disposal.sale;

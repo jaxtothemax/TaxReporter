@@ -5,7 +5,10 @@
 import { readFileSync } from "node:fs";
 
 import {
-  deduplicate,
+  fileIdOf,
+  forExport,
+  matchFifo,
+  validateLedger,
   type LedgerEvent,
   type TradeEvent,
 } from "@taxreporter/core";
@@ -20,14 +23,19 @@ const fixture = (file: string) =>
     "utf8",
   );
 
-const imported = (file: string) => importFile(file, fixture(file));
+/** An export's text, imported as its bytes into account group 1. */
+function read(text: string): ImportResult {
+  const bytes = new TextEncoder().encode(text);
+  return importFile({ bytes, fileId: fileIdOf(bytes), accountGroup: 1 });
+}
+
+const imported = (file: string) => read(fixture(file));
 
 const V4_HEADER =
   "Action,Time (UTC),ISIN,Ticker,Name,Notes,ID,No. of shares,Price / share,Currency (Price / share),Exchange rate,Result,Currency (Result),Total,Currency (Total),Withholding tax,Currency (Withholding tax)";
 
 /** A V4 export of the given rows (17 columns each). */
-const v4 = (...rows: string[]) =>
-  importFile("t.csv", [V4_HEADER, ...rows].join("\n"));
+const v4 = (...rows: string[]) => read([V4_HEADER, ...rows].join("\n"));
 
 /**
  * The rows an import accounts for: events, ignored records and blocking
@@ -91,7 +99,9 @@ describe("the 2026 export (V4)", () => {
       "split",
       "ignored:pairedRow",
     ]);
-    expect(result.lastDate).toBe("2026-09-10");
+    expect(result.reach).toEqual([
+      { account: "trading212:1", lastDate: "2026-09-10" },
+    ]);
   });
 
   it("reads trades at the contract price in the instrument's currency", () => {
@@ -197,7 +207,7 @@ describe("earlier revisions", () => {
       "trade",
       "trade",
       "ignored:currencyConversion",
-      "ignored:other",
+      "ignored:cardSpending",
     ]);
   });
 });
@@ -212,7 +222,8 @@ describe("rows it refuses rather than guesses", () => {
       "Transfer in,2026-01-06 14:31:02+00:00,US1912161007,KO,Coca-Cola,,,2,69.5,USD,,,,,,,",
       "Dividend (Dividend manufactured payment),2026-01-06 14:31:02+00:00,US1912161007,KO,Coca-Cola,,,2,0.5,USD,,,,1,EUR,,",
     );
-    // The action is the file's text: the row says which, the finding not.
+    // The action is the file's text: the finding carries it only wrapped,
+    // for the screen, and every export drops it.
     expect(result.diagnostics.map((d) => [d.code, d.params])).toEqual([
       [
         "unknownAction",
@@ -232,10 +243,11 @@ describe("rows it refuses rather than guesses", () => {
 
   it("a column it does not know, once any row fills it", () => {
     const header = `${V4_HEADER},Bonus`;
-    const empty = importFile("t.csv", `${header}\n${BUY},`);
+    const empty = read(`${header}\n${BUY},`);
     expect(empty.diagnostics).toEqual([]);
-    const filled = importFile("t.csv", `${header}\n${BUY},1`);
-    // The column by its position: a header name is the file's text.
+    const filled = read(`${header}\n${BUY},1`);
+    // The column by its position; its name is the file's text, so it is
+    // carried only wrapped, for the screen.
     expect(filled.diagnostics).toEqual([
       {
         severity: "blocking",
@@ -356,8 +368,7 @@ describe("limits and shapes", () => {
 
   it("takes a file as a CFD export only beside T212's own columns", () => {
     expect(
-      importFile("x.csv", "RecordType,Date,Amount\nX,2026-01-01,5\n")
-        .diagnostics,
+      read("RecordType,Date,Amount\nX,2026-01-01,5\n").diagnostics,
     ).toEqual([{ severity: "blocking", code: "unknownFormat", params: {} }]);
   });
 });
@@ -399,19 +410,24 @@ describe("splitRatio", () => {
 
 describe("overlapping exports", () => {
   it("give the same keys, so the second copy of each event is dropped", () => {
-    const first = imported("t212-invest-v4-2026.csv");
-    const second = importFile("again.csv", fixture("t212-invest-v4-2026.csv"));
+    const text = fixture("t212-invest-v4-2026.csv");
+    const first = read(text);
+    // The same rows in another file: an export that ends with a blank line.
+    const second = read(`${text}\n`);
+    expect(second.events[0]?.source.fileId).not.toBe(
+      first.events[0]?.source.fileId,
+    );
     const all: LedgerEvent[] = [...first.events, ...second.events];
-    const { events, diagnostics } = deduplicate(all);
+    const ledger = validateLedger(all);
     const keyed = first.events.filter((e) => e.kind !== "ignored").length;
-    expect(diagnostics).toEqual([
+    expect(ledger.diagnostics).toEqual([
       {
         severity: "info",
         code: "duplicatesRemoved",
         params: { count: keyed },
       },
     ]);
-    expect(events.length).toBe(all.length - keyed);
+    expect(ledger.events.length).toBe(all.length - keyed);
   });
 
   it("keep two identical rows of one file apart: they are two fills", () => {
@@ -420,14 +436,91 @@ describe("overlapping exports", () => {
     const result = v4(row, row);
     const keys = result.events.map((e) => (e.kind === "ignored" ? "" : e.key));
     expect(new Set(keys).size).toBe(2);
-    expect(deduplicate(result.events).diagnostics).toEqual([]);
+    expect(validateLedger(result.events).diagnostics).toEqual([]);
+  });
+});
+
+describe("what an import holds", () => {
+  it("orders a day's purchases by their time, whatever the action", () => {
+    // A market buy in the morning, a limit buy in the afternoon: FIFO sells
+    // the morning's shares first, though "Limit" sorts before "Market".
+    const result = v4(
+      "Limit buy,2026-02-03 14:00:00+00:00,US1912161007,KO,Coca-Cola,,EOF2,10,130,USD,,,,1,EUR,,",
+      "Market buy,2026-02-03 08:00:00+00:00,US1912161007,KO,Coca-Cola,,EOF1,10,100,USD,,,,1,EUR,,",
+      "Market sell,2026-05-04 12:00:00+00:00,US1912161007,KO,Coca-Cola,,EOF3,15,120,USD,,,,1,EUR,,",
+    );
+    const fifo = matchFifo(validateLedger(result.events));
+    const sale = fifo.securities.get("US1912161007")?.disposals[0];
+    expect(
+      sale?.matches.map((m) => [
+        m.purchase.price.amount.toString(),
+        m.quantity.toString(),
+      ]),
+    ).toEqual([
+      ["100", "10"],
+      ["130", "5"],
+    ]);
+    expect(fifo.diagnostics).toEqual([]);
+  });
+
+  it("names a column by the adapter's name, never by the header the file wrote", () => {
+    const header =
+      "Action,Time,ISIN,Ticker,Name,No. of shares,Price / share,Currency (Price / share),Total (XYZ)";
+    const result = read(
+      `${header}\nMarket buy,2022-03-02 10:00:00,US1912161007,KO,Coca-Cola,1,50,USD,1e3\n`,
+    );
+    expect(result.diagnostics.map((d) => [d.code, d.params])).toEqual([
+      ["invalidNumber", { column: "Total" }],
+    ]);
+  });
+
+  it("names the file by its ID and puts every row in the file's account", () => {
+    const text = fixture("t212-invest-v4-2026.csv");
+    const bytes = new TextEncoder().encode(text);
+    const result = importFile({
+      bytes,
+      fileId: fileIdOf(bytes),
+      accountGroup: 2,
+    });
+    expect(new Set(result.events.map((e) => e.source.fileId))).toEqual(
+      new Set([fileIdOf(bytes)]),
+    );
+    expect(new Set(result.events.map((e) => e.account))).toEqual(
+      new Set(["trading212:2"]),
+    );
+    expect(validateLedger(result.events).diagnostics).toEqual([]);
+  });
+
+  it("keeps the broker's clock beside each date", () => {
+    const [buy] = v4(
+      "Market buy,2026-07-15 22:30:00.123+00:00,US1912161007,KO,Coca-Cola,,EOF1,2,69.5,USD,,,,118.55,EUR,,",
+    ).events;
+    expect(buy).toMatchObject({
+      date: "2026-07-16",
+      at: { instant: "2026-07-15T22:30:00Z", brokerDate: "2026-07-15" },
+    });
+  });
+
+  it("keeps order IDs and notes out of every key and exported finding", () => {
+    const canary = (n: number) => `CANARY${String(n)}`;
+    const result = v4(
+      `Market buy,2026-01-06 14:31:02+00:00,US1912161007,KO,Coca-Cola,${canary(1)},${canary(2)},2,69.5,USD,,,,118.55,EUR,,`,
+      `Gift card,2026-01-06 14:31:02+00:00,,,,${canary(3)},${canary(4)},,,,,,,5,EUR,,`,
+      `Market buy,2026-01-06 14:31:02+00:00,US1912161007,KO,Coca-Cola,,${canary(5)},x,69.5,USD,,,,1,EUR,,`,
+    );
+    const keys = result.events.map((e) => (e.kind === "ignored" ? "" : e.key));
+    const exported = result.diagnostics.map(forExport);
+    expect(JSON.stringify([keys, exported])).not.toContain("CANARY");
+    expect(exported.map((d) => d.code)).toEqual([
+      "unknownAction",
+      "invalidNumber",
+    ]);
   });
 });
 
 describe("importFile", () => {
   it("refuses a CFD account's export by name", () => {
-    const result = importFile(
-      "cfd.csv",
+    const result = read(
       "RecordType,Time,Ticker,Quantity\nCLOSED_POSITION,2026-01-06 14:31:02,KO,2\n",
     );
     expect(result.diagnostics.map((d) => d.code)).toEqual([
@@ -436,15 +529,19 @@ describe("importFile", () => {
   });
 
   it("refuses a file no adapter knows, or that is not CSV at all", () => {
-    expect(
-      importFile("x.csv", "Date,Amount\n2026-01-01,5\n").diagnostics,
-    ).toEqual([{ severity: "blocking", code: "unknownFormat", params: {} }]);
-    expect(importFile("x.csv", 'A,B\n"open\n').diagnostics).toEqual([
+    expect(read("Date,Amount\n2026-01-01,5\n").diagnostics).toEqual([
+      { severity: "blocking", code: "unknownFormat", params: {} },
+    ]);
+    expect(read('A,B\n"open\n').diagnostics).toEqual([
       {
         severity: "blocking",
         code: "unreadableFile",
         params: { reason: "unterminatedQuote", row: 2 },
       },
+    ]);
+    // XML goes to the XML family, which has no adapter yet.
+    expect(read(" \n<FlexQueryResponse/>").diagnostics).toEqual([
+      { severity: "blocking", code: "unknownFormat", params: {} },
     ]);
   });
 

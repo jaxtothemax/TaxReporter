@@ -145,6 +145,13 @@ adapter never touches them. A new adapter PR needs:
   header revision under `packages/brokers/test/fixtures/<broker>/`;
 - every input row accounted for: an event, an explicit "ignored (reason)" record, or a
   blocking diagnostic — nothing is dropped silently;
+- the import contract of `docs/adr/0011-import-contract-for-broker-files.md`:
+  - `read` takes a `ReadContext`, the file's ID and account group, and never sees a file
+    name;
+  - every event carries its account, the broker's own clock (`at`) and a key from core's
+    `keyBuilder()`;
+  - dates come from core's `taxDate`, never from a rule of the adapter's own;
+  - text copied from the file reaches a finding only through `untrusted()`;
 - synthetic or anonymized fixtures only, plus a short `docs/research/` note on where the
   format is documented and which fields are trusted;
 - the `security-review` and `regression-check` agents run on the branch (see the

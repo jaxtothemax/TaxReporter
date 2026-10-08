@@ -190,6 +190,8 @@ The form supports this. The instructions require one inventory list per security
 
 *Ambiguity:* the law says "same-kind" (*istovrstni*). Using ISIN as the identity key is the practical choice, but ISIN changes after corporate actions need explicit linking.
 
+*Lots bought on the same day.* Art. 103(1) orders lots by when they were acquired. FURS gives no worked example for two lots bought on one day. Where an export records the time of each trade (Trading 212 to the second, in UTC), that time decides which lot is first. Where it does not, the order of that day's lots is unknown. The tool then picks a fixed order and warns when that order decided which lot a sale used (ADR 0011 §7).
+
 ### 4.5 Holding period
 
 The holding period runs from the acquisition date to the disposal date. The text says "po dopolnjenih petih letih" (after five completed years). FURS publishes no worked example of the boundary day; see open questions. Under FIFO each matched lot has its own holding period, so one sale can fall into several rate buckets.
@@ -492,6 +494,7 @@ An independent verifier re-checked all 25 critical claims against the PISRS cons
 
 ## Open questions
 
+- Lots bought on the same day: is the time of acquisition the order Art. 103(1) means, and what applies when an export gives no time (§4.4)? No FURS example covers it.
 - Which BSI rate to use when no reference rate is published that day (weekends, TARGET holidays)? BSI says rates have no prescribed validity period, and no FURS primary text was found. Prior art (ib-edavki) uses the last earlier published rate. This should be cross-checked with the BSI research note and ideally with a FURS written answer. ([03 §9](03-bsi-exchange-rates.md#9-weekends-holidays-and-target-closing-days): BSI's own lookup returns the last list on or before the day; verified as website behavior, not law.)
 - Boundary-day counting for "po dopolnjenih 5/10 letih" and "po 15 letih imetništva": does a sale on the exact anniversary date already get the lower rate or exemption? eDavki computes the tax, so test with real filings.
 - XML semantics of Doh-KDVP `Sale/F10`: settled from primary sources as `true` = the loss may reduce the base ([01 §5.2](01-furs-doh-kdvp.md#52-securities-plvp-securitieswithcontract-is-the-same-plus-stockexchangename-max-30-after-isfond)); an eDavki import test in January 2027 is still to confirm it. Prior-art tools disagree.

@@ -22,7 +22,7 @@ export const LIMITS = Object.freeze({
   splitTerm: 10_000,
   /** Splits on one security over its whole history. */
   splitsPerSecurity: 32,
-  /** Brokers' reports of one split the engine expects at most. */
+  /** Accounts' reports of one split the engine expects at most. */
   splitReporters: 4,
   /** Findings for one file, then one saying how many more there were. */
   diagnosticsPerFile: 1000,

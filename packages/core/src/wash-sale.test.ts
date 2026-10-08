@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { ISIN, split, trade } from "../test/events.js";
+import { ISIN, key, split, trade, validated } from "../test/events.js";
 import { Decimal } from "./decimal.js";
 import { matchFifo } from "./fifo.js";
 import type { LedgerEvent } from "./ledger.js";
@@ -16,7 +16,7 @@ function verdicts(
   lossDates: string[],
   coverageEnd = "2026-12-31",
 ) {
-  const history = matchFifo(events).securities.get(ISIN);
+  const history = matchFifo(validated(events)).securities.get(ISIN);
   if (history === undefined) throw new Error("no history");
   const losses = history.disposals.filter((x) =>
     lossDates.includes(x.sale.date),
@@ -143,11 +143,13 @@ describe("washSaleVerdicts", () => {
   });
 
   it("needs replacing only the shares sold at a loss", () => {
-    const history = matchFifo([
-      trade("buy", "2025-01-02", "20"),
-      trade("sell", "2026-03-01", "15"),
-      trade("buy", "2026-03-10", "5"),
-    ]).securities.get(ISIN);
+    const history = matchFifo(
+      validated([
+        trade("buy", "2025-01-02", "20"),
+        trade("sell", "2026-03-01", "15"),
+        trade("buy", "2026-03-10", "5"),
+      ]),
+    ).securities.get(ISIN);
     if (history === undefined) throw new Error("no history");
     const [disposal] = history.disposals;
     if (disposal === undefined) throw new Error("no sale");
@@ -163,17 +165,18 @@ describe("washSaleVerdicts", () => {
     ]);
   });
 
-  it("counts a replacement bought at another broker under the same key", () => {
-    // Keys are unique only within a broker: Trading 212's purchase "t1"
-    // is not IBKR's sale "t1", and it still replaces the loss.
-    const buy = trade("buy", "2025-01-02", "10", "100", { key: "t1" });
-    const sale = trade("sell", "2026-03-01", "10", "80", { key: "t2" });
+  it("counts a replacement bought in another account under the same key", () => {
+    // Keys are unique only within an account: Trading 212's purchase "t1"
+    // is not IBKR's purchase "t1", and it still replaces the loss.
+    const buy = trade("buy", "2025-01-02", "10", "100", { key: key("t1") });
+    const sale = trade("sell", "2026-03-01", "10", "80", { key: key("t2") });
     const replacement = trade("buy", "2026-03-10", "10", "85", {
-      key: "t1",
+      key: key("t1"),
       broker: "trading212",
-      source: { file: "t212.csv", row: 1 },
     });
-    const history = matchFifo([buy, sale, replacement]).securities.get(ISIN);
+    const history = matchFifo(
+      validated([buy, sale, replacement]),
+    ).securities.get(ISIN);
     if (history === undefined) throw new Error("no history");
     const [disposal] = history.disposals;
     if (disposal === undefined) throw new Error("no sale");
@@ -189,9 +192,9 @@ describe("washSaleVerdicts", () => {
   });
 
   it("refuses a coverage date it cannot compare", () => {
-    const history = matchFifo([trade("buy", "2025-01-02", "1")]).securities.get(
-      ISIN,
-    );
+    const history = matchFifo(
+      validated([trade("buy", "2025-01-02", "1")]),
+    ).securities.get(ISIN);
     if (history === undefined) throw new Error("no history");
     expect(() => washSaleVerdicts(history, [], "2026-1-5")).toThrow(RangeError);
   });

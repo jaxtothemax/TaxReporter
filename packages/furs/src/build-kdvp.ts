@@ -1,6 +1,6 @@
 /**
- * Builds the Doh-KDVP return from ledger events: the inventory list of each
- * security sold in the tax year, its F10 column, and the tax estimate.
+ * Builds the Doh-KDVP return from a validated ledger: the inventory list of
+ * each security sold in the tax year, its F10 column, and the tax estimate.
  *
  * Choices, and why (docs/research/01-furs-doh-kdvp.md §8, 04 §4–§5):
  *
@@ -36,8 +36,10 @@
  *   characters the form refuses; they become spaces (`toPlainLine`), and
  *   two securities sharing a name get their ISIN after it, since the schema
  *   means names to be unique.
- * - **No form while anything blocks.** A missing rate or purchase leaves a
- *   list that does not add up, so the form is withheld; the lists and
+ * - **No form while anything blocks**, here or in the ledger's own checks.
+ *   A missing rate or purchase leaves a list that does not add up, and two
+ *   files that disagree leave the trades in doubt, so the form is withheld;
+ *   the lists and
  *   diagnostics still come back for the review. A form handed out has also
  *   passed the writer's own rules.
  */
@@ -60,7 +62,6 @@ import {
   type GainsEstimate,
   type HoldingBucket,
   type IsoDate,
-  type LedgerEvent,
   type LossSale,
   type LotMatch,
   type Money,
@@ -68,6 +69,7 @@ import {
   type SourceRef,
   type SplitEvent,
   type TradeEvent,
+  type ValidatedLedger,
 } from "@taxreporter/core";
 import type { BsiRate, RateTable } from "@taxreporter/fx";
 
@@ -82,7 +84,7 @@ import {
 export interface KdvpBuildInput {
   readonly taxYear: number;
   readonly taxpayer: Taxpayer;
-  readonly events: readonly LedgerEvent[];
+  readonly ledger: ValidatedLedger;
   readonly rates: RateTable;
   /**
    * The last day every imported account's exports cover: the earliest of
@@ -129,9 +131,10 @@ export interface BuiltList {
 export interface KdvpBuild {
   /**
    * Null when nothing taxable was sold in the year (there is no Doh-KDVP to
-   * file), or while a blocking diagnostic stands.
+   * file), or while a blocking diagnostic stands, here or in the ledger.
    */
   readonly form: DohKdvp | null;
+  /** The year's findings; the ledger's own are the caller's to show. */
   readonly lists: readonly BuiltList[];
   readonly estimate: GainsEstimate;
   readonly diagnostics: readonly Diagnostic[];
@@ -297,13 +300,7 @@ export function buildDohKdvp(input: KdvpBuildInput): KdvpBuild {
   }
   const yearStart = `${String(taxYear)}-01-01`;
   const yearEnd = `${String(taxYear)}-12-31`;
-  // Dividends are Doh-Div's; anything else, unknown kinds included, goes to
-  // the engine, which refuses what it cannot use.
-  const fifo = matchFifo(
-    input.events.filter(
-      (e) => e.kind !== "dividend" && e.kind !== "withholding",
-    ),
-  );
+  const fifo = matchFifo(input.ledger);
   const inYear = (date: IsoDate) => date >= yearStart && date <= yearEnd;
   const sold = new Set(
     [...fifo.securities.values()]
@@ -392,7 +389,8 @@ export function buildDohKdvp(input: KdvpBuildInput): KdvpBuild {
   // The writer's own rules, run here so that a form handed out is one the
   // writer takes. Only when nothing else blocks: a missing rate or purchase
   // leaves lists that break them too, and the review should show the cause.
-  if (lists.length > 0 && !hasBlocking(diagnostics)) {
+  const ledgerBlocks = hasBlocking(input.ledger.diagnostics);
+  if (lists.length > 0 && !ledgerBlocks && !hasBlocking(diagnostics)) {
     for (const issue of validateDohKdvp(draft)) {
       diagnostics.push(
         diagnostic("blocking", "formIssue", {
@@ -402,7 +400,10 @@ export function buildDohKdvp(input: KdvpBuildInput): KdvpBuild {
       );
     }
   }
-  const form = lists.length === 0 || hasBlocking(diagnostics) ? null : draft;
+  const form =
+    lists.length === 0 || ledgerBlocks || hasBlocking(diagnostics)
+      ? null
+      : draft;
   return { form, lists, estimate, diagnostics };
 
   function buildList(history: SecurityHistory): BuiltList | null {

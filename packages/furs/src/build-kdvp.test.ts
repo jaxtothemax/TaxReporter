@@ -1,6 +1,6 @@
 /**
- * The Doh-KDVP builder: ledger events and the committed BSI snapshot in,
- * inventory lists, F10 and the estimate out. The first suite rebuilds the
+ * The Doh-KDVP builder: a validated ledger and the committed BSI snapshot
+ * in, inventory lists, F10 and the estimate out. The first suite rebuilds the
  * web demo from its raw trades and has to land on the demo's figures, which
  * were worked out by hand from the same BSI lists (apps/web/src/demo).
  *
@@ -12,6 +12,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import {
   addDays,
   Decimal,
+  validateLedger,
   type DividendEvent,
   type LedgerEvent,
   type SecurityRef,
@@ -21,6 +22,7 @@ import {
 import { RateTable } from "@taxreporter/fx";
 import { describe, expect, it } from "vitest";
 
+import { account, fileId, key, onDate, validated } from "../test/events.js";
 import { validateAgainstSchema } from "../test/xsd.js";
 import { buildDohKdvp, type KdvpBuild } from "./build-kdvp.js";
 import { writeDohKdvp } from "./kdvp.js";
@@ -56,9 +58,11 @@ function trade(
   row += 1;
   return {
     kind: "trade",
-    key: `t${String(row)}`,
+    key: key(row),
     broker,
-    source: { file: `${broker}.csv`, row },
+    account: account(broker),
+    source: { fileId: fileId(broker), row },
+    at: onDate(date),
     side,
     date,
     security,
@@ -77,9 +81,11 @@ function split(
   row += 1;
   return {
     kind: "split",
-    key: `s${String(row)}`,
+    key: key(row),
     broker,
-    source: { file: `${broker}.csv`, row },
+    account: account(broker),
+    source: { fileId: fileId(broker), row },
+    at: onDate(date),
     date,
     isin: security.isin,
     from: Decimal.parse(from),
@@ -94,7 +100,7 @@ function build(
   return buildDohKdvp({
     taxYear: options.taxYear ?? 2026,
     taxpayer: { taxNumber: "12345678" },
-    events,
+    ledger: validated(events),
     rates,
     coverageEnd: options.coverageEnd ?? "2027-01-31",
   });
@@ -665,10 +671,10 @@ describe("buildDohKdvp", () => {
     const result = buildDohKdvp({
       taxYear: 2026,
       taxpayer: { taxNumber: "1234" },
-      events: [
+      ledger: validated([
         trade(SAP, "buy", "2025-01-02", "10", "100"),
         trade(SAP, "sell", "2026-03-02", "10", "120"),
-      ],
+      ]),
       rates,
       coverageEnd: "2027-01-31",
     });
@@ -682,23 +688,46 @@ describe("buildDohKdvp", () => {
     expect(result.form).toBeNull();
   });
 
-  it("leaves dividends, and their duplicates, to Doh-Div", () => {
+  it("leaves dividends to Doh-Div", () => {
     const payout: DividendEvent = {
       kind: "dividend",
-      key: "dividend-1",
+      key: key(9001),
       broker: "ibkr",
-      source: { file: "ibkr.csv", row: 1 },
+      account: account("ibkr"),
+      source: { fileId: fileId("ibkr"), row: 9001 },
+      at: onDate("2026-02-12"),
       date: "2026-02-12",
       security: SAP,
       gross: { amount: Decimal.parse("5"), currency: "EUR" },
     };
-    const result = build([
+    const sold = [
       trade(SAP, "buy", "2025-01-02", "10", "100"),
       trade(SAP, "sell", "2026-03-02", "10", "120"),
-      payout,
-      { ...payout, source: { file: "other.csv", row: 1 } },
-    ]);
+    ];
+    const result = build([...sold, payout]);
     expect(result.diagnostics).toEqual([]);
+    expect(result.lists).toEqual(build(sold).lists);
+  });
+
+  it("withholds the form while the ledger's own checks block", () => {
+    const events: LedgerEvent[] = [
+      trade(SAP, "buy", "2025-01-02", "10", "100"),
+      trade(SAP, "sell", "2026-03-02", "10", "120"),
+      { ...trade(ASML, "buy", "2026-04-01", "1", "600"), side: "BUY" } as never,
+    ];
+    const ledger = validateLedger(events);
+    expect(ledger.diagnostics.map((d) => d.code)).toEqual(["invalidTrade"]);
+    const result = buildDohKdvp({
+      taxYear: 2026,
+      taxpayer: { taxNumber: "12345678" },
+      ledger,
+      rates,
+      coverageEnd: "2027-01-31",
+    });
+    // The year's own findings are clean, and the lists are there to review.
+    expect(result.diagnostics).toEqual([]);
+    expect(result.lists).toHaveLength(1);
+    expect(result.form).toBeNull();
   });
 
   it("files nothing for a year without sales", () => {

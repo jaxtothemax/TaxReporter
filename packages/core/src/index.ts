@@ -10,14 +10,24 @@
  */
 export const PACKAGE = "@taxreporter/core";
 
-export { isIsoDate, type IsoDate } from "./dates.js";
+export { compareText } from "./compare.js";
+export {
+  instantMillis,
+  isIsoDate,
+  ljubljanaDate,
+  taxDate,
+  type IsoDate,
+  type TaxDate,
+} from "./dates.js";
 export { Decimal, MAX_DECIMAL_LENGTH, type RoundingMode } from "./decimal.js";
 export { isIsin } from "./isin.js";
 export { LIMITS } from "./limits.js";
 export {
   diagnostic,
+  fileRef,
   forExport,
   hasBlocking,
+  isFileRef,
   untrusted,
   UNTRUSTED_LENGTH,
   type Diagnostic,
@@ -25,6 +35,9 @@ export {
   type DiagnosticParams,
   type ExportedDiagnostic,
   type ExportedValue,
+  type FileRef,
+  type FileRefusal,
+  type NumberColumn,
   type UntrustedText,
   type Severity,
 } from "./diagnostics.js";
@@ -42,9 +55,7 @@ export {
   type LotBase,
 } from "./estimate.js";
 export {
-  compareText,
-  deduplicate,
-  eventId,
+  chronological,
   matchFifo,
   MAX_SPLIT_TERM,
   MAX_SPLITS,
@@ -65,9 +76,14 @@ export {
   type HoldingBucket,
 } from "./holding.js";
 export type {
+  AccountScope,
+  BrokerTime,
   DividendEvent,
+  EventKey,
+  FileId,
   IgnoredReason,
   IgnoredRow,
+  KeyedEvent,
   LedgerEvent,
   Money,
   SecurityRef,
@@ -76,6 +92,15 @@ export type {
   TradeEvent,
   WithholdingEvent,
 } from "./ledger.js";
+export {
+  accountGroup,
+  accountScope,
+  fileIdOf,
+  keyBuilder,
+  type KeyBuilder,
+  type KeyPart,
+} from "./keys.js";
+export { eventId, validateLedger, type ValidatedLedger } from "./validate.js";
 export {
   WASH_SALE_DAYS,
   washSaleVerdicts,

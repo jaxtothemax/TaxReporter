@@ -1,13 +1,21 @@
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { LIMITS } from "@taxreporter/core";
 import { RateTable } from "@taxreporter/fx";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { main, type Io } from "./index.js";
-import { readExport, uniqueLabels } from "./intake.js";
+import { printable, readExport, uniqueLabels } from "./intake.js";
 
 const root = new URL("../../../", import.meta.url);
 const path = (relative: string) => fileURLToPath(new URL(relative, root));
@@ -54,6 +62,30 @@ const payersFile = (dir: string) => {
 const history = [
   fixture("t212-invest-v3-2025.csv"),
   fixture("t212-invest-v4-2026.csv"),
+];
+
+const V4_HEADER =
+  "Action,Time (UTC),ISIN,Ticker,Name,Notes,ID,No. of shares,Price / share,Currency (Price / share),Exchange rate,Result,Currency (Result),Total,Currency (Total),Withholding tax,Currency (Withholding tax)";
+
+/** A Trading 212 V4 export of Coca-Cola purchases: [time, order ID]. */
+function purchases(dir: string, name: string, rows: [string, string][]) {
+  const path = join(dir, name);
+  const lines = rows.map(
+    ([time, id]) =>
+      `Market buy,${time}+00:00,US1912161007,KO,Coca-Cola,,${id},1,70,USD,,,,1,EUR,,`,
+  );
+  writeFileSync(path, [V4_HEADER, ...lines].join("\n"));
+  return path;
+}
+
+const args2026 = (out: string, ...extra: string[]) => [
+  "--year",
+  "2026",
+  "--tax-number",
+  "12345678",
+  "--out",
+  out,
+  ...extra,
 ];
 
 describe("taxreporter", () => {
@@ -170,6 +202,224 @@ describe("taxreporter", () => {
     expect(report.coverageEnd).toBe("2026-09-10");
   });
 
+  it("reads a file given twice once, and says so", () => {
+    const dir = scratch();
+    const result = run([
+      ...history,
+      history[1] ?? "",
+      "--year",
+      "2026",
+      "--tax-number",
+      "12345678",
+      "--out",
+      join(dir, "out"),
+      "--payers",
+      payersFile(dir),
+    ]);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(
+      "Skipped t212-invest-v4-2026.csv (2): the same file as t212-invest-v4-2026.csv.",
+    );
+    expect(result.stdout).not.toContain("duplicate");
+  });
+
+  it("takes as many exports as a session may hold, and refuses one more", () => {
+    const dir = scratch();
+    const args = (copies: number) => [
+      ...Array.from({ length: copies }, () => history[1] ?? ""),
+      "--year",
+      "2026",
+      "--tax-number",
+      "12345678",
+      "--out",
+      join(dir, String(copies)),
+      "--json",
+    ];
+    const full = run(args(LIMITS.filesPerSession));
+    expect(full.code).not.toBe(2);
+    expect(
+      (JSON.parse(full.stdout) as { repeats: unknown[] }).repeats,
+    ).toHaveLength(LIMITS.filesPerSession - 1);
+    const over = run(args(LIMITS.filesPerSession + 1));
+    expect([over.code, over.stderr]).toEqual([
+      2,
+      expect.stringContaining(
+        `at most ${String(LIMITS.filesPerSession)} exports`,
+      ),
+    ]);
+  });
+
+  it("takes Trading 212 exports as one account, or each as its own", () => {
+    const dir = scratch();
+    const args = (accounts: string, out: string) => [
+      ...history,
+      "--year",
+      "2026",
+      "--tax-number",
+      "12345678",
+      "--out",
+      join(dir, out),
+      "--payers",
+      payersFile(dir),
+      "--accounts",
+      accounts,
+    ];
+    expect(run(args("separate", "a")).code).toBe(0);
+    expect(run(args("same", "b")).code).toBe(0);
+    // Two years of one account: the lots are the same either way.
+    const xml = (out: string) =>
+      readFileSync(join(dir, out, "Doh_KDVP_2026.xml"), "utf8");
+    expect(xml("a")).toBe(xml("b"));
+    expect(run(args("both", "c")).code).toBe(2);
+  });
+
+  it("writes nothing while a row of an export is refused", () => {
+    const dir = scratch();
+    const export2026 = join(dir, "export.csv");
+    const giftCard =
+      "Gift card,2026-02-01 10:00:00+00:00,,,,,,,,,,,,5.00,EUR,,,,,,";
+    writeFileSync(
+      export2026,
+      `${readFileSync(fixture("t212-invest-v4-2026.csv"), "utf8")}${giftCard}\n`,
+    );
+    const out = join(dir, "out");
+    const result = run([
+      fixture("t212-invest-v3-2025.csv"),
+      export2026,
+      "--year",
+      "2026",
+      "--tax-number",
+      "12345678",
+      "--out",
+      out,
+      "--payers",
+      payersFile(dir),
+    ]);
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain("unknownAction");
+    expect(result.stdout).toContain("[export.csv, row 12]");
+    expect(result.stdout).not.toContain("Gift card");
+    expect(existsSync(out)).toBe(false);
+  });
+
+  it("names both files of an overlap that disagrees, and says what --accounts does", () => {
+    const dir = scratch();
+    const a = purchases(dir, "a.csv", [
+      ["2026-01-06 10:00:00", "EOF1"],
+      ["2026-02-10 10:00:00", "EOF2"],
+      ["2026-03-02 10:00:00", "EOF3"],
+    ]);
+    // Another account's export over February, taken for the same account.
+    const b = purchases(dir, "b.csv", [
+      ["2026-02-03 10:00:00", "EOF9"],
+      ["2026-02-20 10:00:00", "EOF8"],
+    ]);
+    const same = run([a, b, ...args2026(join(dir, "same"))]);
+    expect(same.code).toBe(1);
+    expect(same.stdout).toMatch(
+      /overlapMismatch {2}kind=trade from=2026-02-03 to=2026-02-20 first=(a|b)\.csv second=(a|b)\.csv/,
+    );
+    expect(same.stdout).toContain("run again with --accounts separate");
+    const separate = run([
+      a,
+      b,
+      ...args2026(join(dir, "separate"), "--accounts", "separate"),
+    ]);
+    expect(separate.stdout).not.toContain("overlapMismatch");
+    expect(separate.code).toBe(0);
+  });
+
+  it("blocks one account's overlapping exports taken for two accounts", () => {
+    const dir = scratch();
+    const again = join(dir, "again.csv");
+    // The same rows, ending in a blank line: another file of one account.
+    writeFileSync(again, `${readFileSync(history[1] ?? "", "utf8")}\n`);
+    const out = join(dir, "out");
+    const result = run([
+      history[0] ?? "",
+      history[1] ?? "",
+      again,
+      ...args2026(out, "--payers", payersFile(dir), "--accounts", "separate"),
+    ]);
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain("accountsShareEvents  kind=trade");
+    expect(result.stdout).toContain("run again without --accounts separate");
+    expect(existsSync(out)).toBe(false);
+  });
+
+  it("writes the same XML whatever order the files come in", () => {
+    const dir = scratch();
+    const xml = (out: string) =>
+      ["Doh_KDVP_2026.xml", "Doh_Div_2026.xml"].map((name) =>
+        readFileSync(join(dir, out, name), "utf8"),
+      );
+    for (const accounts of ["same", "separate"]) {
+      const orders = [history, [...history].reverse()];
+      for (const [i, files] of orders.entries()) {
+        const code = run([
+          ...files,
+          ...args2026(
+            join(dir, `${accounts}${String(i)}`),
+            "--payers",
+            payersFile(dir),
+            "--accounts",
+            accounts,
+          ),
+        ]).code;
+        expect(code).toBe(0);
+      }
+      expect(xml(`${accounts}1`)).toEqual(xml(`${accounts}0`));
+    }
+  });
+
+  it("writes a return only its owner may read, and flags one a later run did not write", () => {
+    const dir = scratch();
+    const out = join(dir, "out");
+    expect(
+      run([...history, ...args2026(out, "--payers", payersFile(dir))]).code,
+    ).toBe(0);
+    const kdvp = join(out, "Doh_KDVP_2026.xml");
+    if (process.platform !== "win32") {
+      expect(statSync(kdvp).mode & 0o777).toBe(0o600);
+    }
+    // Now an export with a row the adapter refuses: no return this time,
+    // and the one already there is not this run's.
+    const refused = join(dir, "export.csv");
+    writeFileSync(
+      refused,
+      `${readFileSync(history[1] ?? "", "utf8")}Gift card,2026-02-01 10:00:00+00:00,,,,,,,,,,,,5.00,EUR,,,,,,\n`,
+    );
+    const later = run([
+      history[0] ?? "",
+      refused,
+      ...args2026(out, "--payers", payersFile(dir)),
+    ]);
+    expect(later.code).toBe(1);
+    expect(later.stdout).toContain(
+      `Not this run's: ${kdvp} is from an earlier run`,
+    );
+    expect(existsSync(kdvp)).toBe(true);
+  });
+
+  it("never prints an order number, a note or a refused row's text", () => {
+    const dir = scratch();
+    const canary = join(dir, "export.csv");
+    writeFileSync(
+      canary,
+      [
+        V4_HEADER,
+        "Market buy,2026-01-06 10:00:00+00:00,US1912161007,KO,Coca-Cola,CANARYNOTE,CANARYORDER1,2,69.5,USD,,,,1,EUR,,",
+        "Market sell,2026-02-06 10:00:00+00:00,US1912161007,KO,Coca-Cola,,CANARYORDER2,x,70,USD,,,,1,EUR,,",
+        "CANARYACTION,2026-02-07 10:00:00+00:00,,,,CANARYNOTE,CANARYORDER3,,,,,,,1,EUR,,",
+      ].join("\n"),
+    );
+    for (const json of [[], ["--json"]]) {
+      const result = run([canary, ...args2026(join(dir, "out"), ...json)]);
+      expect(result.code).toBe(1);
+      expect(`${result.stdout}${result.stderr}`).not.toContain("CANARY");
+    }
+  });
+
   it("refuses a file that is not a text export, and writes nothing", () => {
     const dir = scratch();
     const zip = join(dir, "export.csv");
@@ -208,29 +458,52 @@ describe("taxreporter", () => {
 });
 
 describe("readExport", () => {
-  const file = (bytes: number[] | string) => {
+  const file = (bytes: number[]) => {
     const at = join(scratch(), "file.csv");
-    writeFileSync(at, typeof bytes === "string" ? bytes : Buffer.from(bytes));
+    writeFileSync(at, Buffer.from(bytes));
     return at;
   };
 
-  it("reads UTF-8 text by its base name, without a byte-order mark", () => {
+  it("reads a file's bytes by its base name, leaving what they are to importFile", () => {
     const at = file([0xef, 0xbb, 0xbf, 0x41, 0x0a]);
-    expect(readExport(at)).toEqual({ ok: true, name: "file.csv", text: "A\n" });
+    expect(readExport(at)).toEqual({
+      ok: true,
+      name: "file.csv",
+      bytes: new Uint8Array([0xef, 0xbb, 0xbf, 0x41, 0x0a]),
+    });
   });
 
-  it("refuses what is not a UTF-8 text file", () => {
+  it("refuses what is no regular file it can read", () => {
     const reason = (at: string) => {
       const intake = readExport(at);
       return intake.ok ? "read" : intake.reason;
     };
-    expect(reason(file([0xff, 0xfe, 0x41, 0x00]))).toBe("utf16");
-    expect(reason(file([0x25, 0x50, 0x44, 0x46, 0x2d]))).toBe("pdf");
-    expect(reason(file([0xd0, 0xcf, 0x11, 0xe0, 0xa1]))).toBe("spreadsheet");
-    expect(reason(file([0x41, 0x00, 0x42]))).toBe("binary");
-    expect(reason(file([0x41, 0xc3, 0x28]))).toBe("notUtf8");
     expect(reason(scratch())).toBe("notAFile");
     expect(reason(join(scratch(), "missing.csv"))).toBe("unreadable");
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "refuses a FIFO at once, rather than wait for a writer",
+    () => {
+      const fifo = join(scratch(), "export.csv");
+      execFileSync("mkfifo", [fifo]);
+      expect(readExport(fifo)).toEqual({
+        ok: false,
+        name: "export.csv",
+        reason: "notAFile",
+      });
+    },
+  );
+
+  it("reads a file under a name the terminal can show", () => {
+    const at = join(scratch(), "izvoz\u001b[2J.csv");
+    writeFileSync(at, "A\n");
+    expect(readExport(at)).toMatchObject({ ok: true, name: "izvoz?[2J.csv" });
+  });
+
+  it("names a file without the control characters its name may hold", () => {
+    expect(printable("a\u001b[2Jb\u202ecsv.exe\u0085")).toBe("a?[2Jb?csv.exe?");
+    expect(printable("Izvoz 2026 (č).csv")).toBe("Izvoz 2026 (č).csv");
   });
 });
 

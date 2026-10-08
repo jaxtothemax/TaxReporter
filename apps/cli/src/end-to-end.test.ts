@@ -2,12 +2,13 @@
  * The whole pipeline on the synthetic Trading 212 history
  * (packages/brokers/test/fixtures/trading212): exports in, Doh-KDVP and
  * Doh-Div out. Each stage has its own tests; this one proves the stages fit,
- * that what the adapter emits is what the engine and the builders take.
+ * that what the adapter emits is what the ledger, the engine and the
+ * builders take.
  */
 import { readFileSync } from "node:fs";
 
 import { importFile } from "@taxreporter/brokers";
-import type { LedgerEvent } from "@taxreporter/core";
+import { fileIdOf, validateLedger } from "@taxreporter/core";
 import {
   buildDohDiv,
   buildDohKdvp,
@@ -30,10 +31,17 @@ const rates = RateTable.fromCsv(
 );
 
 const exports = ["t212-invest-v3-2025.csv", "t212-invest-v4-2026.csv"].map(
-  (file) =>
-    importFile(file, read(`packages/brokers/test/fixtures/trading212/${file}`)),
+  (file) => {
+    const bytes = readFileSync(
+      new URL(`packages/brokers/test/fixtures/trading212/${file}`, root),
+    );
+    return importFile({ bytes, fileId: fileIdOf(bytes), accountGroup: 1 });
+  },
 );
-const events: LedgerEvent[] = exports.flatMap((e) => e.events);
+const ledger = validateLedger(
+  exports.flatMap((e) => e.events),
+  exports.flatMap((e) => e.diagnostics),
+);
 const taxpayer = { taxNumber: "12345678" };
 
 describe("Trading 212 exports to eDavki XML", () => {
@@ -42,18 +50,20 @@ describe("Trading 212 exports to eDavki XML", () => {
       "trading212-csv-v3",
       "trading212-csv-v4",
     ]);
-    expect(
-      exports
-        .flatMap((e) => e.diagnostics)
-        .filter((d) => d.severity === "blocking"),
-    ).toEqual([]);
+    expect(ledger.diagnostics.filter((d) => d.severity !== "info")).toEqual([
+      {
+        severity: "warning",
+        code: "interestNotCovered",
+        params: { broker: "trading212", count: 1 },
+      },
+    ]);
   });
 
   it("builds Doh-KDVP for 2026 from the adapter's events", () => {
     const kdvp = buildDohKdvp({
       taxYear: 2026,
       taxpayer,
-      events,
+      ledger,
       rates,
       coverageEnd: "2026-09-10",
     });
@@ -111,7 +121,7 @@ describe("Trading 212 exports to eDavki XML", () => {
     const div = buildDohDiv({
       taxYear: 2026,
       taxpayer,
-      events,
+      ledger,
       rates,
       payers: new Map([["US1912161007", coca]]),
     });

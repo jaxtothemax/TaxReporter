@@ -8,16 +8,29 @@
  * the files it is given and writes only into --out: nothing leaves the
  * computer.
  */
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
+import { decodeUtf8, sniff } from "@taxreporter/brokers";
 import {
   forExport,
   hasBlocking,
+  isFileRef,
   isIsoDate,
+  LIMITS,
   type Diagnostic,
+  type FileId,
+  type FileRefusal,
   type Severity,
 } from "@taxreporter/core";
 import {
@@ -29,7 +42,7 @@ import {
 import { RateTable } from "@taxreporter/fx";
 
 import { readExport, uniqueLabels, type IntakeRefusal } from "./intake.js";
-import { prepareReturns } from "./prepare.js";
+import { prepareReturns, type AccountChoice } from "./prepare.js";
 
 /** Where `main` writes: the process streams in the bin, buffers in tests. */
 export interface Output {
@@ -47,7 +60,8 @@ export interface Dependencies {
 }
 
 const USAGE = `Usage: taxreporter <exports...> --year <YYYY> --tax-number <8 digits> --out <dir>
-                   [--payers <payers.json>] [--coverage-end <YYYY-MM-DD>] [--json]
+                   [--payers <payers.json>] [--coverage-end <YYYY-MM-DD>]
+                   [--accounts same|separate] [--json]
 
 Reads broker exports (Trading 212 history CSV) and writes the eDavki returns
 Doh_KDVP_<year>.xml and Doh_Div_<year>.xml into --out. Nothing leaves this
@@ -57,21 +71,26 @@ computer and nothing is filed: review the files, then import them in eDavki.
                   {"US0378331005": {"name": "...", "address": "...", "country": "US"}}
   --coverage-end  the last day all your exports cover, for the 30-day rule;
                   worked out from the exports when left out
+  --accounts      whether Trading 212 exports, which do not name their
+                  account, come from one account (same, the default) or
+                  each from its own (separate)
   --json          print a machine-readable report instead of text
 
 Exit codes: 0 written with nothing blocking, 1 something blocks, 2 usage.
 `;
 
-/** What each intake refusal means, for the person reading the terminal. */
-const REFUSAL: Readonly<Record<IntakeRefusal, string>> = {
+/** What each refusal of a file means, for the person reading the terminal. */
+const REFUSAL: Readonly<Record<IntakeRefusal | FileRefusal, string>> = {
   unreadable: "cannot be opened",
   notAFile: "is not a regular file",
-  tooLarge: "is larger than any broker export (over 64 MiB)",
+  tooLarge: `is larger than any broker export (over ${String(LIMITS.fileBytes / 1024 / 1024)} MiB)`,
   changedWhileReading: "changed while it was being read",
   zip: "is a ZIP or XLSX file; export CSV from your broker",
   spreadsheet: "is an old Excel file; export CSV from your broker",
   pdf: "is a PDF; export CSV from your broker",
+  gzip: "is compressed; export CSV from your broker",
   utf16: "is UTF-16 text; export it again from your broker, unchanged",
+  utf32: "is UTF-32 text; export it again from your broker, unchanged",
   binary: "contains binary data",
   notUtf8: "is not UTF-8 text; export it again from your broker, unchanged",
 };
@@ -105,11 +124,16 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 function readPayers(path: string): Map<string, PayerInfo> | string {
   const intake = readExport(path);
   if (!intake.ok) return `the payers file ${REFUSAL[intake.reason]}`;
-  if (intake.text.length > MAX_PAYERS_LENGTH)
+  if (intake.bytes.length > MAX_PAYERS_LENGTH) {
     return "the payers file is too large";
+  }
+  const refusal = sniff(intake.bytes);
+  if (refusal !== null) return `the payers file ${REFUSAL[refusal]}`;
+  const text = decodeUtf8(intake.bytes);
+  if (text === null) return `the payers file ${REFUSAL.notUtf8}`;
   let parsed: unknown;
   try {
-    parsed = JSON.parse(intake.text);
+    parsed = JSON.parse(text);
   } catch {
     return "the payers file is not valid JSON";
   }
@@ -150,20 +174,78 @@ const count = (n: number, one: string, many: string) =>
   `${String(n)} ${n === 1 ? one : many}`;
 
 /**
- * A diagnostic as one line: code, parameters, and where it came from. Only
- * the export-safe parameters are printed, never text copied from a file:
- * a terminal is often captured into a log. The source is the label of a
- * file the user named on the command line.
+ * A diagnostic as one line: code, parameters, and where it came from. Text
+ * copied from a file is never printed: a terminal is often captured into a
+ * log. The files a finding names, its source among them, are shown by the
+ * labels of files the user named on the command line, which are theirs to
+ * see.
  */
-function describe(d: Diagnostic): string {
-  const params = Object.entries(forExport(d).params)
-    .map(([key, value]) => `${key}=${String(value)}`)
+function describe(d: Diagnostic, labels: ReadonlyMap<FileId, string>): string {
+  const exported = forExport(d).params;
+  const params = Object.entries(d.params as Readonly<Record<string, unknown>>)
+    .flatMap(([key, value]) => {
+      if (isFileRef(value)) return [`${key}=${labels.get(value.file) ?? "?"}`];
+      const shown = exported[key];
+      return shown === undefined ? [] : [`${key}=${String(shown)}`];
+    })
     .join(" ");
   const at =
     d.source === undefined
       ? ""
-      : `  [${d.source.file}, row ${String(d.source.row)}]`;
+      : `  [${labels.get(d.source.fileId) ?? d.source.fileId}, row ${String(d.source.row)}]`;
   return `  ${d.code}${params === "" ? "" : `  ${params}`}${at}`;
+}
+
+/** The files a finding names besides its source, by their labels. */
+function filesNamed(
+  d: Diagnostic,
+  labels: ReadonlyMap<FileId, string>,
+): { files?: Record<string, string> } {
+  const files = Object.entries(
+    d.params as Readonly<Record<string, unknown>>,
+  ).flatMap(([key, value]) =>
+    isFileRef(value) ? [[key, labels.get(value.file) ?? "?"] as const] : [],
+  );
+  return files.length === 0 ? {} : { files: Object.fromEntries(files) };
+}
+
+const ACCOUNT_CHOICES: readonly string[] = ["same", "separate"];
+
+/** What to do about a finding that `--accounts` answers. */
+function accountHints(
+  diagnostics: readonly Diagnostic[],
+  accounts: AccountChoice,
+): string[] {
+  const has = (code: Diagnostic["code"]) =>
+    diagnostics.some((d) => d.code === code);
+  if (accounts === "same" && has("overlapMismatch")) {
+    return [
+      "  Two files of one account disagree about the days both cover. If they come from different accounts, run again with --accounts separate.",
+    ];
+  }
+  if (accounts === "separate" && has("accountsShareEvents")) {
+    return [
+      "  Files taken for different accounts hold the same trades, which would count twice. If they come from one account, run again without --accounts separate.",
+    ];
+  }
+  return [];
+}
+
+/**
+ * Writes a return the way a reader of the folder can trust: to a new file
+ * only the user may read (it holds their tax number and every trade), then
+ * renamed over the old one, so a full disk or a crash never leaves half an
+ * XML, and a link planted at the name is replaced, not followed.
+ */
+function writeReturn(path: string, xml: string): void {
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  writeFileSync(temporary, xml, { mode: 0o600, flag: "wx" });
+  try {
+    renameSync(temporary, path);
+  } catch (error) {
+    rmSync(temporary, { force: true });
+    throw error;
+  }
 }
 
 /** Runs the CLI and returns its exit code. */
@@ -184,6 +266,7 @@ export function main(
         out: { type: "string" },
         payers: { type: "string" },
         "coverage-end": { type: "string" },
+        accounts: { type: "string", default: "same" },
         json: { type: "boolean", default: false },
         help: { type: "boolean", short: "h", default: false },
       },
@@ -215,7 +298,16 @@ export function main(
   if (coverageEnd !== undefined && !isIsoDate(coverageEnd)) {
     return usage("--coverage-end must be a date such as 2027-01-31");
   }
+  if (!ACCOUNT_CHOICES.includes(values.accounts)) {
+    return usage("--accounts must be same or separate");
+  }
+  const accounts = values.accounts as AccountChoice;
   if (positionals.length === 0) return usage("give at least one export");
+  if (positionals.length > LIMITS.filesPerSession) {
+    return usage(
+      `give at most ${String(LIMITS.filesPerSession)} exports at a time`,
+    );
+  }
   let payers = new Map<string, PayerInfo>();
   if (values.payers !== undefined) {
     const read = readPayers(values.payers);
@@ -224,16 +316,17 @@ export function main(
   }
 
   const intakes = positionals.map(readExport);
-  const labels = uniqueLabels(intakes.map((i) => i.name));
+  const names = uniqueLabels(intakes.map((i) => i.name));
   const refused = intakes.flatMap((intake, i) =>
-    intake.ok ? [] : [`${labels[i] ?? intake.name} ${REFUSAL[intake.reason]}`],
+    intake.ok ? [] : [`${names[i] ?? intake.name} ${REFUSAL[intake.reason]}`],
   );
   const files = intakes.flatMap((intake, i) =>
-    intake.ok ? [{ name: labels[i] ?? intake.name, text: intake.text }] : [],
+    intake.ok ? [{ name: names[i] ?? intake.name, bytes: intake.bytes }] : [],
   );
 
   const prepared = prepareReturns({
     files,
+    accounts,
     taxYear: year,
     taxpayer: { taxNumber },
     rates: dependencies.loadRates(),
@@ -241,11 +334,33 @@ export function main(
     ...(coverageEnd === undefined ? {} : { coverageEnd }),
   });
   const { kdvp, div } = prepared;
-  // A finding with no source that two files both raise (the same fund
-  // named in two years' exports) is one finding.
+  const labels = new Map(prepared.imports.map((i) => [i.fileId, i.file]));
+  // A file refused for what it is, said as such, like one that could not
+  // be read at all.
+  for (const { file, result } of prepared.imports) {
+    for (const d of result.diagnostics) {
+      if (d.code === "fileRefused") {
+        refused.push(`${file} ${REFUSAL[d.params.reason]}`);
+      }
+    }
+  }
+  for (const clash of prepared.clashes) {
+    refused.push(
+      `${clash.file} has the file ID of ${clash.with} but other contents, so it was not read`,
+    );
+  }
+  for (const file of prepared.notRead) {
+    refused.push(
+      `${file} was not read: the files hold more events than one run takes`,
+    );
+  }
+  // A finding without a source that both forms raise (one rate noted by
+  // each) is one finding.
   const said = new Set<string>();
   const diagnostics = [
-    ...prepared.imports.flatMap((i) => i.result.diagnostics),
+    ...prepared.ledger.diagnostics.filter(
+      (d) => d.code !== "fileRefused" && d.code !== "fileIdClash",
+    ),
     ...kdvp.diagnostics,
     ...div.diagnostics,
   ].filter((d) => {
@@ -256,21 +371,35 @@ export function main(
     return true;
   });
 
+  // A form is written only when nothing about the files blocks it: a file
+  // left out would leave its rows out of the return. One from an earlier
+  // run that this run did not write is no longer the return, so say so.
   const written: string[] = [];
-  if (refused.length === 0) {
-    mkdirSync(out, { recursive: true });
-    if (kdvp.form !== null) {
-      const path = join(out, `Doh_KDVP_${String(year)}.xml`);
-      writeFileSync(path, writeDohKdvp(kdvp.form));
-      written.push(path);
+  const stale: string[] = [];
+  let failed: string | null = null;
+  const forms = [
+    [`Doh_KDVP_${String(year)}.xml`, kdvp.form && writeDohKdvp(kdvp.form)],
+    [`Doh_Div_${String(year)}.xml`, div.form && writeDohDiv(div.form)],
+  ] as const;
+  for (const [name, xml] of forms) {
+    const path = join(out, name);
+    if (xml === null || refused.length > 0) {
+      if (existsSync(path)) stale.push(path);
+      continue;
     }
-    if (div.form !== null) {
-      const path = join(out, `Doh_Div_${String(year)}.xml`);
-      writeFileSync(path, writeDohDiv(div.form));
+    try {
+      mkdirSync(out, { recursive: true });
+      writeReturn(path, xml);
       written.push(path);
+    } catch (error) {
+      // The code only: an error's message repeats the path it failed on.
+      const code = (error as { code?: unknown }).code;
+      failed = `${name} could not be written into --out (${typeof code === "string" ? code : "error"})`;
+      break;
     }
   }
-  const blocked = refused.length > 0 || hasBlocking(diagnostics);
+  const blocked =
+    refused.length > 0 || failed !== null || hasBlocking(diagnostics);
   const kdvpTax = kdvp.estimate.tax.toFixed(2, "halfUp");
   const divDue = div.estimate.taxDueEur.toFixed(2, "halfUp");
 
@@ -280,17 +409,36 @@ export function main(
         {
           files: prepared.imports.map((i) => ({
             file: i.file,
+            fileId: i.fileId,
             format: i.result.format,
             events: i.result.events.length,
-            lastDate: i.result.lastDate,
+            lastDate:
+              i.result.reach
+                .map((r) => r.lastDate)
+                .sort()
+                .at(-1) ?? null,
           })),
+          repeats: prepared.repeats,
           refused,
           coverageEnd: prepared.coverageEnd,
           written,
+          stale,
+          ...(failed === null ? {} : { failed }),
           estimates: { gainsTaxEur: kdvpTax, dividendTaxDueEur: divDue },
           diagnostics: diagnostics.map((d) => ({
             ...forExport(d),
-            ...(d.source === undefined ? {} : { source: d.source }),
+            ...filesNamed(d, labels),
+            ...(d.source === undefined
+              ? {}
+              : {
+                  source: {
+                    file: labels.get(d.source.fileId) ?? d.source.fileId,
+                    row: d.source.row,
+                    ...(d.source.part === undefined
+                      ? {}
+                      : { part: d.source.part }),
+                  },
+                }),
           })),
         },
         null,
@@ -307,6 +455,9 @@ export function main(
       `Read ${i.file} (${i.result.format}): ${String(i.result.events.length)} events.`,
     );
   }
+  for (const { file, sameAs } of prepared.repeats) {
+    lines.push(`Skipped ${file}: the same file as ${sameAs}.`);
+  }
   lines.push(
     kdvp.form === null
       ? `Doh-KDVP ${String(year)}: not written.`
@@ -316,10 +467,21 @@ export function main(
       : `Doh-Div ${String(year)}: ${count(div.form.dividends.length, "payment", "payments")}, estimated tax still due ${divDue} EUR.`,
   );
   for (const path of written) lines.push(`Wrote ${path}`);
+  if (failed !== null) lines.push(`Failed: ${failed}.`);
+  for (const path of stale) {
+    lines.push(
+      `Not this run's: ${path} is from an earlier run and does not match these exports. Do not import it.`,
+    );
+  }
   for (const severity of ["blocking", "warning", "info"] as const) {
     const found = diagnostics.filter((d) => d.severity === severity);
     if (found.length === 0) continue;
-    lines.push("", `${SEVERITY_TITLE[severity]}:`, ...found.map(describe));
+    lines.push(
+      "",
+      `${SEVERITY_TITLE[severity]}:`,
+      ...found.map((d) => describe(d, labels)),
+      ...(severity === "blocking" ? accountHints(found, accounts) : []),
+    );
   }
   lines.push(
     "",

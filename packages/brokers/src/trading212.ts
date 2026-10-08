@@ -7,8 +7,10 @@
  * - **Columns by name**, never position: Trading 212 has moved them around
  *   at least twice. A column it does not know blocks the import if any row
  *   fills it, since its meaning could change an amount (06 §2.3).
- * - **Dates in Ljubljana.** Rows carry UTC times; the trade or payment
- *   date is the Slovenian calendar date of that instant (06 §2.2).
+ * - **Dates by the one date policy.** Rows carry UTC times, which the
+ *   ledger keeps; the trade or payment date is what core's `taxDate` makes
+ *   of them, for now the Slovenian calendar date of the instant (06 §2.2;
+ *   ADR 0011 §7).
  * - **Trades at the contract price**, in the instrument's currency (GBX for
  *   pence, which the rate lookup scales). Fees, T212's own exchange rate and
  *   its realized result are never used: costs are covered by the normed
@@ -19,37 +21,45 @@
  * - **Splits** come as a "close" row with the position before and an "open"
  *   row with the position after. Their ratio is the simplest whole-number
  *   one that turns one into the other; a pair that does not fit one blocks.
- *   The same split reported by another broker is merged by the FIFO engine,
+ *   The same split reported by another account is merged by the FIFO engine,
  *   which owns that rule.
  * - **Refused, not guessed:** actions whose tax treatment is not settled
  *   (payments in lieu, "tax exempted" dividends, transfers, spin-offs,
  *   stock distributions) and any action this adapter does not know.
  * - **Duplicates** across overlapping exports: T212 reuses order IDs and
- *   leaves them empty on dividends, so a row's key is its content, the
- *   time cut to the second, plus how many identical rows came before it in
- *   the same file (06 §2.5). Two identical fills stay two; the same fill in
- *   two files is one.
+ *   leaves them empty on dividends, so a row's key is built by core's key
+ *   builder from its content, the time cut to the second, plus how many
+ *   identical rows came before it in the same file (06 §2.5). Two identical
+ *   fills stay two; the same fill in two files is one.
+ * - **One account per file**, the group the user put it in: T212 exports
+ *   do not name the account (ADR 0011 §4).
  */
 import {
+  accountGroup,
   Decimal,
   diagnostic,
   isIsin,
+  keyBuilder,
   LIMITS,
   MAX_SPLIT_TERM,
-  untrusted,
   MAX_SPLITS,
+  taxDate,
+  untrusted,
+  type BrokerTime,
   type Diagnostic,
   type DiagnosticCode,
   type DiagnosticParams,
   type IgnoredReason,
+  type IsoDate,
   type LedgerEvent,
+  type NumberColumn,
   type SecurityRef,
   type SourceRef,
 } from "@taxreporter/core";
 
-import type { CsvAdapter, ImportResult } from "./adapter.js";
+import type { CsvAdapter, ImportResult, ReadContext } from "./adapter.js";
 import type { CsvRow, CsvTable } from "./csv.js";
-import { fromUtcStamp, type UtcStamp } from "./time.js";
+import { fromUtcStamp } from "./time.js";
 
 export const TRADING212 = "trading212";
 
@@ -78,10 +88,10 @@ const CASH: ReadonlyMap<string, IgnoredReason> = new Map([
   ["Deposit", "deposit"],
   ["Withdrawal", "withdrawal"],
   ["Currency conversion", "currencyConversion"],
-  ["Card debit", "other"],
-  ["Card credit", "other"],
-  ["Card refund", "other"],
-  ["Spending cashback", "other"],
+  ["Card debit", "cardSpending"],
+  ["Card credit", "cardSpending"],
+  ["Card refund", "cardSpending"],
+  ["Spending cashback", "cardSpending"],
 ]);
 
 /**
@@ -265,7 +275,8 @@ export function splitRatio(
 
 interface SplitHalf {
   readonly source: SourceRef;
-  readonly stamp: UtcStamp;
+  readonly at: BrokerTime;
+  readonly date: IsoDate;
   /** As written: the ratio is worked out on exact fractions. */
   readonly quantity: string;
   readonly total: Decimal | null;
@@ -279,13 +290,16 @@ interface SplitHalf {
 const CURRENCY = /^[A-Z]{3}$/;
 const MINOR_CURRENCIES = new Set(["GBp", "ZAc"]);
 
+/** A cell that is not a number, by the adapter's own name for its column. */
 class BadCell extends Error {
-  constructor(readonly column: string) {
+  constructor(readonly column: NumberColumn) {
     super(`Not a number in column ${column}`);
   }
 }
 
-function read(table: CsvTable, file: string): ImportResult {
+function read(table: CsvTable, context: ReadContext): ImportResult {
+  const account = accountGroup(TRADING212, context.accountGroup);
+  const keys = keyBuilder();
   const events: LedgerEvent[] = [];
   const diagnostics: Diagnostic[] = [];
   const header = table.header;
@@ -313,8 +327,14 @@ function read(table: CsvTable, file: string): ImportResult {
     const index = table.column(column);
     return index === undefined ? "" : (row.cells[index] ?? "");
   };
-  const amount = (row: CsvRow, column: string): Decimal | null => {
-    const value = text(row, column);
+  // `header` is where the cell is; `column`, the name a finding gives it, so
+  // that a header the file wrote, "Total (EUR)", never reaches one.
+  const amount = (
+    row: CsvRow,
+    column: NumberColumn,
+    header: string = column,
+  ): Decimal | null => {
+    const value = text(row, header);
     if (value === "") return null;
     // T212 writes plain decimals with up to 10 places; anything else, an
     // exponent, a comma, an absurd size, is not trusted as a number.
@@ -322,25 +342,13 @@ function read(table: CsvTable, file: string): ImportResult {
     return Decimal.parse(value);
   };
 
-  const occurrences = new Map<string, number>();
-  /**
-   * A key unique within the file, and the same for the same row in any
-   * file. The parts are encoded as a JSON array, so no cell text, an order
-   * ID included, can make two different rows read alike.
-   */
-  const keyOf = (...parts: readonly string[]) => {
-    const content = JSON.stringify(parts);
-    const n = (occurrences.get(content) ?? 0) + 1;
-    occurrences.set(content, n);
-    return JSON.stringify([TRADING212, content, n]);
-  };
   const fundsNoted = new Set<string>();
   const halves = new Map<string, { close: SplitHalf[]; open: SplitHalf[] }>();
   let interestRows = 0;
   let lastDate: string | null = null;
 
   for (const row of table.rows) {
-    const source: SourceRef = { file, row: row.row };
+    const source: SourceRef = { fileId: context.fileId, row: row.row };
     const block = <C extends DiagnosticCode>(
       code: C,
       params: DiagnosticParams[C],
@@ -348,12 +356,14 @@ function read(table: CsvTable, file: string): ImportResult {
       diagnostics.push(diagnostic("blocking", code, params, source));
     };
     const action = text(row, "Action");
-    const stamp = fromUtcStamp(text(row, timeColumn));
-    if (stamp === null) {
+    const at = fromUtcStamp(text(row, timeColumn));
+    const dated = at === null ? null : taxDate(at);
+    if (at === null || dated === null) {
       block("invalidTime", {});
       continue;
     }
-    if (lastDate === null || stamp.date > lastDate) lastDate = stamp.date;
+    const date = dated.date;
+    if (lastDate === null || date > lastDate) lastDate = date;
 
     const cash = CASH.get(action);
     if (cash !== undefined) {
@@ -361,6 +371,7 @@ function read(table: CsvTable, file: string): ImportResult {
         kind: "ignored",
         reason: cash,
         broker: TRADING212,
+        account,
         source,
       });
       continue;
@@ -370,6 +381,7 @@ function read(table: CsvTable, file: string): ImportResult {
         kind: "ignored",
         reason: "interest",
         broker: TRADING212,
+        account,
         source,
       });
       interestRows += 1;
@@ -382,8 +394,8 @@ function read(table: CsvTable, file: string): ImportResult {
     const side = BUYS.has(action) ? "buy" : SELLS.has(action) ? "sell" : null;
     const isSplit = action === SPLIT_CLOSE || action === SPLIT_OPEN;
     if (side === null && !isSplit && !DIVIDENDS.has(action)) {
-      // The row says which action; the action is file text, so it stays
-      // out of the diagnostic.
+      // The action is file text: it travels only wrapped, for the screen,
+      // and every export of the finding drops it.
       block("unknownAction", { broker: TRADING212, action: untrusted(action) });
       continue;
     }
@@ -394,16 +406,16 @@ function read(table: CsvTable, file: string): ImportResult {
       block("invalidIsin", {});
       continue;
     }
-    // The Ljubljana date decides the tax year, the rate and the 30-day
+    // The policy's date decides the tax year, the rate and the 30-day
     // window; where it differs from the UTC date T212 shows, say so. Which
     // clock defines a trade date has no FURS source yet (research 06, open
     // questions).
-    if (stamp.date !== stamp.utcDate) {
+    if (dated.moved) {
       diagnostics.push(
         diagnostic(
           "warning",
           "dateMovedToLjubljana",
-          { date: stamp.date, utcDate: stamp.utcDate },
+          { date, utcDate: at.brokerDate ?? date },
           source,
         ),
       );
@@ -416,7 +428,7 @@ function read(table: CsvTable, file: string): ImportResult {
       quantity = amount(row, "No. of shares");
       price = amount(row, "Price / share");
       tax = amount(row, "Withholding tax");
-      total = totalColumn === null ? null : amount(row, totalColumn);
+      total = totalColumn === null ? null : amount(row, "Total", totalColumn);
     } catch (error) {
       if (!(error instanceof BadCell)) throw error;
       block("invalidNumber", { column: error.column });
@@ -428,17 +440,16 @@ function read(table: CsvTable, file: string): ImportResult {
     }
 
     if (isSplit) {
-      const pair = halves.get(`${isin} ${stamp.second}`) ?? {
-        close: [],
-        open: [],
-      };
+      const pairAt = `${isin} ${at.instant ?? date}`;
+      const pair = halves.get(pairAt) ?? { close: [], open: [] };
       pair[action === SPLIT_CLOSE ? "close" : "open"].push({
         source,
-        stamp,
+        at,
+        date,
         quantity: text(row, "No. of shares"),
         total,
       });
-      halves.set(`${isin} ${stamp.second}`, pair);
+      halves.set(pairAt, pair);
       continue;
     }
 
@@ -471,19 +482,21 @@ function read(table: CsvTable, file: string): ImportResult {
     if (side !== null) {
       events.push({
         kind: "trade",
-        key: keyOf(
+        key: keys.key("trade", [
           action,
-          stamp.second,
+          at.instant,
           isin,
-          quantity.toString(),
-          price.toString(),
+          quantity,
+          price,
           currency,
           text(row, "ID"),
-        ),
+        ]),
         broker: TRADING212,
+        account,
         source,
+        at,
         side,
-        date: stamp.date,
+        date,
         security,
         quantity,
         price: { amount: price, currency },
@@ -504,30 +517,28 @@ function read(table: CsvTable, file: string): ImportResult {
       block("dividendTaxCurrency", {});
       continue;
     }
-    const key = keyOf(
-      action,
-      stamp.second,
-      isin,
-      quantity.toString(),
-      price.toString(),
-      withheld.toString(),
-    );
+    const parts = [action, at.instant, isin, quantity, price, withheld];
+    const key = keys.key("dividend", parts);
     events.push({
       kind: "dividend",
       key,
       broker: TRADING212,
+      account,
       source,
-      date: stamp.date,
+      at,
+      date,
       security,
       gross: { amount: quantity.times(price).plus(withheld), currency },
     });
     if (withheld.isPositive()) {
       events.push({
         kind: "withholding",
-        key: `${key}|tax`,
+        key: keys.key("withholding", parts),
         broker: TRADING212,
+        account,
         source,
-        date: stamp.date,
+        at,
+        date,
         isin,
         dividendKey: key,
         amount: { amount: withheld, currency },
@@ -579,17 +590,19 @@ function read(table: CsvTable, file: string): ImportResult {
     if (ratio === null || !agree) {
       refuse(ratio === null ? "splitRatioUnclear" : "splitHalvesDisagree", {
         isin,
-        date: before.stamp.date,
+        date: before.date,
       });
       continue;
     }
     events.push(
       {
         kind: "split",
-        key: JSON.stringify([TRADING212, "split", isin, before.stamp.second]),
+        key: keys.key("split", [isin, before.at.instant]),
         broker: TRADING212,
+        account,
         source: before.source,
-        date: before.stamp.date,
+        at: before.at,
+        date: before.date,
         isin,
         from: ratio.from,
         to: ratio.to,
@@ -598,6 +611,7 @@ function read(table: CsvTable, file: string): ImportResult {
         kind: "ignored",
         reason: "pairedRow",
         broker: TRADING212,
+        account,
         source: after.source,
       },
     );
@@ -617,7 +631,7 @@ function read(table: CsvTable, file: string): ImportResult {
     format: `trading212-csv-${revision(header)}`,
     events,
     diagnostics,
-    lastDate,
+    reach: lastDate === null ? [] : [{ account, lastDate }],
   };
 }
 
@@ -653,6 +667,6 @@ export const trading212Cfd: CsvAdapter = {
         broker: TRADING212,
       }),
     ],
-    lastDate: null,
+    reach: [],
   }),
 };

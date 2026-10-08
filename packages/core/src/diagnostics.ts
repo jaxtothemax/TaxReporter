@@ -13,7 +13,7 @@
  * the LLM check holds nothing from the user's files (CLAUDE.md, "Privacy").
  */
 import type { IsoDate } from "./dates.js";
-import type { SourceRef } from "./ledger.js";
+import type { FileId, KeyedEvent, SourceRef } from "./ledger.js";
 
 /** Blocking diagnostics stop the export; warnings and notes do not. */
 export type Severity = "blocking" | "warning" | "info";
@@ -39,6 +39,29 @@ export function untrusted(text: string): UntrustedText {
   return Object.freeze({ untrusted: text.slice(0, end) });
 }
 
+/**
+ * A file a finding is about besides its source, named by the screen with the
+ * name the user gave it. Every export drops it, as it drops the source: a
+ * file's ID is the same in every session, and would link two reports.
+ */
+export interface FileRef {
+  readonly file: FileId;
+}
+
+export function fileRef(fileId: FileId): FileRef {
+  return Object.freeze({ file: fileId });
+}
+
+export const isFileRef = (value: unknown): value is FileRef =>
+  typeof value === "object" && value !== null && "file" in value;
+
+/**
+ * The numbers a finding may name by column: the adapters' own names for
+ * them, never a header as a file wrote it.
+ */
+export type NumberColumn =
+  "No. of shares" | "Price / share" | "Withholding tax" | "Total";
+
 /** A security and a day, when both have their proper shape. */
 interface Where {
   readonly isin: string;
@@ -51,15 +74,58 @@ type MaybeWhere = Partial<Where>;
 type Isin = Pick<Where, "isin">;
 type None = Readonly<Record<string, never>>;
 
+/**
+ * Two files of one account and the days both recorded. The file IDs are
+ * hashes of the files' bytes, which the screen turns back into the names
+ * the user chose.
+ */
+interface Overlap {
+  readonly kind: KeyedEvent["kind"];
+  readonly from: IsoDate;
+  readonly to: IsoDate;
+  readonly first: FileRef;
+  readonly second: FileRef;
+}
+
+/**
+ * Why intake refused a file before any adapter read it: too large, a
+ * format that is no text export whatever its name says, or not UTF-8.
+ */
+export type FileRefusal =
+  | "tooLarge"
+  | "zip"
+  | "spreadsheet"
+  | "pdf"
+  | "gzip"
+  | "utf16"
+  | "utf32"
+  | "binary"
+  | "notUtf8";
+
 /** Each code and the parameters it carries. */
 export interface DiagnosticParams {
-  // The ledger and the FIFO engine (core)
+  // The ledger (core)
+  tooManyEvents: { readonly limit: number };
   unknownEvent: None;
   invalidTrade: MaybeWhere;
   invalidSplit: MaybeWhere;
+  invalidDividend: MaybeWhere;
+  invalidWithholding: MaybeWhere;
   duplicatesRemoved: { readonly count: number };
   duplicateKeyInFile: MaybeWhere;
   duplicateKeyConflict: MaybeWhere;
+  overlapMismatch: Overlap;
+  overlapKindMissing: Overlap;
+  /** One file of each account where the first shared event was read. */
+  accountsShareEvents: {
+    readonly kind: "trade" | "dividend";
+    readonly count: number;
+    readonly first: FileRef;
+    readonly second: FileRef;
+  };
+  /** Two different files whose IDs are the same: neither is read. */
+  fileIdClash: { readonly file: FileRef };
+  // The FIFO engine (core)
   splitReportsMerged: Where;
   splitConflict: Where;
   splitDateAmbiguous: Where & { readonly until: IsoDate };
@@ -89,8 +155,6 @@ export interface DiagnosticParams {
   quantityTooSmall: Where;
   formIssue: { readonly code: string; readonly path: string };
   // The Doh-Div builder (furs)
-  invalidDividend: MaybeWhere;
-  invalidWithholding: MaybeWhere;
   withholdingWithoutDividend: Where;
   withholdingIsinMismatch: Where;
   withholdingForOtherYear: Where & { readonly dividendDate: IsoDate };
@@ -109,7 +173,8 @@ export interface DiagnosticParams {
     readonly excessEur: string;
   };
   payerIdsNumbered: { readonly date: IsoDate; readonly count: number };
-  // Broker adapters (brokers)
+  // Intake and broker adapters (brokers)
+  fileRefused: { readonly reason: FileRefusal };
   unreadableFile: { readonly reason: string; readonly row: number };
   diagnosticsTruncated: { readonly dropped: number };
   unknownFormat: None;
@@ -126,11 +191,11 @@ export interface DiagnosticParams {
   invalidTime: None;
   dateMovedToLjubljana: { readonly date: IsoDate; readonly utcDate: IsoDate };
   invalidIsin: None;
-  invalidNumber: { readonly column: string };
+  invalidNumber: { readonly column: NumberColumn };
   invalidQuantity: None;
   invalidCurrency: None;
   invalidPrice: None;
-  unexpectedSign: { readonly column: string };
+  unexpectedSign: { readonly column: NumberColumn };
   dividendTaxCurrency: None;
   splitUnpaired: Isin;
   splitRatioUnclear: Where;
@@ -182,15 +247,15 @@ const isUntrusted = (value: unknown): value is UntrustedText =>
   typeof value === "object" && value !== null && "untrusted" in value;
 
 /**
- * The diagnostic without its source and without any text copied from a
- * file: the only form that may leave the user's screen.
+ * The diagnostic without its source, the files it names, or any text copied
+ * from a file: the only form that may leave the user's screen.
  */
 export function forExport(d: Diagnostic): ExportedDiagnostic {
   const params: Record<string, ExportedValue> = {};
   for (const [key, value] of Object.entries(d.params) as [string, unknown][]) {
     if (typeof value === "string" || typeof value === "number") {
       params[key] = value;
-    } else if (!isUntrusted(value)) {
+    } else if (!isUntrusted(value) && !isFileRef(value)) {
       throw new TypeError("A diagnostic parameter of an unexpected type");
     }
   }

@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   diagnostic,
+  fileRef,
   forExport,
   hasBlocking,
+  isFileRef,
   untrusted,
   UNTRUSTED_LENGTH,
 } from "./diagnostics.js";
+import type { FileId } from "./ledger.js";
 import { LIMITS } from "./limits.js";
 
 describe("untrusted", () => {
@@ -29,15 +32,35 @@ describe("forExport", () => {
       "blocking",
       "unknownColumn",
       { broker: "trading212", position: 18, column: untrusted("Janez Novak") },
-      { file: "Janez_Novak_U1234567.csv", row: 1 },
+      { fileId: "0123456789abcdef" as FileId, row: 1 },
     );
     const exported = forExport(d);
+    expect(exported).not.toHaveProperty("source");
     expect(exported).toEqual({
       severity: "blocking",
       code: "unknownColumn",
       params: { broker: "trading212", position: 18 },
     });
     expect(JSON.stringify(exported)).not.toMatch(/Janez|U1234567/);
+  });
+
+  it("drops the files a finding names, which only the screen may name", () => {
+    const file = "0123456789abcdef" as FileId;
+    const d = diagnostic("blocking", "overlapMismatch", {
+      kind: "trade",
+      from: "2026-02-03",
+      to: "2026-02-10",
+      first: fileRef(file),
+      second: fileRef(file),
+    });
+    if (d.code !== "overlapMismatch") throw new Error("another code");
+    expect(isFileRef(d.params.first)).toBe(true);
+    expect(forExport(d).params).toEqual({
+      kind: "trade",
+      from: "2026-02-03",
+      to: "2026-02-10",
+    });
+    expect(JSON.stringify(forExport(d))).not.toContain(file);
   });
 
   it("keeps a diagnostic's typed values as they are", () => {

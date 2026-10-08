@@ -66,6 +66,15 @@ export class Decimal {
     this.#den = den;
   }
 
+  /**
+   * Whether a value is a Decimal this module built: a check on the private
+   * fields themselves, which an object that merely borrows the prototype
+   * lacks, so it fails here rather than on its first method call.
+   */
+  static isDecimal(value: unknown): value is Decimal {
+    return typeof value === "object" && value !== null && #num in value;
+  }
+
   /** Builds num/den in lowest terms with a positive denominator. */
   static #ratio(num: bigint, den: bigint): Decimal {
     if (den === 0n) throw new RangeError("Division by zero");

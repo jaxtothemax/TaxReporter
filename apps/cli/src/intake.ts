@@ -1,11 +1,11 @@
 /**
  * Reading an export from disk. Every imported file is hostile (CLAUDE.md,
- * "Secure code"), so the bytes are checked before any parser sees them:
- * only a regular file, of a bounded size read through the opened descriptor
- * (a FIFO or /dev/zero would otherwise never end), not a ZIP, spreadsheet,
- * PDF or UTF-16 file in disguise, and valid UTF-8.
+ * "Secure code"), so only a regular file is read, of a bounded size, through
+ * the opened descriptor: a FIFO or /dev/zero would otherwise never end. What
+ * the bytes are is `importFile`'s to check, the same in the CLI and the web
+ * app (ADR 0011 §1).
  */
-import { closeSync, fstatSync, openSync, readSync } from "node:fs";
+import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
 import { basename } from "node:path";
 
 import { LIMITS } from "@taxreporter/core";
@@ -13,49 +13,46 @@ import { LIMITS } from "@taxreporter/core";
 /** Far above a year of any broker's history; checked before reading. */
 export const MAX_FILE_BYTES = LIMITS.fileBytes;
 
+/**
+ * Non-blocking, so that opening a FIFO with no writer returns at once
+ * instead of waiting forever, and never as the controlling terminal; fstat
+ * then refuses anything that is not a regular file. Reading a regular file
+ * is the same either way. Windows has neither flag.
+ */
+const OPEN_FLAGS =
+  constants.O_RDONLY |
+  ((constants.O_NONBLOCK as number | undefined) ?? 0) |
+  ((constants.O_NOCTTY as number | undefined) ?? 0);
+
+/**
+ * A name as the terminal may show it: control, format and separator
+ * characters become "?", so a file's name cannot move the cursor, rewrite a
+ * line or turn text around.
+ */
+export function printable(name: string): string {
+  return name.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, "?");
+}
+
 export type IntakeRefusal =
-  | "unreadable"
-  | "notAFile"
-  | "tooLarge"
-  | "changedWhileReading"
-  | "zip"
-  | "spreadsheet"
-  | "pdf"
-  | "utf16"
-  | "binary"
-  | "notUtf8";
+  "unreadable" | "notAFile" | "tooLarge" | "changedWhileReading";
 
 export type Intake =
-  | { readonly ok: true; readonly name: string; readonly text: string }
+  | { readonly ok: true; readonly name: string; readonly bytes: Uint8Array }
   | {
       readonly ok: false;
       readonly name: string;
       readonly reason: IntakeRefusal;
     };
 
-const startsWith = (bytes: Uint8Array, ...prefix: number[]) =>
-  prefix.every((byte, i) => bytes[i] === byte);
-
-/** What the first bytes say a file really is, when it is no text export. */
-function disguise(bytes: Uint8Array): IntakeRefusal | null {
-  if (startsWith(bytes, 0x50, 0x4b, 0x03, 0x04)) return "zip"; // ZIP, XLSX
-  if (startsWith(bytes, 0xd0, 0xcf, 0x11, 0xe0)) return "spreadsheet"; // XLS
-  if (startsWith(bytes, 0x25, 0x50, 0x44, 0x46)) return "pdf"; // %PDF
-  if (startsWith(bytes, 0xff, 0xfe) || startsWith(bytes, 0xfe, 0xff)) {
-    return "utf16";
-  }
-  return bytes.includes(0) ? "binary" : null;
-}
-
 /**
- * Reads one export. The name returned is the file's base name, never its
- * path: it labels every event and diagnostic from the file.
+ * Reads one file's bytes. The name returned is the file's base name, never
+ * its path, which can hold the user's own name: it is for the screen only.
  */
 export function readExport(path: string): Intake {
-  const name = basename(path);
+  const name = printable(basename(path));
   let fd: number;
   try {
-    fd = openSync(path, "r");
+    fd = openSync(path, OPEN_FLAGS);
   } catch {
     return { ok: false, name, reason: "unreadable" };
   }
@@ -76,17 +73,7 @@ export function readExport(path: string): Intake {
         return { ok: false, name, reason: "changedWhileReading" };
       }
     }
-    const bytes = buffer.subarray(0, length);
-    const refused = disguise(bytes);
-    if (refused !== null) return { ok: false, name, reason: refused };
-    try {
-      // fatal: a byte sequence that is not UTF-8 refuses the file instead of
-      // turning into replacement characters; a UTF-8 byte-order mark goes.
-      const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-      return { ok: true, name, text };
-    } catch {
-      return { ok: false, name, reason: "notUtf8" };
-    }
+    return { ok: true, name, bytes: buffer.subarray(0, length) };
   } catch {
     return { ok: false, name, reason: "unreadable" };
   } finally {
@@ -95,9 +82,8 @@ export function readExport(path: string): Intake {
 }
 
 /**
- * Labels for a set of files, unique even where two share a base name: the
- * engine treats one label as one file, so two different "export.csv" files
- * must not look like a file that repeats its own rows.
+ * Labels for a set of files, unique even where two share a base name, so
+ * the user can tell which file a finding is about.
  */
 export function uniqueLabels(names: readonly string[]): string[] {
   const used = new Set<string>();

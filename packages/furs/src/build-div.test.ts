@@ -1,6 +1,7 @@
 /**
- * The Doh-Div builder: dividend and withholding events and the committed BSI
- * snapshot in, one record per payment and the estimate out. The first suite
+ * The Doh-Div builder: a validated ledger of dividends and the tax withheld
+ * on them, and the committed BSI snapshot in, one record per payment and the
+ * estimate out. The first suite
  * rebuilds the web demo's dividends from raw events: the XML has to equal
  * the golden file written from the hand-made model (test/scenarios.ts), and
  * the estimate the demo's figures.
@@ -10,6 +11,7 @@ import { readFileSync } from "node:fs";
 import {
   addDays,
   Decimal,
+  validateLedger,
   type DividendEvent,
   type LedgerEvent,
   type SecurityRef,
@@ -18,6 +20,7 @@ import {
 import { RateTable } from "@taxreporter/fx";
 import { describe, expect, it } from "vitest";
 
+import { account, fileId, key, onDate, validated } from "../test/events.js";
 import {
   ALLIANZ,
   APPLE,
@@ -52,9 +55,11 @@ function dividend(
   row += 1;
   return {
     kind: "dividend",
-    key: `d${String(row)}`,
+    key: key(row),
     broker,
-    source: { file: `${broker}.csv`, row },
+    account: account(broker),
+    source: { fileId: fileId(broker), row },
+    at: onDate(date),
     date,
     security,
     gross: { amount: Decimal.parse(gross), currency },
@@ -70,9 +75,11 @@ function withholding(
   row += 1;
   return {
     kind: "withholding",
-    key: `w${String(row)}`,
+    key: key(row),
     broker: of.broker,
-    source: { file: `${of.broker}.csv`, row },
+    account: of.account,
+    source: { fileId: fileId(of.broker), row },
+    at: onDate(date),
     date,
     isin: of.security.isin,
     dividendKey: of.key,
@@ -135,7 +142,7 @@ function build(
   return buildDohDiv({
     taxYear: options.taxYear ?? 2026,
     taxpayer: TAXPAYER,
-    events,
+    ledger: validated(events),
     rates,
     payers: options.payers ?? PAYERS,
     ...(options.treatyRates === undefined
@@ -232,7 +239,7 @@ describe("the web demo's dividends, rebuilt from raw events", () => {
           creditEur: "18.48",
           excessEur: "14.01",
         },
-        source: { file: "ibkr.csv", row: expect.any(Number) as number },
+        source: { fileId: fileId("ibkr"), row: expect.any(Number) as number },
       },
     ]);
   });
@@ -272,7 +279,7 @@ describe("buildDohDiv", () => {
   it("refuses tax it cannot tie to its dividend", () => {
     const event = dividend(AAPL, "2026-03-02", "10.00");
     const orphan = withholding(event, "1.50", "2026-03-02", {
-      dividendKey: "missing",
+      dividendKey: key(0xdead),
     });
     const mismatched = withholding(event, "1.50", "2026-03-02", {
       isin: O.isin,
@@ -467,13 +474,26 @@ describe("buildDohDiv", () => {
   it("keeps one record of a payment read from two overlapping exports", () => {
     const [event, tax] = paid(AAPL, "2026-02-12", "14.30", "2.14");
     if (event === undefined || tax === undefined) throw new Error("no events");
-    const result = build([
+    const again = { source: { fileId: fileId("b"), row: 9 } };
+    const ledger = validateLedger([
       event,
       tax,
-      { ...event, source: { file: "b", row: 9 } },
+      { ...event, ...again },
+      { ...tax, ...again },
     ]);
+    expect(ledger.diagnostics.map((d) => d.code)).toEqual([
+      "duplicatesRemoved",
+    ]);
+    const result = buildDohDiv({
+      taxYear: 2026,
+      taxpayer: TAXPAYER,
+      ledger,
+      rates,
+      payers: PAYERS,
+    });
     expect(result.form?.dividends).toHaveLength(1);
-    expect(codes(result)).toEqual(["duplicatesRemoved"]);
+    expect(result.dividends[0]?.withholdings).toHaveLength(1);
+    expect(codes(result)).toEqual([]);
   });
 
   it("turns a payer's broken details into a blocking finding", () => {
@@ -493,41 +513,71 @@ describe("buildDohDiv", () => {
     expect(result.form).toBeNull();
   });
 
-  it("refuses dividend events it cannot trust, without repeating them", () => {
-    const good = dividend(AAPL, "2026-03-02", "10.00");
-    const loose = (overrides: Record<string, unknown>) =>
-      ({
-        ...good,
-        key: `${good.key}-${String(Object.keys(overrides))}`,
-        ...overrides,
-      }) as never;
-    const result = build([
-      loose({ date: "2026-3-2" }),
-      loose({ security: { isin: "us0378331005" } }),
-      loose({ gross: { amount: Decimal.parse("10"), currency: "U1234567" } }),
-      loose({ gross: { amount: 10, currency: "USD" } }),
-      withholding(good, "1.50", "2026-03-02", { dividendKey: "" }),
-    ]);
-    expect(result.diagnostics.map((d) => [d.code, d.params])).toEqual([
-      ["invalidDividend", { isin: AAPL.isin }],
-      ["invalidDividend", { date: "2026-03-02" }],
-      ["invalidDividend", { isin: AAPL.isin, date: "2026-03-02" }],
-      ["invalidDividend", { isin: AAPL.isin, date: "2026-03-02" }],
-      ["invalidWithholding", { isin: AAPL.isin, date: "2026-03-02" }],
-    ]);
-    expect(JSON.stringify(result.diagnostics)).not.toContain("U1234567");
+  it("withholds the form while the ledger's own checks block", () => {
+    const good = paid(AAPL, "2026-03-02", "10.00", "1.50");
+    const bad = {
+      ...dividend(AAPL, "2026-03-03", "10.00"),
+      gross: { amount: Decimal.parse("10"), currency: "U1234567" },
+    };
+    const ledger = validateLedger([...good, bad]);
+    expect(ledger.diagnostics.map((d) => d.code)).toEqual(["invalidDividend"]);
+    const result = buildDohDiv({
+      taxYear: 2026,
+      taxpayer: TAXPAYER,
+      ledger,
+      rates,
+      payers: PAYERS,
+    });
+    // The good payment is there to review; the form waits for the bad one.
+    expect(codes(result)).toEqual([]);
+    expect(result.dividends).toHaveLength(1);
     expect(result.form).toBeNull();
   });
 
-  it("keeps two brokers' dividends apart, even under one key", () => {
+  it("keeps two accounts' dividends apart, even under one key", () => {
     const ibkr = dividend(AAPL, "2026-03-02", "10.00");
     const t212 = {
       ...ibkr,
       broker: "trading212",
-      source: { file: "t212.csv", row: 1 },
+      account: account("trading212"),
+      source: { fileId: fileId("trading212"), row: 1 },
     };
     const result = build([ibkr, t212]);
     expect(result.dividends).toHaveLength(2);
+  });
+
+  it("joins tax to its dividend within the dividend's own account", () => {
+    const ibkr = dividend(AAPL, "2026-03-02", "10.00");
+    const other = {
+      ...ibkr,
+      account: account("ibkr", 2),
+      source: { fileId: fileId("b"), row: 1 },
+    };
+    // Withheld in account 2, on its dividend under the same key.
+    const tax = {
+      ...withholding(ibkr, "1.50"),
+      account: other.account,
+      source: { fileId: fileId("b"), row: 2 },
+    };
+    // Two accounts paid alike: a warning, and each keeps its own tax.
+    const ledger = validateLedger([ibkr, other, tax]);
+    expect(ledger.diagnostics.map((d) => [d.severity, d.code])).toEqual([
+      ["warning", "accountsShareEvents"],
+    ]);
+    const result = buildDohDiv({
+      taxYear: 2026,
+      taxpayer: TAXPAYER,
+      ledger,
+      rates,
+      payers: PAYERS,
+    });
+    const taxBy = new Map(
+      result.dividends.map((d) => [
+        d.source.fileId === fileId("b") ? "b" : "main",
+        d.withholdings.map((w) => w.amount.toString()),
+      ]),
+    );
+    expect(Object.fromEntries(taxBy)).toEqual({ main: [], b: ["1.5"] });
   });
 
   it("refuses a tax year it cannot use", () => {
