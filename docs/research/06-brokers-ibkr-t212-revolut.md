@@ -269,7 +269,7 @@ Seen in one real export, generated in October 2026 for the year 2025 (not commit
 
 **Gross dividend for Doh-Div** = `No. of shares × Price / share + Withholding tax`, when the WHT currency equals the price currency. This is cgt-calc's rule, verified on real exports from 2020 to 2026 (#1203).
 
-**Takeovers paid in shares** appear as a `Market sell` with a price of 0 and a `Total` of 0; the new shares arrive via `Stock distribution`, or not at all. Treat this as a hard error requiring manual input. The tax rule, a disposal valued at the market price on the date the exchange took effect, is in [04 §9.1](04-si-tax-rules.md#91-takeovers-and-mergers-paid-in-shares).
+**Takeovers paid in shares** appear as a `Market sell` with a price of 0 and a `Total` of 0; the new shares arrive via `Stock distribution`, or not at all. Treat this as a hard error requiring manual input. The tax rule, a disposal valued at the market price, is in [04 §9.1](04-si-tax-rules.md#91-takeovers-and-mergers-paid-in-shares); which price and which date apply are still open questions there.
 
 In the real 2025 export of §4.2, the takeover matched that description, with these details [H]:
 

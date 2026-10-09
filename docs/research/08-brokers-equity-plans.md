@@ -1,6 +1,6 @@
 # Employee equity plan platforms: exports, and how to report RSU/ESPP shares on Doh-KDVP and Doh-Div
 
-> Researched: 2026-10-06 · Verification: not independently verified
+> Researched: 2026-10-06 · Verification: not independently verified · Updated: 2026-10-09 (§2.7: an exchange of shares now points to 04 §9.1)
 >
 > Research for building TaxReporter. It is not tax advice, and FURS publications and the law win over anything written here. Where this page overlaps a verified doc (01–03), the verified doc wins; such places are cross-referenced inline. See the [README](README.md#confidence-and-verification-legend) for the legend.
 
@@ -252,7 +252,7 @@ Pitfalls:
 
 - Employees hold options, RSUs or shares in non-listed companies. Holdings → (grant) → **Documents** gives an Excel file whose `Summary` row includes **"Fair market value on exercise date"** (the 409A FMV). Adjust it for later splits.
 - Under 98(3), `F4` is that FMV.
-- Sales happen through tenders or M&A. An exchange of shares may qualify for `E` or a deferral.
+- Sales happen through tenders or M&A. An exchange of shares is a disposal; in a merger the shares received take code `E`. Deferral needs an EU transaction that the company notifies, so a deal between US companies cannot be deferred ([04 §9.1](04-si-tax-rules.md#91-takeovers-and-mergers-paid-in-shares)).
 - Shares of a foreign corporation go on PLVP with `Code`/`Name` (no ISIN). LLC-type interests may belong on PLD (`Shares`, with different `F` semantics).
 - Low confidence. There is no participant CSV.
 
