@@ -44,6 +44,29 @@ describe("the findings catalog", () => {
     ).toMatch(/^Datoteke ni mogoče prebrati: ima preveč vrstic\. /);
   });
 
+  it("names the sheet and cell a workbook stopped at", () => {
+    const reason = "a cell's number is malformed or out of range";
+    expect(
+      findingsEn.unreadableFile({ reason, row: "12", sheet: "2", column: "C" }),
+    ).toMatch(
+      /: a cell's number is malformed or out of range \(sheet 2, cell C12\)\. /,
+    );
+    expect(
+      findingsEn.unreadableFile({ reason, row: "12", sheet: "2" }),
+    ).toMatch(/ \(sheet 2, row 12\)\. /);
+    expect(findingsEn.unreadableFile({ reason, row: "0", sheet: "2" })).toMatch(
+      / \(sheet 2\)\. /,
+    );
+    expect(
+      findingsSl.unreadableFile({
+        reason: "x",
+        row: "12",
+        sheet: "2",
+        column: "C",
+      }),
+    ).toMatch(/ \(list 2, celica C12\)\. /);
+  });
+
   it("has the same closed lists in both languages", () => {
     for (const list of [
       "kinds",

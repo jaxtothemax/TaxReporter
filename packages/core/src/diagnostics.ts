@@ -111,8 +111,86 @@ export type XmlReason =
   | "noRoot"
   | "truncated";
 
+/** Why a ZIP archive could not be read (packages/brokers/src/zip.ts). */
+export type ZipReason =
+  /** No End of Central Directory record ends the file, or more than one could. */
+  | "zipEnd"
+  /** A ZIP64 record, field or extra field. */
+  | "zip64"
+  /** An archive spanning more than one disk. */
+  | "zipDisk"
+  /** More entries than LIMITS.zipEntries. */
+  | "zipEntries"
+  /** A central directory that is not where, or what, the end record says. */
+  | "zipDirectory"
+  /** A local header missing, or disagreeing with its central entry. */
+  | "zipHeader"
+  /** Entries that leave a gap, overlap, or do not start the file. */
+  | "zipLayout"
+  /** An encrypted entry. */
+  | "zipEncrypted"
+  /** A general-purpose flag the reader does not take. */
+  | "zipFlags"
+  /** A compression method other than stored or DEFLATE. */
+  | "zipMethod"
+  /** An entry name outside the reader's rules. */
+  | "zipName"
+  /** Two entries whose names differ only in case, or not at all. */
+  | "zipDuplicate"
+  /** An extra field too long or malformed. */
+  | "zipExtra"
+  /** Parts to read whose declared sizes exceed LIMITS.inflatedBytes. */
+  | "zipBudget"
+  /** A stored entry whose compressed size is not its size. */
+  | "zipStoredSize"
+  /** A DEFLATE stream the decoder refuses. */
+  | "zipInflate"
+  /** Content whose CRC-32 is not the one declared. */
+  | "zipChecksum"
+  /** A data descriptor disagreeing with the central entry. */
+  | "zipDescriptor";
+
+/** Why an XLSX workbook could not be read (packages/brokers/src/xlsx.ts). */
+export type XlsxReason =
+  /**
+   * The package is not laid out as OPC requires: a relationship or content
+   * type missing or malformed, a target that names no part, two sheets in
+   * one part.
+   */
+  | "xlsxPackage"
+  /** A part that is not UTF-8. */
+  | "xlsxEncoding"
+  /** A sheet or the shared strings kept outside the file. */
+  | "xlsxExternal"
+  /** The workbook's list of sheets, or its date system, malformed. */
+  | "xlsxWorkbook"
+  /** More sheets than LIMITS.sheetsPerFile. */
+  | "xlsxSheets"
+  /** A sheet name blank, longer than 31 characters, or repeated. */
+  | "xlsxSheetName"
+  /** An element, or text, where a sheet or the shared strings hold none. */
+  | "xlsxStructure"
+  /** A row or cell reference malformed, out of order, repeated or past XFD1048576. */
+  | "xlsxReference"
+  /** A column past LIMITS.columns. */
+  | "xlsxColumns"
+  /** More rows than LIMITS.recordsPerFile in the sheets read. */
+  | "xlsxRows"
+  /** More cells than LIMITS.cellsPerFile in the sheets read. */
+  | "xlsxCells"
+  /** A shared-string index not canonical or out of range, or too many strings. */
+  | "xlsxSharedStrings"
+  /** A string too long, the cells' text too long together, or an escape naming no character. */
+  | "xlsxText"
+  /** A kind of cell the reader does not read (a date cell, cell metadata, an unknown type). */
+  | "xlsxCellType"
+  /** A number cell whose value is no number, or lies out of range. */
+  | "xlsxNumber"
+  /** A formula in a sheet an adapter reads. */
+  | "xlsxFormula";
+
 /** A closed list, so that no text from a file can pass for a reason. */
-export type UnreadableReason = CsvReason | XmlReason;
+export type UnreadableReason = CsvReason | XmlReason | ZipReason | XlsxReason;
 
 /** A security and a day, when both have their proper shape. */
 interface Where {
@@ -152,7 +230,13 @@ export type FileRefusal =
   | "utf16"
   | "utf32"
   | "binary"
-  | "notUtf8";
+  | "notUtf8"
+  /** A macro-enabled workbook (.xlsm), or one carrying a VBA project or macro sheet. */
+  | "macroWorkbook"
+  /** A binary workbook (.xlsb). */
+  | "binaryWorkbook"
+  /** A Strict Open XML workbook, which Excel writes only on request. */
+  | "strictWorkbook";
 
 /** Each code and the parameters it carries. */
 export interface DiagnosticParams {
@@ -238,7 +322,16 @@ export interface DiagnosticParams {
   // Intake and broker adapters (brokers)
   fileRefused: { readonly reason: FileRefusal };
   /** `row` is the CSV row, or the XML line, the reader stopped at. */
-  unreadableFile: { readonly reason: UnreadableReason; readonly row: number };
+  /**
+   * Where it stopped: a CSV row or an XML line, 0 for none; in a workbook,
+   * the sheet's position and the cell's row and column, each from 1.
+   */
+  unreadableFile: {
+    readonly reason: UnreadableReason;
+    readonly row: number;
+    readonly sheet?: number;
+    readonly column?: number;
+  };
   diagnosticsTruncated: { readonly dropped: number };
   unknownFormat: None;
   ambiguousFormat: None;

@@ -41,6 +41,8 @@ export {
   type NumberColumn,
   type UnreadableReason,
   type XmlReason,
+  type XlsxReason,
+  type ZipReason,
   type UntrustedText,
   type Severity,
 } from "./diagnostics.js";

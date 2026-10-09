@@ -87,7 +87,7 @@ const REFUSAL: Readonly<Record<IntakeRefusal | FileRefusal, string>> = {
   tooLarge: `is larger than any broker export (over ${String(LIMITS.fileBytes / 1024 / 1024)} MiB)`,
   changedWhileReading: "changed while it was being read",
   overSession: `was not read: the files together are larger than one run takes (over ${String(LIMITS.sessionBytes / 1024 / 1024)} MiB)`,
-  zip: "is a ZIP or XLSX file; export CSV from your broker",
+  zip: "is a ZIP archive, not a broker export",
   spreadsheet: "is an old Excel file; export CSV from your broker",
   pdf: "is a PDF; export CSV from your broker",
   gzip: "is compressed; export CSV from your broker",
@@ -95,6 +95,12 @@ const REFUSAL: Readonly<Record<IntakeRefusal | FileRefusal, string>> = {
   utf32: "is UTF-32 text; export it again from your broker, unchanged",
   binary: "contains binary data",
   notUtf8: "is not UTF-8 text; export it again from your broker, unchanged",
+  macroWorkbook:
+    "is an Excel workbook with macros, which TaxReporter never opens; export it again from your broker",
+  binaryWorkbook:
+    "is a binary Excel workbook (XLSB); export it again from your broker as XLSX",
+  strictWorkbook:
+    "is a Strict Open XML workbook; export it again from your broker, unchanged",
 };
 
 const MAX_PAYERS_LENGTH = 1024 * 1024;

@@ -73,6 +73,20 @@ const COUNTS = new Set([
 const PLAIN_DECIMAL = /^-?\d{1,40}(\.\d{1,40})?$/;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+/**
+ * A column of a sheet by number, as Excel names it: 1 is A, 27 is AA,
+ * 16,384 is XFD. Anything that is not a column (zero, a fraction) stays a
+ * number.
+ */
+export function columnName(column: number): string {
+  if (!Number.isSafeInteger(column) || column < 1) return String(column);
+  let name = "";
+  for (let n = column; n > 0; n = Math.floor((n - 1) / 26)) {
+    name = String.fromCharCode(0x41 + ((n - 1) % 26)) + name;
+  }
+  return name;
+}
+
 /** A closed list's value in words, or the value itself if the list lacks it. */
 function word(list: Readonly<Record<string, string>>, value: string): string {
   return Object.hasOwn(list, value) ? (list[value] as string) : value;
@@ -106,8 +120,13 @@ function shown(
       : plainText(value.untrusted);
   }
   if (typeof value === "number") {
-    // A row or line number is an identifier: its digits are never grouped.
-    return name === "row" ? String(value) : formatNumber(String(value), locale);
+    // A sheet's column is named as Excel names it, by letters.
+    if (name === "column") return columnName(value);
+    // A row, line or sheet number is an identifier: its digits are never
+    // grouped.
+    return name === "row" || name === "sheet"
+      ? String(value)
+      : formatNumber(String(value), locale);
   }
   if (name === "isin") {
     const symbol = Object.hasOwn(context.symbols, value)

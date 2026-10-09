@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import type { Finding } from "../model/preview";
-import { findingText, isFindingCode, type FindingContext } from "./present";
+import {
+  columnName,
+  findingText,
+  isFindingCode,
+  type FindingContext,
+} from "./present";
 
 const context = (locale: "en" | "sl"): FindingContext => ({
   locale,
@@ -120,6 +125,13 @@ describe("findingText", () => {
     expect(
       say({
         severity: "blocking",
+        code: "unreadableFile",
+        params: { reason: "xlsxFormula", row: 1234, sheet: 2, column: 28 },
+      }),
+    ).toMatch(/so it was edited \(sheet 2, cell AB1234\)\. /);
+    expect(
+      say({
+        severity: "blocking",
         code: "rateUnavailable",
         params: { currency: "TWD", date: "2026-02-01", reason: "noRate" },
       }),
@@ -202,5 +214,22 @@ describe("isFindingCode", () => {
     expect(isFindingCode("payerUnknown")).toBe(true);
     expect(isFindingCode("constructor")).toBe(false);
     expect(isFindingCode("__proto__")).toBe(false);
+  });
+});
+
+describe("columnName", () => {
+  it("names a column as Excel does", () => {
+    expect([1, 26, 27, 52, 53, 702, 703, 16_384].map(columnName)).toEqual([
+      "A",
+      "Z",
+      "AA",
+      "AZ",
+      "BA",
+      "ZZ",
+      "AAA",
+      "XFD",
+    ]);
+    expect(columnName(0)).toBe("0");
+    expect(columnName(1.5)).toBe("1.5");
   });
 });

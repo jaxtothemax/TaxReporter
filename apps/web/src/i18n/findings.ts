@@ -31,7 +31,7 @@ export interface FindingWords {
   readonly kinds: Readonly<Record<KeyedEvent["kind"], string>>;
   /** Why a file was refused, completing "This file …". */
   readonly refusals: Readonly<Record<FileRefusal, string>>;
-  /** Why a CSV or XML file could not be read, after "This file cannot be read: ". */
+  /** Why a file could not be read, after "This file cannot be read: ". */
   readonly unreadable: Readonly<Record<UnreadableReason, string>>;
   readonly rateErrors: Readonly<Record<RateError, string>>;
   readonly brokers: Readonly<Record<string, string>>;
@@ -43,6 +43,27 @@ export interface FindingWords {
   readonly tradeChecks: Readonly<
     Record<DiagnosticParams["tradeInconsistent"]["check"], string>
   >;
+}
+
+/**
+ * Where a file could not be read: "(sheet 2, cell B12)", "(sheet 2, row
+ * 12)" or "(sheet 2)" in a workbook, "(line 12)" in a CSV or XML file, and
+ * nothing for a file refused as a whole (row 0).
+ */
+function place(
+  p: Shown<DiagnosticParams["unreadableFile"]>,
+  words: {
+    readonly line: string;
+    readonly sheet: string;
+    readonly row: string;
+    readonly cell: string;
+  },
+): string {
+  if (p.sheet === undefined) return line(p.row, words.line);
+  if (p.row === "0") return ` (${words.sheet} ${p.sheet})`;
+  return p.column === undefined
+    ? ` (${words.sheet} ${p.sheet}, ${words.row} ${p.row})`
+    : ` (${words.sheet} ${p.sheet}, ${words.cell} ${p.column}${p.row})`;
 }
 
 /** "(line 12)", or nothing for a file refused as a whole (row 0). */
@@ -226,7 +247,7 @@ export const findingsEn: FindingMessages = {
   // Intake and the broker adapters
   fileRefused: (p) => `This file ${p.reason}.`,
   unreadableFile: (p) =>
-    `This file cannot be read: ${p.reason}${line(p.row, "line")}. Export it again from your broker, unchanged.`,
+    `This file cannot be read: ${p.reason}${place(p, { line: "line", sheet: "sheet", row: "row", cell: "cell" })}. Export it again from your broker, unchanged.`,
   diagnosticsTruncated: (p) =>
     `More findings for this file are not shown (${p.dropped}).`,
   unknownFormat: () =>
@@ -323,7 +344,7 @@ export const wordsEn: FindingWords = {
   },
   refusals: {
     tooLarge: "is larger than any broker export (over 64 MiB)",
-    zip: "is a ZIP or Excel file: export CSV or XML from your broker instead",
+    zip: "is a ZIP archive, not a broker export: export CSV or XML from your broker instead",
     spreadsheet:
       "is an old Excel file: export CSV or XML from your broker instead",
     pdf: "is a PDF: export CSV or XML from your broker instead",
@@ -332,6 +353,12 @@ export const wordsEn: FindingWords = {
     utf32: "is UTF-32 text: export it again from your broker, unchanged",
     binary: "contains binary data",
     notUtf8: "is not UTF-8 text: export it again from your broker, unchanged",
+    macroWorkbook:
+      "is an Excel workbook with macros, which TaxReporter never opens: export it again from your broker",
+    binaryWorkbook:
+      "is a binary Excel workbook (XLSB): export it again from your broker as XLSX",
+    strictWorkbook:
+      "is a Strict Open XML workbook: export it again from your broker, unchanged",
   },
   unreadable: {
     // CSV
@@ -371,6 +398,43 @@ export const wordsEn: FindingWords = {
     afterRoot: "something follows the end of the document",
     noRoot: "it holds no XML document",
     truncated: "it ends before its document does, so it was cut short",
+    // ZIP, as XLSX workbooks are
+    zipEnd: "its ZIP archive does not end as one must",
+    zip64: "it is a ZIP64 archive, which no workbook needs",
+    zipDisk: "it is one part of an archive split across disks",
+    zipEntries: "its ZIP archive holds too many entries",
+    zipDirectory: "its ZIP directory is malformed",
+    zipHeader: "an entry's header disagrees with the ZIP directory",
+    zipLayout: "its ZIP entries overlap, leave gaps or hide data",
+    zipEncrypted: "it is encrypted",
+    zipFlags: "an entry uses a ZIP option no workbook needs",
+    zipMethod: "an entry is compressed in a way no workbook is",
+    zipName: "an entry has a name no workbook uses",
+    zipDuplicate: "two entries have the same name",
+    zipExtra: "an entry carries extra data no workbook needs",
+    zipBudget: "its parts would unpack to more than 64 MiB",
+    zipStoredSize: "an uncompressed entry gives two sizes",
+    zipInflate: "a compressed part is damaged",
+    zipChecksum: "a part does not match its checksum, so it is damaged",
+    zipDescriptor: "an entry's trailing sizes disagree with the ZIP directory",
+    // XLSX
+    xlsxPackage: "it is not laid out as an Excel workbook is",
+    xlsxEncoding: "a part of it is not UTF-8 text",
+    xlsxExternal: "a sheet is kept outside the file",
+    xlsxWorkbook: "its list of sheets is malformed",
+    xlsxSheets: "it has too many sheets",
+    xlsxSheetName: "a sheet's name is blank, too long or repeated",
+    xlsxStructure: "a sheet holds something no broker export has",
+    xlsxReference: "a cell's place in its sheet is malformed or out of order",
+    xlsxColumns: "a sheet has too many columns",
+    xlsxRows: "its sheets have too many rows",
+    xlsxCells: "its sheets have too many cells",
+    xlsxSharedStrings: "its table of texts is malformed or too large",
+    xlsxText: "a text in it is too long or malformed",
+    xlsxCellType: "a cell holds a kind of value TaxReporter does not read",
+    xlsxNumber: "a cell's number is malformed or out of range",
+    xlsxFormula:
+      "a cell holds a formula, which no broker writes, so it was edited",
   },
   rateErrors: {
     invalidDate: "the date cannot be read",
@@ -559,7 +623,7 @@ export const findingsSl: FindingMessages = {
   // Intake and the broker adapters
   fileRefused: (p) => `Ta datoteka ${p.reason}.`,
   unreadableFile: (p) =>
-    `Datoteke ni mogoče prebrati: ${p.reason}${line(p.row, "vrstica")}. Pri posredniku jo izvozite znova, nespremenjeno.`,
+    `Datoteke ni mogoče prebrati: ${p.reason}${place(p, { line: "vrstica", sheet: "list", row: "vrstica", cell: "celica" })}. Pri posredniku jo izvozite znova, nespremenjeno.`,
   diagnosticsTruncated: (p) =>
     `Nadaljnjih ugotovitev za to datoteko (${p.dropped}) ni prikazanih.`,
   unknownFormat: () =>
@@ -658,7 +722,7 @@ export const wordsSl: FindingWords = {
   refusals: {
     tooLarge:
       "je večja od katerega koli izvoza borznega posrednika (več kot 64 MiB)",
-    zip: "je datoteka ZIP ali Excel: pri posredniku raje izvozite CSV ali XML",
+    zip: "je arhiv ZIP, ne izvoz posrednika: pri posredniku raje izvozite CSV ali XML",
     spreadsheet:
       "je stara datoteka Excel: pri posredniku raje izvozite CSV ali XML",
     pdf: "je PDF: pri posredniku raje izvozite CSV ali XML",
@@ -670,6 +734,12 @@ export const wordsSl: FindingWords = {
     binary: "vsebuje binarne podatke",
     notUtf8:
       "ni besedilo UTF-8: pri posredniku jo izvozite znova, nespremenjeno",
+    macroWorkbook:
+      "je delovni zvezek Excel z makri, ki ga TaxReporter nikoli ne odpre: pri posredniku jo izvozite znova",
+    binaryWorkbook:
+      "je binarni delovni zvezek Excel (XLSB): pri posredniku jo izvozite znova kot XLSX",
+    strictWorkbook:
+      "je delovni zvezek Strict Open XML: pri posredniku jo izvozite znova, nespremenjeno",
   },
   unreadable: {
     // CSV
@@ -710,6 +780,46 @@ export const wordsSl: FindingWords = {
     afterRoot: "za koncem dokumenta je še nekaj",
     noRoot: "ne vsebuje dokumenta XML",
     truncated: "konča se pred koncem dokumenta, zato je bila odrezana",
+    // ZIP, kot so delovni zvezki XLSX
+    zipEnd: "njen arhiv ZIP se ne konča, kot se mora",
+    zip64: "je arhiv ZIP64, ki ga noben delovni zvezek ne potrebuje",
+    zipDisk: "je del arhiva, razdeljenega na več diskov",
+    zipEntries: "njen arhiv ZIP ima preveč vnosov",
+    zipDirectory: "njen imenik ZIP je napačno zapisan",
+    zipHeader: "glava vnosa se ne ujema z imenikom ZIP",
+    zipLayout:
+      "njeni vnosi ZIP se prekrivajo, puščajo vrzeli ali skrivajo podatke",
+    zipEncrypted: "je šifrirana",
+    zipFlags:
+      "vnos uporablja možnost ZIP, ki je noben delovni zvezek ne potrebuje",
+    zipMethod: "vnos je stisnjen drugače, kot je stisnjen delovni zvezek",
+    zipName: "vnos ima ime, ki ga noben delovni zvezek ne uporablja",
+    zipDuplicate: "dva vnosa imata isto ime",
+    zipExtra:
+      "vnos nosi dodatne podatke, ki jih noben delovni zvezek ne potrebuje",
+    zipBudget: "njeni deli bi se razširili na več kot 64 MiB",
+    zipStoredSize: "nestisnjen vnos navaja dve velikosti",
+    zipInflate: "stisnjen del je poškodovan",
+    zipChecksum: "del se ne ujema s svojo kontrolno vsoto, zato je poškodovan",
+    zipDescriptor: "velikosti na koncu vnosa se ne ujemajo z imenikom ZIP",
+    // XLSX
+    xlsxPackage: "ni urejena, kot je urejen delovni zvezek Excel",
+    xlsxEncoding: "del datoteke ni besedilo UTF-8",
+    xlsxExternal: "list je shranjen zunaj datoteke",
+    xlsxWorkbook: "njen seznam listov je napačno zapisan",
+    xlsxSheets: "ima preveč listov",
+    xlsxSheetName: "ime lista je prazno, predolgo ali se ponovi",
+    xlsxStructure: "list vsebuje nekaj, česar noben izvoz posrednika nima",
+    xlsxReference: "mesto celice na listu je napačno zapisano ali ni po vrsti",
+    xlsxColumns: "list ima preveč stolpcev",
+    xlsxRows: "njeni listi imajo preveč vrstic",
+    xlsxCells: "njeni listi imajo preveč celic",
+    xlsxSharedStrings: "njena tabela besedil je napačno zapisana ali prevelika",
+    xlsxText: "besedilo v njej je predolgo ali napačno zapisano",
+    xlsxCellType: "celica vsebuje vrsto vrednosti, ki je TaxReporter ne bere",
+    xlsxNumber: "število v celici je napačno zapisano ali zunaj obsega",
+    xlsxFormula:
+      "celica vsebuje formulo, ki je noben posrednik ne zapiše, zato je bila datoteka urejena",
   },
   rateErrors: {
     invalidDate: "datuma ni mogoče prebrati",

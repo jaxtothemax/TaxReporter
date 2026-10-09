@@ -22,48 +22,13 @@
  * entry inflates to exactly its declared size and CRC-32. Errors name a
  * rule, never a name or a byte from the archive.
  */
-import { LIMITS } from "@taxreporter/core";
+import { LIMITS, type ZipReason } from "@taxreporter/core";
 
 import { crc32 } from "./crc32.js";
 import { inflate, InflateError } from "./inflate.js";
 
-export type ZipErrorCode =
-  /** No End of Central Directory record ends the file, or more than one could. */
-  | "zipEnd"
-  /** A ZIP64 record, field or extra field. */
-  | "zip64"
-  /** An archive spanning more than one disk. */
-  | "zipDisk"
-  /** More entries than LIMITS.zipEntries. */
-  | "zipEntries"
-  /** A central directory that is not where, or what, the end record says. */
-  | "zipDirectory"
-  /** A local header missing, or disagreeing with its central entry. */
-  | "zipHeader"
-  /** Entries that leave a gap, overlap, or do not start the file. */
-  | "zipLayout"
-  /** An encrypted entry. */
-  | "zipEncrypted"
-  /** A general-purpose flag this reader does not take. */
-  | "zipFlags"
-  /** A compression method other than stored or DEFLATE. */
-  | "zipMethod"
-  /** An entry name outside the rules above. */
-  | "zipName"
-  /** Two entries whose names differ only in case, or not at all. */
-  | "zipDuplicate"
-  /** An extra field too long or malformed. */
-  | "zipExtra"
-  /** Parts to read whose declared sizes exceed the budget. */
-  | "zipBudget"
-  /** A stored entry whose compressed size is not its size. */
-  | "zipStoredSize"
-  /** A DEFLATE stream the decoder refuses. */
-  | "zipInflate"
-  /** Content whose CRC-32 is not the one declared. */
-  | "zipChecksum"
-  /** A data descriptor disagreeing with the central entry. */
-  | "zipDescriptor";
+/** The codes are core's, so a diagnostic can only carry one of them. */
+export type ZipErrorCode = ZipReason;
 
 export class ZipError extends Error {
   constructor(readonly code: ZipErrorCode) {

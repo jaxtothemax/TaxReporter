@@ -490,7 +490,7 @@ describe("taxreporter", () => {
     ]);
     expect(result.code).toBe(1);
     expect(result.stdout).toContain(
-      "Refused: export.csv is a ZIP or XLSX file",
+      "Refused: export.csv is a ZIP archive, not a broker export",
     );
     expect(existsSync(out)).toBe(false);
   });
