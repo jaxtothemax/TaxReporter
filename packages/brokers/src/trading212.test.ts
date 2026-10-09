@@ -335,11 +335,15 @@ describe("rows it refuses rather than guesses", () => {
       "Market buy,2026-09-08 14:05:12+00:00,US1912161007,KO,Coca-Cola,,EOF1,2,0E-6,USD,,,,1,EUR,,",
       "Dividend (Dividend),2026-09-08 14:05:12+00:00,US1912161007,KO,Coca-Cola,,,20,0.4335,USD,,,,7.41,EUR,0E-10,USD",
       "Market buy,2026-09-08 14:05:12+00:00,US1912161007,KO,Coca-Cola,,EOF1,2,69.5,USD,,,,0E-10,EUR,,",
+      "Market sell,2026-09-08 14:05:12+00:00,US1912161007,KO,Coca-Cola,,EOF1,2,0E-7,USD,,-50,EUR,0.00,EUR,,",
+      "Market sell,2026-09-08 14:05:12+00:00,US1912161007,KO,Coca-Cola,,EOF1,2,0E-12,USD,,-50,EUR,0.00,EUR,,",
+      "Market buy,2026-09-08 14:05:12+00:00,US1912161007,KO,Coca-Cola,,EOF1,2,0E-13,USD,,,,1,EUR,,",
     );
     const price = { column: "Price / share" };
     // A zero price is the mark of a takeover paid in shares (06 §4.3), and a
     // zero share count no quantity. A tax or a total is kept to 2 decimals,
-    // so there the form is not a zero T212 writes.
+    // so there the form is not a zero T212 writes. The form runs from 7
+    // places, the first written so, to 12, the most NUMBER takes.
     expect(
       result.diagnostics.map((d) => [d.code, d.params, d.source?.row]),
     ).toEqual([
@@ -351,6 +355,9 @@ describe("rows it refuses rather than guesses", () => {
       ["invalidNumber", price, 7],
       ["invalidNumber", { column: "Withholding tax" }, 8],
       ["invalidNumber", { column: "Total" }, 9],
+      ["invalidPrice", {}, 10],
+      ["invalidPrice", {}, 11],
+      ["invalidNumber", price, 12],
     ]);
     expect(result.events).toEqual([]);
   });

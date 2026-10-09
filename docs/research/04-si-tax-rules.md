@@ -1,6 +1,6 @@
 # Slovenian personal income tax on capital gains and dividends (tax years 2025 and 2026)
 
-> Researched: 2026-10-07 · Verification: adversarially verified (25 claims: 25 confirmed, 0 refuted, 0 uncertain; 3 minor corrections)
+> Researched: 2026-10-07 · Verification: adversarially verified (25 claims: 25 confirmed, 0 refuted, 0 uncertain; 3 minor corrections) · Updated: 2026-10-09 (open question on rights handed out free to holders)
 >
 > Research for building TaxReporter. It is not tax advice, and FURS publications and the law win over anything written here. Inline markers are explained in the [README](README.md#confidence-and-verification-legend).
 
