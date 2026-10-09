@@ -1,12 +1,11 @@
 # 15. Trade Republic transaction export
 
 **Date:** 2026-10-09
-**Status:** Proposed
+**Status:** Accepted (2026-10-09)
 
-> **Implementation status (2026-10-09):** built on branch `feat/trade-republic`, not yet on
-> `main`, in `packages/brokers/src/trade-republic.ts`. It is tested only against the synthetic
-> export in `packages/brokers/test/fixtures/trade-republic/`; no real export has been read
-> yet. ADR 0014 (XLSX import) is numbered before it on its own branch.
+> **Implementation status (2026-10-09):** on `main`, not yet in a release, in
+> `packages/brokers/src/trade-republic.ts`. It is tested only against the synthetic export in
+> `packages/brokers/test/fixtures/trade-republic/`; no real export has been read yet (#12).
 
 ## Context
 
@@ -95,7 +94,9 @@ monthly purchases, one sale.
 ## On Acceptance
 
 <!-- Complete when this ADR's Status moves to Accepted — not before. -->
-- [ ] Open issues naming this ADR re-read against the settled decision:
-      `python3 scripts/adr-accepted-issue-sweep.py --adr 0015`
-- [ ] Any issue carrying pre-ADR scope rewritten — **title and body** — led by a
-      dated correction note. Record the count here, **including zero**.
+- [x] Open issues naming this ADR re-read against the settled decision:
+      `python3 scripts/adr-accepted-issue-sweep.py --adr 0015` (2026-10-09): 0 flagged. The
+      script matches only the spelling `ADR-0015`, so the issues that write `ADR 0015` were
+      read by hand: #12, all filed on 2026-10-09 from the settled text.
+- [x] Any issue carrying pre-ADR scope rewritten — **title and body** — led by a
+      dated correction note. Count: **0**.

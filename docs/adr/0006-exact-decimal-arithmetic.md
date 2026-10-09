@@ -61,12 +61,12 @@ the written quantities, which have at most 8 decimals. Inside the FIFO engine, a
 ratio such as 3:2 gives lot quantities with other denominators; they are rounded once, on the
 running total, when a list is written.
 
-**One rounding at a spreadsheet cell, proposed (2026-10-09).** ADR 0014 (Proposed) reads a
+**One rounding at a spreadsheet cell (2026-10-09).** ADR 0014 (Accepted 2026-10-09) reads a
 number cell of an XLSX workbook, which holds a binary double, by rounding its exact text once
 to 15 significant digits, ties away from zero (research 09 §1). The rounding undoes the binary
 representation, at the reading of the cell, before any arithmetic; it is the one exception to
-"round once, at the form field", and takes effect only if ADR 0014 is accepted. Every later
-step stays exact.
+"round once, at the form field", in effect since ADR 0014 was accepted. Every later step stays
+exact.
 
 ## Consequences
 
