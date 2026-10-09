@@ -1,6 +1,6 @@
 # Broker export formats: Interactive Brokers, Trading 212, Revolut
 
-> Researched: 2026-10-07 · Verification: not independently verified · Updated: 2026-10-09 (one real Trading 212 export inspected: the `0E-10` zero, dividend prices to 6 decimals, the V4 header and a takeover's rows, §4.2–§4.4; the takeover's tax rule linked from §4.3)
+> Researched: 2026-10-07 · Verification: not independently verified · Updated: 2026-10-09 (one real Trading 212 export inspected: the `0E-10` zero, dividend prices to 6 decimals, the V4 header and a takeover's rows, §4.2–§4.4; the tax rule for takeovers and mergers paid in shares linked from §3.5 and §4.3)
 >
 > Research for building TaxReporter. It is not tax advice, and FURS publications and the law win over anything written here. Where this page overlaps a verified doc (01–03), the verified doc wins; such places are cross-referenced inline. See the [README](README.md#confidence-and-verification-legend) for the legend.
 
@@ -166,7 +166,7 @@ How corporate actions are represented:
 
 - `quantity` is the signed position change. Use it, not a ratio parsed from `description`.
 - **ISIN-changing reverse splits** produce two rows with the same `actionID`: the old leg has symbol `XXX.OLD`, the old ISIN and a negative quantity; the new leg has the new ISIN/conid and a positive quantity. There may be **no** separate `CUSIP/ISIN CHANGE` row (ib-edavki #181, #213, e.g. WEAT 2025-11-24, PRSO).
-- Mergers appear as `MERGED(Acquisition) WITH <ISIN> a FOR b` (#205).
+- Mergers appear as `MERGED(Acquisition) WITH <ISIN> a FOR b` (#205). How a merger paid in shares is taxed is in [04 §9.1](04-si-tax-rules.md#91-takeovers-and-mergers-paid-in-shares).
 - Spin-offs and stock dividends cannot be valued from the export (#177).
 
 ### 3.6 Other sections
