@@ -136,7 +136,7 @@ for (const locale of ["sl", "en"] as const) {
       // in a named region that takes focus.
       const scrollers =
         html.match(
-          /<div class="table-scroll" role="region" aria-label="[^"]+" tabindex="0"><table/g,
+          /<div class="table-scroll" role="region" aria-label="[^"]+" tabindex="0"[^>]*><table/g,
         ) ?? [];
       expect(scrollers).toHaveLength(tables.length);
       expect(html).not.toMatch(/<summary[^>]*aria-label=/);

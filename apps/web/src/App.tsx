@@ -7,7 +7,14 @@
  * the file is listed: removing it, choosing the demo or starting over drops
  * them. The reducer holds only what the engine answered.
  */
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 
 import { demoPreview } from "./demo/demoPreview";
 import { createWorkerEngine, type Engine } from "./engine/client";
@@ -25,6 +32,13 @@ import {
   type ReviewView,
 } from "./screens/ReviewStep";
 import { StartScreen } from "./screens/StartScreen";
+import {
+  createTourReducer,
+  initialTourState,
+  type TourState,
+} from "./tour/machine";
+import { NOTE_COUNTS, TOUR } from "./tour/script";
+import { focusTarget, TourLayer, type TourRestore } from "./tour/TourLayer";
 import {
   blockingReason,
   initialWizardState,
@@ -47,6 +61,15 @@ import { ErrorBoundary } from "./ui/ErrorBoundary";
 import { Button, Note } from "./ui/kit";
 import { Stepper } from "./ui/Stepper";
 
+/** The guided tour's reducer, over the script's stops (tour/script.ts). */
+const tourReducer = createTourReducer(NOTE_COUNTS);
+
+const noRestore = (focus: TourRestore["focus"] = "heading"): TourRestore => ({
+  focus,
+  scrollY: null,
+  scrollers: new Map(),
+});
+
 /** The demo's returns, from the engine the download step loads when it opens. */
 const writeDemoReturns = () =>
   import("./engine/demoReturns").then((engine) => engine.buildDemoReturns());
@@ -67,14 +90,21 @@ function reviewStatus(state: WizardState): "ready" | "preparing" | "failed" {
 function Frame({
   initialState,
   initialTheme,
+  initialTour,
   engine,
 }: {
   readonly initialState: WizardState;
   readonly initialTheme: Theme;
+  readonly initialTour: TourState;
   readonly engine: Engine;
 }) {
   const { locale, t } = useI18n();
   const [state, dispatch] = useReducer(wizardReducer, initialState);
+  // The guided tour (#27, ADR 0016) sits next to the wizard, not in it:
+  // starting over resets the wizard and never re-arms the tour.
+  const [tour, tourDispatch] = useReducer(tourReducer, initialTour);
+  const restore = useRef<TourRestore>(noRestore());
+  const restorePending = useRef(false);
   const [theme, setTheme] = useState<Theme>(initialTheme);
   // The review's tab and open securities. Leaving the review resets them, as
   // they were reset when the review's own state went with it.
@@ -100,6 +130,41 @@ function Frame({
       : null;
   const preview =
     state.mode === "demo" ? demoPreview : (prepared?.preview ?? null);
+
+  // While a tour stop runs, the app shows the stop's screen, tab and rows in
+  // place of the user's; the wizard's state is never changed, so ending the
+  // tour brings the user's view back as it was.
+  const tourRun = state.mode === "demo" ? tour.run : null;
+  const tourOpen = useRef(false);
+  tourOpen.current = tourRun !== null;
+  const stop = tourRun === null ? undefined : TOUR[tourRun.stop];
+  const shownScreen = stop?.view.screen ?? state.screen;
+  const shown: WizardState =
+    shownScreen === state.screen ? state : { ...state, screen: shownScreen };
+  const shownReview = stop?.view.review ?? reviewView;
+
+  // The tour has ended: give back the scroll and the focus it took. The
+  // user's own view is already back, by construction, in this commit.
+  useLayoutEffect(() => {
+    if (tour.run !== null || !restorePending.current) return;
+    restorePending.current = false;
+    const { focus, scrollY, scrollers } = restore.current;
+    for (const [scroller, left] of scrollers) {
+      if (scroller.isConnected) scroller.scrollLeft = left;
+    }
+    if (scrollY !== null)
+      window.scrollTo({ top: scrollY, behavior: "instant" });
+    const target = focusTarget(focus);
+    target?.focus({ preventScroll: true });
+    // A browser may still hand focus back to what had it before the dialog
+    // opened, after this runs (WebKit does): give it to the target again.
+    requestAnimationFrame(() => {
+      if (target?.isConnected === true && document.activeElement !== target) {
+        target.focus({ preventScroll: true });
+      }
+    });
+    restore.current = noRestore();
+  }, [tour.run]);
 
   useEffect(() => {
     document.documentElement.lang = locale;
@@ -128,9 +193,14 @@ function Frame({
   // A new screen replaces the whole content: move focus to its heading so
   // keyboard and screen-reader users land at its start, hearing which screen it
   // is, instead of on a vanished button.
+  //
+  // While the guided tour is open it owns focus and scroll: a focus here would
+  // land behind the modal dialog (WebKit grants it, then drops focus to the
+  // body), and the tour gives the screen back, focused, when it ends.
   useEffect(() => {
     if (previousScreen.current === state.screen) return;
     previousScreen.current = state.screen;
+    if (tourOpen.current) return;
     window.scrollTo({ top: 0 });
     const target =
       document.querySelector<HTMLElement>("#main h1") ??
@@ -234,8 +304,22 @@ function Frame({
     };
   }, [prepared]);
 
+  // Entering the demo starts the tour, the first time in this page session.
+  const enterDemo = (action: "startDemo" | "useDemoFiles") => {
+    // A new screen opens at its top; that is where the tour gives it back.
+    if (!tour.seen) {
+      restore.current = { ...noRestore("heading"), scrollY: 0 };
+    }
+    dispatch({ type: action });
+    tourDispatch({ type: "start" });
+  };
   const startDemo = () => {
-    dispatch({ type: "startDemo" });
+    enterDemo("startDemo");
+  };
+  const replayTour = () => {
+    // Taken before the tour shows a shorter screen, which clamps the scroll.
+    restore.current = { ...noRestore("tourButton"), scrollY: window.scrollY };
+    tourDispatch({ type: "replay" });
   };
   const back = () => {
     dispatch({ type: "back" });
@@ -274,14 +358,14 @@ function Frame({
         ) : (
           <div className="container flow">
             <Stepper
-              state={state}
+              state={shown}
               onGoTo={(screen) => {
                 dispatch({ type: "goTo", screen });
               }}
             />
-            {state.mode === "demo" ? <DemoBanner /> : null}
+            {state.mode === "demo" ? <DemoBanner onTour={replayTour} /> : null}
             <ErrorBoundary
-              resetKey={state.screen}
+              resetKey={shownScreen}
               fallback={
                 <div className="screen">
                   <Note tone="danger" role="alert">
@@ -304,9 +388,9 @@ function Frame({
                 </div>
               }
             >
-              {state.screen === "files" ? (
+              {shownScreen === "files" ? (
                 <FilesStep
-                  state={state}
+                  state={shown}
                   taxYear={TAX_YEAR}
                   onAddFiles={addFiles}
                   onRemoveFile={(id) => {
@@ -316,15 +400,15 @@ function Frame({
                     dispatch({ type: "setAccounts", accounts: choice });
                   }}
                   onUseDemoFiles={() => {
-                    dispatch({ type: "useDemoFiles" });
+                    enterDemo("useDemoFiles");
                   }}
                   onBack={back}
                   onNext={next}
                 />
               ) : null}
-              {state.screen === "details" ? (
+              {shownScreen === "details" ? (
                 <DetailsStep
-                  state={state}
+                  state={shown}
                   onChange={(field, value) => {
                     dispatch({ type: "setDetail", field, value });
                   }}
@@ -335,7 +419,7 @@ function Frame({
                   onNext={next}
                 />
               ) : null}
-              {state.screen === "review" ? (
+              {shownScreen === "review" ? (
                 <ReviewStep
                   preview={preview}
                   status={reviewStatus(state)}
@@ -350,14 +434,15 @@ function Frame({
                       ? blockingReason(state, "review") === null
                       : !demoBlocked
                   }
-                  view={reviewView}
-                  onViewChange={setReviewView}
+                  view={shownReview}
+                  // The tour's view is its own: a toggle it causes is not the user's.
+                  onViewChange={stop === undefined ? setReviewView : noChange}
                   onBack={back}
                   onNext={next}
                   onStartDemo={startDemo}
                 />
               ) : null}
-              {state.screen === "download" ? (
+              {shownScreen === "download" ? (
                 preview === null ||
                 (state.mode === "own" && ownReturns === null) ? (
                   // Unreachable through the flow (own files block at the
@@ -380,20 +465,42 @@ function Frame({
         )}
       </Main>
       <AppFooter />
+      {tourRun === null || stop === undefined ? null : (
+        <TourLayer
+          run={tourRun}
+          preview={demoPreview}
+          restore={restore.current}
+          onNext={(capacity) => {
+            tourDispatch({ type: "next", capacity });
+          }}
+          onBack={(capacity) => {
+            tourDispatch({ type: "back", capacity });
+          }}
+          onClosed={() => {
+            restorePending.current = true;
+            tourDispatch({ type: "exit" });
+          }}
+        />
+      )}
     </div>
   );
 }
+
+const noChange = () => undefined;
 
 export function App({
   initialLocale = "sl",
   initialState = initialWizardState,
   initialTheme = "dark",
+  initialTour = initialTourState,
   engine,
 }: {
   readonly initialLocale?: Locale;
   /** Lets tests render any screen without simulating clicks. */
   readonly initialState?: WizardState;
   readonly initialTheme?: Theme;
+  /** Lets tests render a tour stop, or a tour already seen. */
+  readonly initialTour?: TourState;
   /** The engine; tests pass a fake, the app starts its worker when needed. */
   readonly engine?: Engine;
 }) {
@@ -404,6 +511,7 @@ export function App({
       <Frame
         initialState={initialState}
         initialTheme={initialTheme}
+        initialTour={initialTour}
         engine={running}
       />
     </I18nProvider>

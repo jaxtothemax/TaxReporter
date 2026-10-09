@@ -66,8 +66,10 @@ describe("GainsPanel", () => {
         onToggle={() => undefined}
       />,
     );
-    expect(opened.match(/<details class="security" open=""/g)).toHaveLength(1);
-    expect(html).not.toContain('<details class="security" open=""');
+    expect(
+      opened.match(/<details class="security"[^>]* open=""/g),
+    ).toHaveLength(1);
+    expect(html).not.toMatch(/<details class="security"[^>]* open=""/);
   });
 
   it("says which rows a split adjusted", () => {

@@ -15,6 +15,7 @@ import {
   MagnifyingGlassIcon,
 } from "@phosphor-icons/react";
 import type { FormOutput } from "../engine/protocol";
+import { explain } from "../explain/anchors";
 import { formatNumber, formatPercent, plural } from "../i18n/format";
 import { useI18n } from "../i18n/i18n";
 import type { Messages } from "../i18n/messages";
@@ -73,21 +74,23 @@ function Summary({ preview }: { readonly preview: ReturnPreview }) {
   return (
     <div className="summary">
       <div className="bento">
-        <div className="card stat-card span-7">
+        <div className="card stat-card span-7" {...explain("summary.gainsTax")}>
           <div className="stat-head">
             <p className="stat-label">{t.review.gainsTaxLabel}</p>
-            <Chip>{t.review.estimateChip}</Chip>
+            <Chip explain={explain("summary.estimateChip")}>
+              {t.review.estimateChip}
+            </Chip>
           </div>
           <Amount value={gains.taxEur} size="xl" />
           <dl className="kv">
-            <div>
+            <div {...explain("summary.netBase")}>
               <dt>{t.review.netBase}</dt>
               <dd>
                 <Eur value={gains.netBaseEur} strong />
               </dd>
             </div>
           </dl>
-          <div className="stat-chart">
+          <div className="stat-chart" {...explain("summary.buckets")}>
             <p className="mini-title">{t.review.bucketsTitle}</p>
             <StackBar
               segments={buckets.map((b) => ({

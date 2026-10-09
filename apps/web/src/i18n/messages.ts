@@ -264,6 +264,67 @@ export interface Messages {
     ) => readonly string[];
     readonly startOver: string;
   };
+  readonly tour: {
+    readonly action: string;
+    readonly skip: string;
+    readonly back: string;
+    readonly next: string;
+    readonly finish: string;
+    readonly atStart: string;
+    readonly stopOf: (stop: string, stops: string) => string;
+    readonly noteOf: (note: string, notes: string) => string;
+    readonly listLabel: string;
+    readonly announceStop: (
+      stop: string,
+      stops: string,
+      title: string,
+    ) => string;
+    readonly announceNote: (
+      note: string,
+      notes: string,
+      lead: string,
+    ) => string;
+    readonly waiting: string;
+    readonly stops: {
+      readonly files: { readonly title: string; readonly intro: string };
+      readonly summary: { readonly title: string; readonly intro: string };
+      readonly saleRate: {
+        readonly title: string;
+        readonly intro: (security: string) => string;
+      };
+      readonly download: { readonly title: string; readonly intro: string };
+    };
+  };
+  /**
+   * What a figure is and where it came from, by concept (ADR 0016): written
+   * to describe what TaxReporter did, so the same text can explain the user's
+   * own figures. Each rule stated here is the one docs/research/ records.
+   */
+  readonly explain: {
+    readonly wholeHistory: (broker: string, date: string) => string;
+    readonly fifoAcrossBrokers: (broker: string, date: string) => string;
+    readonly estimateOnly: string;
+    readonly netTaxableGain: (losses: string) => string;
+    readonly holdingBucket: (terms: string, tax: string) => string;
+    readonly splitAdjusted: (ratio: string) => string;
+    readonly bsiRateTradeDay: (
+      listDate: string,
+      currency: string,
+      division: string,
+      perUnit: string,
+    ) => string;
+    readonly bsiRateListBefore: (
+      tradeDate: string,
+      listDate: string,
+      currency: string,
+      division: string,
+      perUnit: string,
+    ) => string;
+    readonly sourceRow: string;
+    readonly returnForms: string;
+    readonly edavkiImport: string;
+    readonly youReviewAndSubmit: string;
+  };
 }
 
 export const en: Messages = {
@@ -608,6 +669,70 @@ export const en: Messages = {
         : `Submit it by ${deadline}.`,
     ],
     startOver: "Start over",
+  },
+  tour: {
+    action: "Guided tour",
+    skip: "Skip tour",
+    back: "Back",
+    next: "Next",
+    finish: "Finish",
+    atStart: "This is the start of the tour.",
+    stopOf: (stop, stops) => `Stop ${stop} of ${stops}`,
+    noteOf: (note, notes) => `${note} of ${notes}`,
+    listLabel: "Explanations on this stop",
+    announceStop: (stop, stops, title) => `Stop ${stop} of ${stops}: ${title}.`,
+    announceNote: (note, notes, lead) => `${note} of ${notes}: ${lead}.`,
+    waiting: "Preparing this stop.",
+    stops: {
+      files: {
+        title: "Two brokers, one history",
+        intro:
+          "A tour of the demo: made-up trades at real Banka Slovenije rates. A few cases are not in it, such as a dividend payer's details to fill in.",
+      },
+      summary: {
+        title: "Estimates, split by tax rate",
+        intro:
+          "The review shows every figure behind both returns. It starts with what they add up to.",
+      },
+      saleRate: {
+        title: "A sale, its rate and its source",
+        intro: (security) =>
+          `The inventory list (popisni list) of ${security}: the rows Doh-KDVP will hold for it, one for each purchase and sale.`,
+      },
+      download: {
+        title: "Download, then you submit",
+        intro:
+          "Last stop. The demo's files are written exactly like yours, but for a made-up taxpayer: never import them into eDavki.",
+      },
+    },
+  },
+  explain: {
+    wholeHistory: (broker, date) =>
+      `${broker}, from ${date}. A sale is matched with the purchases before it, so an export reaches back to the oldest of them.`,
+    fifoAcrossBrokers: (broker, date) =>
+      `${broker}, from ${date}. All files are read together, in this tab, and never uploaded. Shares bought at one broker and sold at another are matched across both.`,
+    estimateOnly:
+      "TaxReporter prepares the return and estimates the tax. eDavki calculates the final tax, and the FURS assessment is what counts.",
+    // Normed costs and the loss offset: docs/research/04-si-tax-rules.md §4.2, §4.6.
+    netTaxableGain: (losses) =>
+      `Gains after normed costs (1% of the purchase value and 1% of the sale value, never more than the gain), with this year's losses set against them: ${losses}.`,
+    holdingBucket: (terms, tax) =>
+      `The longer shares were held, the lower the rate on their gain. Here ${terms} = ${tax}.`,
+    splitAdjusted: (ratio) =>
+      `This purchase is shown in shares after the split: quantity and price restated by its ${ratio} ratio. The purchase date stays, and with it the holding period.`,
+    // The list of the trade date, or the last one before it: research 03 §9.
+    bsiRateTradeDay: (listDate, currency, division, perUnit) =>
+      `From Banka Slovenije's list of ${listDate}, the trade date. The list quotes ${currency} per euro, so the price is divided: ${division} = ${perUnit}, rounded to 8 decimal places.`,
+    bsiRateListBefore: (tradeDate, listDate, currency, division, perUnit) =>
+      `Traded on ${tradeDate}, a day Banka Slovenije published no list, so the last list before it applies, of ${listDate}. It quotes ${currency} per euro: ${division} = ${perUnit}, rounded to 8 decimal places.`,
+    sourceRow:
+      "Every row names the file and the line it came from, so each figure can be checked against the broker's own export.",
+    returnForms:
+      "The return for gains on securities: one inventory list (popisni list) for each security sold. Doh-Div, beside it, lists each dividend payment on a row of its own.",
+    edavkiImport:
+      "Written on this device and saved there; nothing is uploaded. In eDavki, a file like this is imported under Dokumenti, then Uvoz.",
+    youReviewAndSubmit:
+      "After the import, eDavki shows the form for you to compare with this review and submit yourself. TaxReporter never files, and eDavki calculates the final tax.",
   },
 };
 
@@ -990,6 +1115,69 @@ export const sl: Messages = {
         : `Oddajte ga do ${deadline}.`,
     ],
     startOver: "Začni znova",
+  },
+  tour: {
+    action: "Vodeni ogled",
+    skip: "Preskoči ogled",
+    back: "Nazaj",
+    next: "Naprej",
+    finish: "Končaj",
+    atStart: "To je začetek ogleda.",
+    stopOf: (stop, stops) => `Korak ${stop} od ${stops}`,
+    noteOf: (note, notes) => `${note} od ${notes}`,
+    listLabel: "Pojasnila na tem koraku",
+    announceStop: (stop, stops, title) =>
+      `Korak ${stop} od ${stops}: ${title}.`,
+    announceNote: (note, notes, lead) => `${note} od ${notes}: ${lead}.`,
+    waiting: "Pripravljam ta korak.",
+    stops: {
+      files: {
+        title: "Dva posrednika, ena zgodovina",
+        intro:
+          "Ogled demo podatkov: izmišljeni posli po pravih tečajih Banke Slovenije. Nekaj primerov v njih ni, na primer podatkov o plačniku dividend, ki jih je treba vpisati.",
+      },
+      summary: {
+        title: "Ocene, razdeljene po stopnjah",
+        intro:
+          "Pregled pokaže vse številke za obe napovedi. Začne s tem, koliko skupaj znašajo.",
+      },
+      saleRate: {
+        title: "Prodaja, njen tečaj in vir",
+        intro: (security) =>
+          `Popisni list za ${security}: vrstice, ki jih bo zanj vseboval Doh-KDVP, po ena za vsak nakup in prodajo.`,
+      },
+      download: {
+        title: "Prenos, oddate pa sami",
+        intro:
+          "Zadnji korak. Datoteke demo podatkov so zapisane natanko tako kot vaše, a za izmišljenega zavezanca: nikoli jih ne uvozite v eDavke.",
+      },
+    },
+  },
+  explain: {
+    wholeHistory: (broker, date) =>
+      `${broker}, od ${date}. Prodaja se poveže z nakupi pred njo, zato izvoz seže do najstarejšega od njih.`,
+    fifoAcrossBrokers: (broker, date) =>
+      `${broker}, od ${date}. Vse datoteke se preberejo skupaj, v tem zavihku, in se nikamor ne naložijo. Delnice, kupljene pri enem posredniku in prodane pri drugem, se povežejo med obema.`,
+    estimateOnly:
+      "TaxReporter pripravi napoved in oceni davek. Končni davek izračunajo eDavki, velja pa odmerna odločba FURS.",
+    netTaxableGain: (losses) =>
+      `Dobički po normiranih stroških (1 % nabavne in 1 % prodajne vrednosti, nikoli več od dobička), od katerih se odštejejo letošnje izgube: ${losses}.`,
+    holdingBucket: (terms, tax) =>
+      `Dlje ko so bile delnice v lasti, nižja je stopnja na njihov dobiček. Tukaj ${terms} = ${tax}.`,
+    splitAdjusted: (ratio) =>
+      `Ta nakup je prikazan v delnicah po delitvi: količina in cena sta preračunani v razmerju ${ratio}. Datum nakupa ostane enak, z njim pa tudi čas imetništva.`,
+    bsiRateTradeDay: (listDate, currency, division, perUnit) =>
+      `Iz tečajnice Banke Slovenije z dne ${listDate}, dneva posla. Tečajnica navaja ${currency} za en evro, zato se cena deli: ${division} = ${perUnit}, zaokroženo na 8 decimalnih mest.`,
+    bsiRateListBefore: (tradeDate, listDate, currency, division, perUnit) =>
+      `Posel je bil sklenjen ${tradeDate}, ko Banka Slovenije ni objavila tečajnice, zato velja zadnja pred tem, z dne ${listDate}. Navaja ${currency} za en evro: ${division} = ${perUnit}, zaokroženo na 8 decimalnih mest.`,
+    sourceRow:
+      "Vsaka vrstica navaja datoteko in vrstico, iz katere izhaja, zato je vsako številko mogoče preveriti v izvozu posrednika.",
+    returnForms:
+      "Napoved za dobiček od odsvojitve vrednostnih papirjev: en popisni list za vsak prodani vrednostni papir. Doh-Div poleg nje navaja vsako izplačilo dividende v svoji vrstici.",
+    edavkiImport:
+      "Zapisana je na tej napravi in tam shranjena, ničesar se ne naloži. V eDavkih se taka datoteka uvozi pod Dokumenti, nato Uvoz.",
+    youReviewAndSubmit:
+      "Po uvozu eDavki prikažejo obrazec, ki ga primerjate s tem pregledom in sami oddate. TaxReporter napovedi nikoli ne odda, končni davek pa izračunajo eDavki.",
   },
 };
 

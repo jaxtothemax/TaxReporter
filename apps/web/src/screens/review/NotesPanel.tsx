@@ -5,6 +5,7 @@
  */
 import { CheckIcon } from "@phosphor-icons/react";
 
+import { explain, findingKey } from "../../explain/anchors";
 import { formatNumber, plural } from "../../i18n/format";
 import { useI18n } from "../../i18n/i18n";
 import { findingText } from "../../i18n/present";
@@ -45,7 +46,7 @@ export function NotesPanel({
     <div className="panel-stack">
       {hasBlocking ? null : (
         <p>
-          <Chip tone="accent" size="md">
+          <Chip tone="accent" size="md" explain={explain("notes.noneBlocking")}>
             <CheckIcon size={14} weight="bold" aria-hidden />
             {t.review.noneBlocking}
           </Chip>
@@ -55,7 +56,11 @@ export function NotesPanel({
         const group = findings.filter((d) => d.severity === severity);
         if (group.length === 0) return null;
         return (
-          <div key={severity} className="note-group">
+          <div
+            key={severity}
+            className="note-group"
+            {...explain("notes.group", severity)}
+          >
             <h3>
               {t.review.severity[severity]}
               <span className="count" aria-hidden>
@@ -64,7 +69,11 @@ export function NotesPanel({
             </h3>
             <div className="note-stack">
               {group.slice(0, SHOWN_PER_GROUP).map((d, i) => (
-                <Note key={`${d.code}-${String(i)}`} tone={TONE[severity]}>
+                <Note
+                  key={`${d.code}-${String(i)}`}
+                  tone={TONE[severity]}
+                  explain={explain("notes.item", findingKey(d))}
+                >
                   {findingText(d, context)}
                   {d.source === undefined ? null : (
                     <>

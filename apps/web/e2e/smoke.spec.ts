@@ -70,6 +70,9 @@ test("nothing scrolls sideways at 320px", async ({ page }) => {
     .getByRole("button", { name: /Preizkusi demo|Explore the demo/ })
     .first()
     .click();
+  // The guided tour starts on entering the demo; tour.spec.ts covers it.
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await page.keyboard.press("Escape");
   await expect(page.locator("#main h1")).toBeFocused();
   expect(await scrollsSideways(page)).toBe(false);
 });

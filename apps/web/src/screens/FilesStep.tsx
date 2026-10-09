@@ -19,6 +19,7 @@ import { useEffect, useRef, useState, type DragEvent } from "react";
 
 import { demoPreview } from "../demo/demoPreview";
 import type { FileSummary } from "../engine/protocol";
+import { explain } from "../explain/anchors";
 import {
   formatDate,
   formatKilobytes,
@@ -379,7 +380,7 @@ export function FilesStep({
         />
       </div>
 
-      <div className="card list-card">
+      <div className="card list-card" {...explain("files.list")}>
         <div className="card-head">
           <h2 ref={listHeading} tabIndex={-1}>
             {t.files.listTitle}
@@ -408,7 +409,10 @@ export function FilesStep({
                   >
                     <FileIcon file={file} refused={refused} />
                   </span>
-                  <div className="file-text">
+                  <div
+                    className="file-text"
+                    {...explain("files.text", file.name)}
+                  >
                     <p className="file-name mono">
                       {labels.get(file.id) ?? file.name}
                     </p>

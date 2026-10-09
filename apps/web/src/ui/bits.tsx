@@ -1,5 +1,5 @@
 /** Small presentational pieces shared by the start screen, the flow and the review. */
-import { ArrowsLeftRightIcon } from "@phosphor-icons/react";
+import { ArrowsLeftRightIcon, SignpostIcon } from "@phosphor-icons/react";
 
 import {
   formatDate,
@@ -18,7 +18,7 @@ import type {
   RateProvenance,
   SourceRef,
 } from "../model/preview";
-import { cx, Note } from "./kit";
+import { Button, cx, Note } from "./kit";
 
 /** A holding-period bucket as a rate: "25" is "25 %" in Slovenian, "25%" in English. */
 export function bucketLabel(bucket: HoldingBucket, locale: Locale): string {
@@ -115,11 +115,25 @@ export function BrokerName({ broker }: { readonly broker: BrokerId }) {
   return <>{t.brokers[broker]}</>;
 }
 
-/** Shown on every flow screen while the data on it is made up. */
-export function DemoBanner() {
+/** The id of the banner's tour button, which the tour gives focus back to. */
+export const TOUR_BUTTON_ID = "demo-tour";
+
+/**
+ * Shown on every flow screen while the data on it is made up, with the
+ * button that starts the guided tour again (#27).
+ */
+export function DemoBanner({ onTour }: { readonly onTour: () => void }) {
   const { t } = useI18n();
   return (
-    <Note tone="warn">
+    <Note
+      tone="warn"
+      action={
+        <Button id={TOUR_BUTTON_ID} variant="ghost" size="sm" onClick={onTour}>
+          <SignpostIcon size={16} weight="bold" aria-hidden />
+          {t.tour.action}
+        </Button>
+      }
+    >
       <strong>{t.demoBanner.title}</strong> {t.demoBanner.body}
     </Note>
   );
