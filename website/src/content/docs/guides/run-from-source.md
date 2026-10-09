@@ -45,8 +45,8 @@ account: IBKR returns at most 365 days at a time.
 - [Git](https://git-scm.com/), to fetch the source.
 
 ```bash
-git clone https://github.com/jaxtothemax/TaxReporter.git
-cd TaxReporter
+git clone https://github.com/jaxtothemax/broker-to-edavki.git
+cd broker-to-edavki
 pnpm install --frozen-lockfile
 pnpm run build
 ```
@@ -96,5 +96,5 @@ A Slovenian payer also takes `"taxNumber"`, and a foreign one may take its
 
 Compare every figure with your broker's own statements, and read every finding. TaxReporter
 prepares a return for you to check; it does not file it, and it is not tax advice. If a number
-looks wrong, please [open an issue](https://github.com/jaxtothemax/TaxReporter/issues), without
+looks wrong, please [open an issue](https://github.com/jaxtothemax/broker-to-edavki/issues), without
 attaching your files.

@@ -96,10 +96,10 @@ The [roadmap](/roadmap/) has the full list and is always the current word on wha
 
 - [How it will work](/guides/how-it-will-work/): the planned steps from export to eDavki
 - [Roadmap](/roadmap/): what is being built and what comes next
-- [Source code on GitHub](https://github.com/jaxtothemax/TaxReporter)
+- [Source code on GitHub](https://github.com/jaxtothemax/broker-to-edavki)
 - [Contributing](/contributing/): report a broker format change, add a broker, or improve
   these pages
 
 TaxReporter is free software under the
-[GNU Affero General Public License v3.0 or later](https://github.com/jaxtothemax/TaxReporter/blob/main/LICENSE)
+[GNU Affero General Public License v3.0 or later](https://github.com/jaxtothemax/broker-to-edavki/blob/main/LICENSE)
 (AGPL-3.0-or-later).

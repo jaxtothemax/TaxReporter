@@ -59,6 +59,6 @@ based on feedback.
 ## Follow progress or ask for something
 
 Work is planned and tracked in the project's
-[GitHub issues](https://github.com/jaxtothemax/TaxReporter/issues). If your broker or your
+[GitHub issues](https://github.com/jaxtothemax/broker-to-edavki/issues). If your broker or your
 situation is missing from this page, open an issue and describe it, without attaching any real
 files. [Contributing](/contributing/) explains how.

@@ -60,7 +60,7 @@ broker exports ─► read ─► one ledger ─► Banka Slovenije rates ─►
    since 2007 come with the app, so converting needs no other server, and every converted
    amount keeps its rate, the list's date and its source. The lists included today run to
    7 October 2026; a later date stops with a finding until they are refreshed
-   ([#21](https://github.com/jaxtothemax/TaxReporter/issues/21)).
+   ([#21](https://github.com/jaxtothemax/broker-to-edavki/issues/21)).
 4. **Sales are matched first in, first out (FIFO)** per security, by ISIN, across all your
    brokers and accounts. How long each purchase was held sets the rate on its part of the
    gain: 25%, falling to 20% after five years, 15% after ten and none after fifteen. The part of
@@ -82,12 +82,12 @@ From source, before the first release:
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | Trading 212         | History export, CSV (four header revisions)                                                                 | Purchases, sales, dividends with the tax withheld, splits | Payments in lieu of dividends, tax-exempt and bonus dividends, spin-offs, transfers, stock distributions                                          |
 | Interactive Brokers | Activity Flex Query, XML ([how to set it up](website/src/content/docs/guides/run-from-source.md#setting-up-the-ibkr-flex-query)) | Trades, dividends with the tax withheld, splits that keep the ISIN | Payments in lieu of dividends, other corporate actions, cancellations and corrections, short sales, option exercises                             |
-| Trade Republic      | Transaction export, CSV (offered since April 2026)                                                                     | Purchases, sales, savings plans                         | Dividends, until a real export confirms their columns ([#12](https://github.com/jaxtothemax/TaxReporter/issues/12)); trades with a foreign-currency leg; free shares; corporate actions and deliveries; bonds and crypto |
+| Trade Republic      | Transaction export, CSV (offered since April 2026)                                                                     | Purchases, sales, savings plans                         | Dividends, until a real export confirms their columns ([#12](https://github.com/jaxtothemax/broker-to-edavki/issues/12)); trades with a foreign-currency leg; free shares; corporate actions and deliveries; bonds and crypto |
 
 The project's tests use synthetic exports that follow each format as far as the research
 reconstructs it from public samples, not real accounts' data. Each reader still has to be
-checked against real, anonymized exports before v0.1 ships ([#22](https://github.com/jaxtothemax/TaxReporter/issues/22),
-[#12](https://github.com/jaxtothemax/TaxReporter/issues/12)). Both the browser app
+checked against real, anonymized exports before v0.1 ships ([#22](https://github.com/jaxtothemax/broker-to-edavki/issues/22),
+[#12](https://github.com/jaxtothemax/broker-to-edavki/issues/12)). Both the browser app
 and the command-line tool write the same XML for the same files. Next, in
 order of how many Slovenian investors use them: eToro, XTB, DEGIRO, Revolut, Lightyear, Saxo and
 Robinhood. The spreadsheet (XLSX) reader that eToro, XTB and Saxo need is built; their adapters
@@ -111,7 +111,7 @@ sign it, and you are responsible for what it says.
   responsible for errors in a return prepared with it, or for any tax, interest or penalty that
   follows. See sections 15 and 16 of the [license](LICENSE).
 
-If a number looks wrong, please [open an issue](https://github.com/jaxtothemax/TaxReporter/issues)
+If a number looks wrong, please [open an issue](https://github.com/jaxtothemax/broker-to-edavki/issues)
 and describe it, without attaching your files.
 
 ## Your data stays on your device
@@ -121,7 +121,7 @@ no account and no tracking, and your broker files are never uploaded. In the bro
 read in a background worker: its network and storage functions are removed before it reads
 anything, the app's strict Content Security Policy lets it load only the app's own files, and
 closing the tab forgets them. A browser test that proves no
-request leaves during an import is still to come ([#2](https://github.com/jaxtothemax/TaxReporter/issues/2)). See [ADR 0002](docs/adr/0002-local-first-processing-on-the-users-device.md)
+request leaves during an import is still to come ([#2](https://github.com/jaxtothemax/broker-to-edavki/issues/2)). See [ADR 0002](docs/adr/0002-local-first-processing-on-the-users-device.md)
 and [Privacy and security](website/src/content/docs/guides/privacy-and-security.md).
 
 An optional AI "second opinion" is planned: it will run only with your own API key, after you
@@ -132,8 +132,8 @@ have seen exactly what it sends, and it will never change a figure.
 There is no release to install yet. To run it from source you need Node.js 24 and pnpm 10:
 
 ```bash
-git clone https://github.com/jaxtothemax/TaxReporter.git
-cd TaxReporter
+git clone https://github.com/jaxtothemax/broker-to-edavki.git
+cd broker-to-edavki
 pnpm install --frozen-lockfile
 pnpm run build
 pnpm --dir apps/web build && pnpm --dir apps/web preview   # the browser app, at http://localhost:4173
@@ -141,7 +141,7 @@ pnpm --dir apps/web build && pnpm --dir apps/web preview   # the browser app, at
 
 [Run it from source](website/src/content/docs/guides/run-from-source.md) covers the command-line
 tool, setting up the IBKR Flex Query, and the payer file Doh-Div needs. The full documentation is
-at [jaxtothemax.github.io/TaxReporter](https://jaxtothemax.github.io/TaxReporter/).
+at [jaxtothemax.github.io/broker-to-edavki](https://jaxtothemax.github.io/broker-to-edavki/).
 
 ## Get involved
 
@@ -153,9 +153,9 @@ a paid service.
   the export and what went wrong. Paste only the header row, with every number, ID and name
   replaced by made-up values. Never attach the real file: issues are public.
 - **Help confirm a broker's format.** Every reader still has to be checked against real
-  exports. For Trade Republic ([#12](https://github.com/jaxtothemax/TaxReporter/issues/12)), the issue lists what we need to know,
+  exports. For Trade Republic ([#12](https://github.com/jaxtothemax/broker-to-edavki/issues/12)), the issue lists what we need to know,
   and you can answer most of it from your own file without sharing it. Trading 212 and IBKR
-  ([#22](https://github.com/jaxtothemax/TaxReporter/issues/22)) and eToro ([#8](https://github.com/jaxtothemax/TaxReporter/issues/8)) need exports with every name, ID and
+  ([#22](https://github.com/jaxtothemax/broker-to-edavki/issues/22)) and eToro ([#8](https://github.com/jaxtothemax/broker-to-edavki/issues/8)) need exports with every name, ID and
   identifying amount replaced first, as [CONTRIBUTING.md](CONTRIBUTING.md) describes.
 - **Add a broker.** An adapter turns one export into ledger events; exchange rates, FIFO and the
   XML are shared, so it never touches them.
@@ -163,12 +163,12 @@ a paid service.
   the Trading 212, IBKR and Trade Republic adapters are worked examples.
 - **Check the tax rules.** Each rule cites its primary source (the law, FURS instructions and
   schemas, Banka Slovenije) in [docs/research/](docs/research/); where one is still missing, an
-  open issue tracks it (the trade-date rule, [#13](https://github.com/jaxtothemax/TaxReporter/issues/13)). If you know Slovenian tax
+  open issue tracks it (the trade-date rule, [#13](https://github.com/jaxtothemax/broker-to-edavki/issues/13)). If you know Slovenian tax
   law, reviewing those notes and their open questions is one of the most useful things you can
   do.
 - **Improve the docs**, including the planned Slovenian translation of the documentation site.
 
-The [open issues](https://github.com/jaxtothemax/TaxReporter/issues) show what is planned and
+The [open issues](https://github.com/jaxtothemax/broker-to-edavki/issues) show what is planned and
 what is in progress. Security issues are reported privately: see [SECURITY.md](SECURITY.md).
 
 ### For developers

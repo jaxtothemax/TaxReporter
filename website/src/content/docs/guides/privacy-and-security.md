@@ -75,7 +75,7 @@ code, send data somewhere, or write a wrong value into the XML, please report it
 
 Use GitHub's private vulnerability reporting: open the repository's **Security** tab and choose
 **Report a vulnerability**, or go straight to
-[the reporting form](https://github.com/jaxtothemax/TaxReporter/security/advisories/new). Only
+[the reporting form](https://github.com/jaxtothemax/broker-to-edavki/security/advisories/new). Only
 you and the maintainers can see the report. Please include the steps to reproduce the problem,
 and use made-up data instead of your real files.
 

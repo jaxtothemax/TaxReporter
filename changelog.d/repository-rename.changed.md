@@ -1,0 +1,1 @@
+- **New address**: the repository is now [jaxtothemax/broker-to-edavki](https://github.com/jaxtothemax/broker-to-edavki), and the documentation moved to [jaxtothemax.github.io/broker-to-edavki](https://jaxtothemax.github.io/broker-to-edavki/). The app keeps the name TaxReporter. GitHub forwards the old repository links; the old documentation address no longer works.

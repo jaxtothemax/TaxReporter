@@ -102,4 +102,4 @@ or endorsed by Banka Slovenije.
 
 The primary sources behind this page, including the law and the Banka Slovenije data files,
 are collected in the project's
-[research notes on GitHub](https://github.com/jaxtothemax/TaxReporter/tree/main/docs/research).
+[research notes on GitHub](https://github.com/jaxtothemax/broker-to-edavki/tree/main/docs/research).

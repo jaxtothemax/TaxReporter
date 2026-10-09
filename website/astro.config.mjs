@@ -20,7 +20,7 @@ const basePath = normalizeBase(process.env.BASE_PATH);
 
 // The repository behind the GitHub and "Edit page" links. GitHub Actions sets
 // GITHUB_REPOSITORY ("owner/repo"); the fallback only serves local builds.
-const FALLBACK_REPOSITORY = "jaxtothemax/TaxReporter";
+const FALLBACK_REPOSITORY = "jaxtothemax/broker-to-edavki";
 const repositoryUrl = `https://github.com/${process.env.GITHUB_REPOSITORY || FALLBACK_REPOSITORY}`;
 
 /**
