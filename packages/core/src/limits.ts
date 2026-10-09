@@ -34,6 +34,18 @@ export const LIMITS = Object.freeze({
    * on a cell, which a writer stays within (research 09 §3).
    */
   xlsxCellLength: 32_767,
+  /**
+   * Elements of all the parts of one workbook the reader scans: two for
+   * each cell and each shared string at their limits, with room for rows
+   * and runs (ADR 0014 §10).
+   */
+  xlsxElements: 8_000_000,
+  /**
+   * The decimal exponent of a number cell's value, either way, once
+   * normalized: far past any amount, inside the decimal text the core
+   * reads, and short of the subnormal doubles (ADR 0014 §8).
+   */
+  xlsxExponent: 40,
   /** Whole-number terms of a split ratio: real splits run to 1 for 1,000. */
   splitTerm: 10_000,
   /** Splits on one security over its whole history. */
