@@ -8,8 +8,8 @@ currency, the amount has to be converted at the Banka Slovenije reference rate v
 day. This page explains the rule in plain language and how TaxReporter will apply it.
 
 :::note
-TaxReporter is not usable yet: this page describes how it will convert amounts once the first
-version is ready. It is not tax advice.
+TaxReporter has no release yet: this page describes how it will convert amounts once the first
+version is ready. You can [run it from source](/guides/run-from-source/) to try it, as a draft to check. It is not tax advice.
 :::
 
 ## The rule

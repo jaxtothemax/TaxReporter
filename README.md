@@ -6,7 +6,7 @@ computer, with every amount converted at the Banka Slovenije rate.**
 If you are a Slovenian tax resident and invest through a foreign broker (Trading 212,
 Interactive Brokers, Trade Republic, eToro, …), nobody reports your trades or dividends to
 FURS for you. You file **Doh-KDVP** (gains from selling shares and ETFs) and **Doh-Div**
-(dividends) yourself, by the end of February, with every purchase, sale and dividend converted
+(dividends) yourself, by 28 February (or the next working day), with every purchase, sale and dividend converted
 to euros at the Banka Slovenije rate for its own day. TaxReporter does that work from the files
 your broker already gives you, on your own device, and shows you where every number came from.
 
@@ -84,8 +84,10 @@ From source, before the first release:
 | Interactive Brokers | Activity Flex Query, XML ([how to set it up](website/src/content/docs/guides/run-from-source.md#setting-up-the-ibkr-flex-query)) | Trades, dividends with the tax withheld, splits that keep the ISIN | Payments in lieu of dividends, other corporate actions, cancellations and corrections, short sales, option exercises                             |
 | Trade Republic      | Transaction export, CSV (offered since April 2026)                                                                     | Purchases, sales, savings plans                         | Dividends, until a real export confirms their columns ([#12](https://github.com/jaxtothemax/TaxReporter/issues/12)); trades with a foreign-currency leg; free shares; corporate actions and deliveries; bonds and crypto |
 
-The project's tests use synthetic exports written to each format's published description;
-each reader still has to pass a real, anonymized export before v0.1 ships. Both the browser app
+The project's tests use synthetic exports that follow each format as far as the research
+reconstructs it from public samples, not real accounts' data. Each reader still has to be
+checked against real, anonymized exports before v0.1 ships ([#22](https://github.com/jaxtothemax/TaxReporter/issues/22),
+[#12](https://github.com/jaxtothemax/TaxReporter/issues/12)). Both the browser app
 and the command-line tool write the same XML for the same files. Next, in
 order of how many Slovenian investors use them: eToro, XTB, DEGIRO, Revolut, Lightyear, Saxo and
 Robinhood. The spreadsheet (XLSX) reader that eToro, XTB and Saxo need is built; their adapters
@@ -116,8 +118,9 @@ and describe it, without attaching your files.
 
 TaxReporter runs in your browser or as a command-line tool on your computer. There is no server,
 no account and no tracking, and your broker files are never uploaded. In the browser, files are
-read in a background worker whose network access is removed before it reads anything, under a
-strict Content Security Policy, and closing the tab forgets them. A browser test that proves no
+read in a background worker: its network and storage functions are removed before it reads
+anything, the app's strict Content Security Policy lets it load only the app's own files, and
+closing the tab forgets them. A browser test that proves no
 request leaves during an import is still to come ([#2](https://github.com/jaxtothemax/TaxReporter/issues/2)). See [ADR 0002](docs/adr/0002-local-first-processing-on-the-users-device.md)
 and [Privacy and security](website/src/content/docs/guides/privacy-and-security.md).
 
@@ -149,17 +152,20 @@ a paid service.
 - **Try it on your own exports and tell us what breaks.** Open an issue that names the broker,
   the export and what went wrong. Paste only the header row, with every number, ID and name
   replaced by made-up values. Never attach the real file: issues are public.
-- **Help confirm a broker's format.** An adapter ships only once a real export has been checked
-  against it. The issues for eToro ([#8](https://github.com/jaxtothemax/TaxReporter/issues/8))
-  and Trade Republic ([#12](https://github.com/jaxtothemax/TaxReporter/issues/12)) list what we
-  need to know, and you can answer most of it from your own file without sharing it.
+- **Help confirm a broker's format.** Every reader still has to be checked against real
+  exports. For Trade Republic ([#12](https://github.com/jaxtothemax/TaxReporter/issues/12)), the issue lists what we need to know,
+  and you can answer most of it from your own file without sharing it. Trading 212 and IBKR
+  ([#22](https://github.com/jaxtothemax/TaxReporter/issues/22)) and eToro ([#8](https://github.com/jaxtothemax/TaxReporter/issues/8)) need exports with every name, ID and
+  identifying amount replaced first, as [CONTRIBUTING.md](CONTRIBUTING.md) describes.
 - **Add a broker.** An adapter turns one export into ledger events; exchange rates, FIFO and the
   XML are shared, so it never touches them.
   [CONTRIBUTING.md](CONTRIBUTING.md#adding-a-broker-adapter) lists what a new adapter needs, and
   the Trading 212, IBKR and Trade Republic adapters are worked examples.
-- **Check the tax rules.** Every rule cites its primary source (the law, FURS instructions and
-  schemas, Banka Slovenije) in [docs/research/](docs/research/). If you know Slovenian tax law,
-  reviewing those notes and their open questions is one of the most useful things you can do.
+- **Check the tax rules.** Each rule cites its primary source (the law, FURS instructions and
+  schemas, Banka Slovenije) in [docs/research/](docs/research/); where one is still missing, an
+  open issue tracks it (the trade-date rule, [#13](https://github.com/jaxtothemax/TaxReporter/issues/13)). If you know Slovenian tax
+  law, reviewing those notes and their open questions is one of the most useful things you can
+  do.
 - **Improve the docs**, including the planned Slovenian translation of the documentation site.
 
 The [open issues](https://github.com/jaxtothemax/TaxReporter/issues) show what is planned and

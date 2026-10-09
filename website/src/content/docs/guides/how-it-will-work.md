@@ -1,12 +1,12 @@
 ---
 title: How it will work
-description: The planned steps from a broker export to a submitted return in eDavki. None of these steps work yet.
+description: The planned steps from a broker export to a submitted return in eDavki, before the first release.
 ---
 
 :::note[Planned, not built yet]
 This page describes how TaxReporter is meant to work once the first version (v0.1) is ready.
-None of it works yet, and details may change while the app is being built. The
-[roadmap](/roadmap/) shows the current status.
+There is no release yet, and details may change while the app is being built. You can [run it from source](/guides/run-from-source/) to try it, as a draft to check.
+The [roadmap](/roadmap/) shows the current status.
 :::
 
 The short version: you export your history from your broker, open the files in TaxReporter,

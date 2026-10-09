@@ -4,8 +4,8 @@ description: What your broker files contain, why TaxReporter will process them o
 ---
 
 Broker statements and tax returns are some of the most personal data you have. TaxReporter is
-designed so that this data never leaves your device. TaxReporter is not usable yet, so this
-page describes how it is being built.
+designed so that this data never leaves your device. TaxReporter has no release yet, so this
+page describes how it is being built. You can [run it from source](/guides/run-from-source/) to try it, as a draft to check.
 
 ## What your files contain
 

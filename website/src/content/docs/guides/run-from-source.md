@@ -59,8 +59,8 @@ pnpm --dir apps/web preview
 ```
 
 Open the address it prints (usually `http://localhost:4173`). The build carries the app's
-security policy, under which the files you add are read in a background worker that cannot
-reach the network. Nothing is uploaded, and closing the tab forgets them.
+security policy, under which the files you add are read in a background worker whose network
+and storage functions are removed and which may load only the app's own files. Nothing is uploaded, and closing the tab forgets them.
 
 `pnpm --dir apps/web dev` runs the same app for development, without that policy.
 
