@@ -19,6 +19,9 @@ export default defineConfig(
     "!*.config.ts",
     "**/dist/",
     "**/coverage/",
+    "**/playwright-report/",
+    "**/test-results/",
+    "**/blob-report/",
   ]),
   {
     files: ["**/*.{js,ts,tsx}"],

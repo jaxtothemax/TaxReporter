@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "noEmit": true,
+    "lib": ["es2024", "dom"],
+    "types": ["node"]
+  },
+  "include": ["playwright.config.ts", "e2e"]
+}

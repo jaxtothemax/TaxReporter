@@ -10,7 +10,7 @@
 # The application is a TypeScript pnpm workspace (packages/*, apps/*); its
 # targets are in the "Application" section below.
 
-.PHONY: setup install-deps lint format format-check typecheck test build doctor customize clean pre-push-checks check-collision check-selftest-parity check-version-lockstep check-licenses print-coverage-layers release-pipeline-check gitleaks-check check-nul-bytes check-complexity
+.PHONY: setup install-deps lint format format-check typecheck test test-e2e build doctor customize clean pre-push-checks check-collision check-selftest-parity check-version-lockstep check-licenses print-coverage-layers release-pipeline-check gitleaks-check check-nul-bytes check-complexity
 
 # ─── Universal targets ────────────────────────────────────────────────────────
 
@@ -65,6 +65,13 @@ test:  ## Vitest over every package, with v8 coverage to coverage/cobertura-cove
 	@# That Cobertura report is what check-added-files-covered reads, locally and
 	@# in CI's added-files-covered job.
 	pnpm run test
+
+test-e2e: build  ## Browser tests (Playwright) on the built web app; not part of pre-push
+	@# Against the production build, because the Content Security Policy is
+	@# build-only. Needs the browsers once: pnpm --dir apps/web exec playwright
+	@# install chromium firefox webkit. Kept out of pre-push-checks so a
+	@# contributor without them can still push; CI's e2e job runs it on every PR.
+	pnpm --dir apps/web exec playwright test
 
 build:  ## Build every package (tsc) and both apps: apps/cli/dist and apps/web/dist
 	@# The web app's public path comes from TAXREPORTER_WEB_BASE (default "/");
