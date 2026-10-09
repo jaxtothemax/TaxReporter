@@ -10,9 +10,12 @@ yourself, by the end of February, converting every purchase, sale and dividend t
 the Banka Slovenije rate for its own day. TaxReporter does that conversion and the paperwork
 from the files your broker already gives you.
 
-> **Status: pre-alpha.** Nothing is usable yet. The first milestone (v0.1) targets
-> Doh-KDVP and Doh-Div for **Trading 212**, **Interactive Brokers** and **Trade Republic**, for tax year 2026
-> (returns due by the end of February 2027). See the [roadmap](website/src/content/docs/roadmap.md).
+> **Status: pre-alpha, no release yet.** The first milestone (v0.1) targets Doh-KDVP and
+> Doh-Div for **Trading 212**, **Interactive Brokers** and **Trade Republic**, for tax year 2026
+> (returns due by 1 March 2027). From source, the command line and the browser app already read
+> these brokers' exports and write the returns, as drafts to check: see
+> [Run it from source](website/src/content/docs/guides/run-from-source.md) and the
+> [roadmap](website/src/content/docs/roadmap.md).
 
 ## What it will do
 

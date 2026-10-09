@@ -125,7 +125,11 @@ export default defineConfig({
         },
         {
           label: "Guides",
-          items: [{ slug: "guides/how-it-will-work" }, { slug: "guides/privacy-and-security" }],
+          items: [
+            { slug: "guides/how-it-will-work" },
+            { slug: "guides/run-from-source" },
+            { slug: "guides/privacy-and-security" },
+          ],
         },
         {
           label: "Reference",
