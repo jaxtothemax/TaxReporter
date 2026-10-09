@@ -1,7 +1,8 @@
 /**
  * Doh-KDVP: one disclosure per security, holding its inventory list (what the
  * XML will contain) and the FIFO-matched lots behind the gain, followed by how
- * the estimate is built. Native <details> keeps the disclosure accessible.
+ * the estimate is built. Native <details> keeps the disclosure accessible;
+ * which ones are open is held by the caller, as part of the review's view.
  */
 import { CaretDownIcon } from "@phosphor-icons/react";
 
@@ -171,10 +172,26 @@ function LotsTable({ security }: { readonly security: SecurityResult }) {
   );
 }
 
-function SecurityItem({ security }: { readonly security: SecurityResult }) {
+function SecurityItem({
+  security,
+  open,
+  onToggle,
+}: {
+  readonly security: SecurityResult;
+  readonly open: boolean;
+  readonly onToggle: (isin: string, open: boolean) => void;
+}) {
   const { locale, t } = useI18n();
   return (
-    <details className="security">
+    <details
+      className="security"
+      open={open}
+      // The element's own state, read when the event runs: toggle events are
+      // queued, so one can arrive after the view it answered has changed.
+      onToggle={(event) => {
+        onToggle(security.isin, event.currentTarget.open);
+      }}
+    >
       <summary aria-describedby={`hint-${security.isin}`}>
         <span
           id={`hint-${security.isin}`}
@@ -289,9 +306,14 @@ function EstimateBreakdown({ estimate }: { readonly estimate: GainsEstimate }) {
 export function GainsPanel({
   securities,
   estimate,
+  open,
+  onToggle,
 }: {
   readonly securities: readonly SecurityResult[];
   readonly estimate: GainsEstimate;
+  /** The securities shown open, by ISIN. */
+  readonly open: ReadonlySet<string>;
+  readonly onToggle: (isin: string, open: boolean) => void;
 }) {
   const { t } = useI18n();
   if (securities.length === 0) {
@@ -301,7 +323,12 @@ export function GainsPanel({
     <div className="panel-stack">
       <div className="security-list">
         {securities.map((security) => (
-          <SecurityItem key={security.isin} security={security} />
+          <SecurityItem
+            key={security.isin}
+            security={security}
+            open={open.has(security.isin)}
+            onToggle={onToggle}
+          />
         ))}
       </div>
       <EstimateBreakdown estimate={estimate} />

@@ -4,14 +4,16 @@
  * stops the return it bears on (ADR 0013 §9): the flow goes on while either
  * return can be written. With the user's own files the engine prepares the
  * review when the step opens, so until then the screen says it is working.
+ *
+ * Which tab is selected and which securities are open is held by the caller
+ * (`ReviewView`), so the guided tour can show a tab or a row of its own and
+ * leave the user's choice untouched underneath (ADR 0016).
  */
 import {
   ArrowRightIcon,
   InfoIcon,
   MagnifyingGlassIcon,
 } from "@phosphor-icons/react";
-import { useState } from "react";
-
 import type { FormOutput } from "../engine/protocol";
 import { formatNumber, formatPercent, plural } from "../i18n/format";
 import { useI18n } from "../i18n/i18n";
@@ -25,7 +27,19 @@ import { DividendsPanel } from "./review/DividendsPanel";
 import { GainsPanel } from "./review/GainsPanel";
 import { NotesPanel } from "./review/NotesPanel";
 
-type ReviewTab = "gains" | "dividends" | "notes";
+export type ReviewTab = "gains" | "dividends" | "notes";
+
+/** What the review shows: the selected tab and the securities opened, by ISIN. */
+export interface ReviewView {
+  readonly tab: ReviewTab;
+  readonly open: ReadonlySet<string>;
+}
+
+/** The review as it opens: the gains tab, every security closed. */
+export const initialReviewView: ReviewView = Object.freeze({
+  tab: "gains",
+  open: new Set<string>(),
+});
 
 export function EmptyReview({
   onStartDemo,
@@ -213,6 +227,8 @@ export function ReviewStep({
   fileNames = [],
   forms = null,
   canContinue,
+  view,
+  onViewChange,
   onBack,
   onNext,
   onStartDemo,
@@ -228,12 +244,24 @@ export function ReviewStep({
     readonly div: FormOutput;
   } | null;
   readonly canContinue: boolean;
+  /** The selected tab and the open securities, held by the caller. */
+  readonly view: ReviewView;
+  readonly onViewChange: (view: ReviewView) => void;
   readonly onBack: () => void;
   readonly onNext: () => void;
   readonly onStartDemo: () => void;
 }) {
   const { locale, t } = useI18n();
-  const [tab, setTab] = useState<ReviewTab>("gains");
+  const setTab = (tab: ReviewTab) => {
+    onViewChange({ ...view, tab });
+  };
+  const setOpen = (isin: string, open: boolean) => {
+    if (view.open.has(isin) === open) return;
+    const next = new Set(view.open);
+    if (open) next.add(isin);
+    else next.delete(isin);
+    onViewChange({ ...view, open: next });
+  };
   const year = String(preview?.taxYear ?? TAX_YEAR);
   const notes = preview?.findings ?? [];
   const omitted = preview?.omittedFindings ?? 0;
@@ -285,7 +313,7 @@ export function ReviewStep({
           <Tabs
             idPrefix="review"
             label={t.review.tabsLabel}
-            selected={tab}
+            selected={view.tab}
             onSelect={setTab}
             items={[
               {
@@ -303,6 +331,8 @@ export function ReviewStep({
                     <GainsPanel
                       securities={preview.securities}
                       estimate={preview.gainsEstimate}
+                      open={view.open}
+                      onToggle={setOpen}
                     />
                   </>
                 ),

@@ -12,7 +12,7 @@ import { I18nProvider } from "../../i18n/i18n";
 import { en, sl } from "../../i18n/messages";
 import { RateText, SourceText } from "../../ui/bits";
 import { DownloadStep, filingDeadline, FormCard } from "../DownloadStep";
-import { ReviewStep } from "../ReviewStep";
+import { initialReviewView, ReviewStep } from "../ReviewStep";
 import { DividendsPanel } from "./DividendsPanel";
 import { GainsPanel } from "./GainsPanel";
 import { NotesPanel } from "./NotesPanel";
@@ -35,6 +35,8 @@ describe("GainsPanel", () => {
     <GainsPanel
       securities={demoPreview.securities}
       estimate={demoPreview.gainsEstimate}
+      open={new Set()}
+      onToggle={() => undefined}
     />,
     "sl",
   );
@@ -49,6 +51,23 @@ describe("GainsPanel", () => {
   it("shows BSI rates with the digits BSI published", () => {
     // NVDA's sale used 1.1900, which must not shrink to "1,19".
     expect(text(html)).toContain("1 EUR = 1,1900 USD");
+  });
+
+  it("opens exactly the securities its view names", () => {
+    const [first, second] = demoPreview.securities;
+    if (first === undefined || second === undefined) {
+      throw new Error("the demo sells fewer than two securities");
+    }
+    const opened = render(
+      <GainsPanel
+        securities={demoPreview.securities}
+        estimate={demoPreview.gainsEstimate}
+        open={new Set([second.isin])}
+        onToggle={() => undefined}
+      />,
+    );
+    expect(opened.match(/<details class="security" open=""/g)).toHaveLength(1);
+    expect(html).not.toContain('<details class="security" open=""');
   });
 
   it("says which rows a split adjusted", () => {
@@ -158,7 +177,12 @@ describe("empty and edge states", () => {
   it("says there is nothing to file instead of showing empty tables", () => {
     const gains = text(
       render(
-        <GainsPanel securities={[]} estimate={demoPreview.gainsEstimate} />,
+        <GainsPanel
+          securities={[]}
+          estimate={demoPreview.gainsEstimate}
+          open={new Set()}
+          onToggle={() => undefined}
+        />,
       ),
     );
     expect(gains).toContain(en.review.noSales);
@@ -206,6 +230,8 @@ describe("empty and edge states", () => {
           ],
         }}
         canContinue={false}
+        view={initialReviewView}
+        onViewChange={() => undefined}
         onBack={() => undefined}
         onNext={() => undefined}
         onStartDemo={() => undefined}
@@ -233,6 +259,8 @@ describe("empty and edge states", () => {
           div: { xml: null, blocking: 1, needed: true },
         }}
         canContinue
+        view={initialReviewView}
+        onViewChange={() => undefined}
         onBack={() => undefined}
         onNext={() => undefined}
         onStartDemo={() => undefined}
@@ -250,6 +278,8 @@ describe("empty and edge states", () => {
             preview={null}
             status={status}
             canContinue={false}
+            view={initialReviewView}
+            onViewChange={() => undefined}
             onBack={() => undefined}
             onNext={() => undefined}
             onStartDemo={() => undefined}
@@ -343,6 +373,8 @@ describe("GainsPanel without a ticker", () => {
         <GainsPanel
           securities={[{ ...first, symbol: "" }]}
           estimate={demoPreview.gainsEstimate}
+          open={new Set()}
+          onToggle={() => undefined}
         />,
       ),
     );

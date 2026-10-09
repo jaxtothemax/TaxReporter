@@ -18,7 +18,12 @@ import { I18nProvider, useI18n } from "./i18n/i18n";
 import { DetailsStep } from "./screens/DetailsStep";
 import { DownloadStep } from "./screens/DownloadStep";
 import { FilesStep } from "./screens/FilesStep";
-import { EmptyReview, ReviewStep } from "./screens/ReviewStep";
+import {
+  EmptyReview,
+  initialReviewView,
+  ReviewStep,
+  type ReviewView,
+} from "./screens/ReviewStep";
 import { StartScreen } from "./screens/StartScreen";
 import {
   blockingReason,
@@ -71,6 +76,14 @@ function Frame({
   const { locale, t } = useI18n();
   const [state, dispatch] = useReducer(wizardReducer, initialState);
   const [theme, setTheme] = useState<Theme>(initialTheme);
+  // The review's tab and open securities. Leaving the review resets them, as
+  // they were reset when the review's own state went with it.
+  const [reviewView, setReviewView] = useState<ReviewView>(initialReviewView);
+  const [viewScreen, setViewScreen] = useState(state.screen);
+  if (viewScreen !== state.screen) {
+    setViewScreen(state.screen);
+    if (state.screen !== "review") setReviewView(initialReviewView);
+  }
   const previousScreen = useRef(state.screen);
   // Each added file, by id, and its bytes once the engine first needs them:
   // a file refused unread is never read at all.
@@ -337,6 +350,8 @@ function Frame({
                       ? blockingReason(state, "review") === null
                       : !demoBlocked
                   }
+                  view={reviewView}
+                  onViewChange={setReviewView}
                   onBack={back}
                   onNext={next}
                   onStartDemo={startDemo}

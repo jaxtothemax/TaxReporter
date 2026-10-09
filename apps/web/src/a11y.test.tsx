@@ -60,6 +60,8 @@ function panels(locale: Locale): string {
       <GainsPanel
         securities={demoPreview.securities}
         estimate={demoPreview.gainsEstimate}
+        open={new Set()}
+        onToggle={() => undefined}
       />,
     ),
     wrap(
