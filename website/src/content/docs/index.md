@@ -17,10 +17,11 @@ files that you can import into FURS eDavki:
 Every amount will be converted to euros at the Banka Slovenije reference rate for the day of
 the transaction, and you will be able to see which rate was used for each figure.
 
-:::caution[Pre-alpha: nothing to use yet]
-TaxReporter is at an early stage of development. There is no app to try and no release yet.
-These pages describe what is being built, so you can follow along, comment, or help. Do not
-rely on TaxReporter for a return you are filing now.
+:::caution[Pre-alpha: no release yet]
+TaxReporter is at an early stage of development and has no release yet. You can
+[run it from source](/guides/run-from-source/) to try it, as a draft to check. These pages
+describe what is being built, so you can follow along, comment, or help. Do not rely on
+TaxReporter for a return you are filing now.
 :::
 
 ## Why it exists
@@ -82,11 +83,12 @@ version.
 
 ## Project status
 
-- **Pre-alpha.** There is nothing to install yet.
+- **Pre-alpha.** There is no release to install yet, but you can
+  [run it from source](/guides/run-from-source/).
 - **First version, v0.1, underway.** It will prepare Doh-KDVP and Doh-Div for tax year 2026
-  from Trading 212, IBKR and Trade Republic exports. Returns for 2026 are due at the end of February 2027.
-- **After that:** more brokers, the interest and derivatives returns, a Slovenian-language
-  interface, and the optional AI check.
+  from Trading 212, IBKR and Trade Republic exports. Returns for 2026 are due by 1 March 2027.
+- **After that:** more brokers, the interest and derivatives returns, a Slovenian translation
+  of these pages, and the optional AI check.
 
 The [roadmap](/roadmap/) has the full list and is always the current word on what exists.
 

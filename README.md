@@ -16,9 +16,9 @@ your broker already gives you, on your own device, and shows you where every num
 > it writes as a draft to check, never as a finished return.
 
 > [!IMPORTANT]
-> **Check every figure before you file.** TaxReporter can be wrong, and nobody behind it is
-> responsible for your return: you are. Read [Check every figure yourself](#check-every-figure-yourself)
-> before you rely on it.
+> **Check every figure before you file.** TaxReporter can be wrong. The return you file is your
+> responsibility, not that of the people who make TaxReporter. Read
+> [Check every figure yourself](#check-every-figure-yourself) before you rely on it.
 
 ## Who it's for
 
@@ -57,14 +57,17 @@ broker exports ─► read ─► one ledger ─► Banka Slovenije rates ─►
    a purchase or sale (never the settlement date), the payment date for a dividend. A weekend or
    holiday uses the last list published before it, and a currency missing from the daily list
    uses the monthly one. The broker's own exchange rate is never used. Banka Slovenije's lists
-   since 2007 ship with TaxReporter, so converting makes no network request, and every
-   converted amount keeps its rate, the list's date and its source.
+   since 2007 come with the app, so converting needs no other server, and every converted
+   amount keeps its rate, the list's date and its source. The lists included today run to
+   7 October 2026; a later date stops with a finding until they are refreshed
+   ([#21](https://github.com/jaxtothemax/TaxReporter/issues/21)).
 4. **Sales are matched first in, first out (FIFO)** per security, by ISIN, across all your
-   brokers and accounts. Each sale keeps its holding period, which sets the rate: 25%, falling
-   to 20% after five years, 15% after ten and none after fifteen. A loss does not count when you
-   bought the same security within 30 days before or after the sale.
-5. **Doh-KDVP and Doh-Div are written as eDavki XML**, built to FURS's published schemas and
-   checked against them and against the rules the schemas leave out. Foreign tax withheld stays
+   brokers and accounts. How long each purchase was held sets the rate on its part of the
+   gain: 25%, falling to 20% after five years, 15% after ten and none after fifteen. The part of
+   a loss that you bought back within 30 days before or after the sale does not count.
+5. **Doh-KDVP and Doh-Div are written as eDavki XML** in the structure of FURS's published
+   schemas, which the project's tests check every kind of return against. Before a file is
+   written, it is checked against the rules the schemas leave out. Foreign tax withheld stays
    with its dividend. Brokers do not export a dividend payer's address, which Doh-Div needs, so
    you add it once per security. A return is withheld, with the reason, while any finding blocks
    it.
@@ -75,13 +78,15 @@ broker exports ─► read ─► one ledger ─► Banka Slovenije rates ─►
 
 From source, before the first release:
 
-| Broker              | Export                                                                                                                 | Read                                                    | Refused for now                                                                                                   |
+| Broker              | Export                                                                                                                 | Read                                                    | Refused, among others                                                                                                   |
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| Trading 212         | History export, CSV (four header revisions, 2022–2026)                                                                 | Purchases, sales, dividends with the tax withheld, splits | Payments in lieu of dividends, spin-offs, transfers, stock distributions                                          |
-| Interactive Brokers | Activity Flex Query, XML ([how to set it up](website/src/content/docs/guides/run-from-source.md#setting-up-the-ibkr-flex-query)) | Trades, dividends with the tax withheld, splits that keep the ISIN | Other corporate actions, cancellations and corrections, short sales, option exercises                             |
-| Trade Republic      | Transaction export, CSV (offered since April 2026)                                                                     | Purchases, sales, savings plans                         | Dividends, until a real export confirms their columns ([#12](https://github.com/jaxtothemax/TaxReporter/issues/12)); trades with a foreign-currency leg; free shares; bonds and crypto |
+| Trading 212         | History export, CSV (four header revisions)                                                                 | Purchases, sales, dividends with the tax withheld, splits | Payments in lieu of dividends, tax-exempt and bonus dividends, spin-offs, transfers, stock distributions                                          |
+| Interactive Brokers | Activity Flex Query, XML ([how to set it up](website/src/content/docs/guides/run-from-source.md#setting-up-the-ibkr-flex-query)) | Trades, dividends with the tax withheld, splits that keep the ISIN | Payments in lieu of dividends, other corporate actions, cancellations and corrections, short sales, option exercises                             |
+| Trade Republic      | Transaction export, CSV (offered since April 2026)                                                                     | Purchases, sales, savings plans                         | Dividends, until a real export confirms their columns ([#12](https://github.com/jaxtothemax/TaxReporter/issues/12)); trades with a foreign-currency leg; free shares; corporate actions and deliveries; bonds and crypto |
 
-Both the browser app and the command-line tool write the same XML for the same files. Next, in
+The project's tests use synthetic exports written to each format's published description;
+each reader still has to pass a real, anonymized export before v0.1 ships. Both the browser app
+and the command-line tool write the same XML for the same files. Next, in
 order of how many Slovenian investors use them: eToro, XTB, DEGIRO, Revolut, Lightyear, Saxo and
 Robinhood. The spreadsheet (XLSX) reader that eToro, XTB and Saxo need is built; their adapters
 wait on real, anonymized exports.
@@ -111,8 +116,9 @@ and describe it, without attaching your files.
 
 TaxReporter runs in your browser or as a command-line tool on your computer. There is no server,
 no account and no tracking, and your broker files are never uploaded. In the browser, files are
-read in a background worker with no network access, under a strict Content Security Policy, and
-closing the tab forgets them. See [ADR 0002](docs/adr/0002-local-first-processing-on-the-users-device.md)
+read in a background worker whose network access is removed before it reads anything, under a
+strict Content Security Policy, and closing the tab forgets them. A browser test that proves no
+request leaves during an import is still to come ([#2](https://github.com/jaxtothemax/TaxReporter/issues/2)). See [ADR 0002](docs/adr/0002-local-first-processing-on-the-users-device.md)
 and [Privacy and security](website/src/content/docs/guides/privacy-and-security.md).
 
 An optional AI "second opinion" is planned: it will run only with your own API key, after you
