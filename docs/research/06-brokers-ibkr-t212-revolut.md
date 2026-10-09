@@ -1,6 +1,6 @@
 # Broker export formats: Interactive Brokers, Trading 212, Revolut
 
-> Researched: 2026-10-07 · Verification: not independently verified
+> Researched: 2026-10-07 · Verification: not independently verified · Updated: 2026-10-09 (one real Trading 212 export inspected: the `0E-10` zero, dividend prices to 6 decimals, the V4 header and a takeover's rows, §4.2–§4.4)
 >
 > Research for building TaxReporter. It is not tax advice, and FURS publications and the law win over anything written here. Where this page overlaps a verified doc (01–03), the verified doc wins; such places are cross-referenced inline. See the [README](README.md#confidence-and-verification-legend) for the legend.
 
@@ -252,6 +252,12 @@ If `fromDate` is 8 digits, assume the default date format; otherwise reject the 
 | `Currency conversion from amount` / `to amount` (+ currencies) | Multi-currency accounts (2025+) |
 | `Merchant name`, `Merchant category` | 212 card spending. Ignore |
 
+Seen in one real export, generated in October 2026 for the year 2025 (not committed; its header is in the fixture `t212-invest-v4-2026-takeover.csv`):
+
+- **A zero kept to 10 decimals is written `0E-10`** [H], the scientific form a decimal library gives a zero with more than six places. Both rows of a takeover paid in shares were priced this way, while the 2-decimal columns, `Total` and `Withholding tax`, wrote zero as `0.00`. Read the form as 0 in `No. of shares` and `Price / share`, the columns kept to 10 decimals (a dividend's price to 6, below). By the same rule a value under 0.000001 would be written like `1.234E-7`; neither that nor the form in another column has been seen, so the parser refuses both.
+- **Dividend prices have 6 decimals** [H], not 10. The net-of-WHT rule held: on US dividends the tax withheld was 15% of `shares × price / 0.85`.
+- **`Notes` was left out** of the header [H] of this export, in which no row had a note.
+
 ### 4.3 `Action` values [H unless noted]
 
 | Group | Values |
@@ -265,6 +271,14 @@ If `fromDate` is 8 digits, assume the default date format; otherwise reject the 
 
 **Takeovers paid in shares** appear as a `Market sell` with a price of 0 and a `Total` of 0; the new shares arrive via `Stock distribution`, or not at all. Treat this as a hard error requiring manual input.
 
+In the real 2025 export of §4.2, the takeover matched that description, with these details [H]:
+
+- The two rows came 15 seconds apart, both priced `0E-10`, with a `Total` of `0.00` and no exchange rate.
+- The `Stock distribution` quantity was the sale's times the published exchange ratio.
+- Both rows were dated several days after the merger completed, so a row's time is when T212 booked it, not the date of the exchange. Any input the user gives for a takeover has to carry its own date and value.
+- `Result` on the sale was minus the position's whole cost. That is T212's write-off, not a tax figure.
+- A `Custom stock distribution` row booked subscription rights at a price of `0E-10`, under a name ending in `- CorpAct` and a ticker ending in `.RST`. Its tax treatment is an open question ([04](04-si-tax-rules.md#open-questions)).
+
 ### 4.4 Versions and how to detect them
 
 The dates below are approximate.
@@ -274,7 +288,7 @@ The dates below are approximate.
 | V1 (2021–~2022) | Currency suffix in the header: `Result (EUR)`, `Total (EUR)`, `Charge amount (EUR)`, `Transaction fee (GBP)`, `Stamp duty (GBP)`; `Notes,ID` near the end. At launch, names containing commas were not quoted (a bug, since fixed) |
 | V2 (~2023–2024) | `Result,Currency (Result),Total,Currency (Total)`; `Notes,ID` after the WHT columns |
 | V3 (2025–Jan 2026) | `Notes,ID` move to right after `Name`; conversion and merchant columns added. Real header from cgt-calc #709 (Jan 2026): `Action,Time,ISIN,Ticker,Name,Notes,ID,No. of shares,Price / share,Currency (Price / share),Exchange rate,Result,Currency (Result),Total,Currency (Total),Withholding tax,Currency (Withholding tax),Currency conversion from amount,Currency (Currency conversion from amount),Currency conversion to amount,Currency (Currency conversion to amount),Currency conversion fee,Currency (Currency conversion fee),Merchant name,Merchant category` |
-| V4 (2026) | The first column after `Action` is named `Time (UTC)` |
+| V4 (2026) | The first column after `Action` is named `Time (UTC)`. The revision depends on when the export is generated, not the period it covers: a 2025 period exported in October 2026 has this header |
 
 Detection rules:
 
@@ -429,7 +443,7 @@ Route CFD, OPT, FUT, FOP and WAR instruments to a separate D-IFI stream.
 
 ## Confidence
 
-This page was **not independently verified**. The format descriptions come from broker documentation, open-source parsers built against real exports, and their issue trackers; no real export from a Slovenian account was inspected for this page. Body statements tagged [M] or [L] carry the same caveat as the claims below. Where this page overlaps the verified docs (FIFO, decimals, inventory rules), the verified docs win.
+This page was **not independently verified**. The format descriptions come from broker documentation, open-source parsers built against real exports, and their issue trackers. One real Trading 212 export of 2025 was inspected later, for the notes in §4.2 and §4.3 that say so; no other real export from a Slovenian account was inspected for this page. Body statements tagged [M] or [L] carry the same caveat as the claims below. Where this page overlaps the verified docs (FIFO, decimals, inventory rules), the verified docs win.
 
 The researcher rated these critical claims below high confidence:
 
@@ -441,7 +455,7 @@ The researcher rated these critical claims below high confidence:
 | medium | Revolut amount formatting changed with export date: older CSVs use plain numbers with `dd/MM/yyyy HH:mm:ss` dates and types BUY/SELL/CUSTODY_FEE; later exports use ISO-8601 UTC `Z` timestamps with currency-symbol amounts like `$1,020.29`/`-$30.93`; 2025–2026 exports use ISO-code prefixes like `USD 1197.08`/`USD -0.04`. | [ulyssetsd/revoprofit](https://github.com/ulyssetsd/revoprofit) |
 | medium | Revolut `MERGER - STOCK` (negative quantity) plus `MERGER - CASH` (cash amount) represent a cash takeover, i.e. a disposal that must appear in Doh-KDVP; other types such as RETURN OF CAPITAL, BOND COUPON, POSITION CLOSURE and REWARD also occur in 2024–2026 exports. | [webamMarko/revolut-edavki-converter examples](https://github.com/webamMarko/revolut-edavki-converter/tree/main/examples) |
 
-**Before shipping a parser:** every fixture derived from this page must be validated against real (anonymized) exports from the broker and export version it claims to represent. The synthetic fixtures copy headers from public sources and were checked only for internal arithmetic, not against a real Slovenian account.
+**Before shipping a parser:** every fixture derived from this page must be validated against real (anonymized) exports from the broker and export version it claims to represent. The synthetic fixtures copy headers from public sources and were checked only for internal arithmetic, not against a real Slovenian account. The Trading 212 V4 header has since been compared with one real export: the same columns in the same order, less those it had no use for (§4.2).
 
 ## Open questions
 

@@ -217,6 +217,22 @@ const NUMBER = new RegExp(
   `^-?\\d{1,${String(LIMITS.numberWholeDigits)}}(?:\\.\\d{1,${String(LIMITS.numberDecimals)}})?$`,
 );
 
+/**
+ * Zero as T212 writes it in the two columns it keeps to 10 decimals (a
+ * dividend's price to 6): "0E-10", the scientific form a decimal library
+ * gives a zero with more than six places (7 to 12 here, the most NUMBER
+ * takes). A real export priced both
+ * rows of a takeover paid in shares this way (06 §4.2). Only zero, and only
+ * in those columns: a value under 0.000001 would be written "1.234E-7", and
+ * a tax or a total, kept to 2 decimals, wrote its zero as "0.00". The form
+ * stays refused anywhere else until an export shows it.
+ */
+const ZERO_WITH_EXPONENT = /^0E-(?:[7-9]|1[0-2])$/;
+const TEN_DECIMALS: ReadonlySet<NumberColumn> = new Set([
+  "No. of shares",
+  "Price / share",
+]);
+
 /** A plain decimal string as an exact fraction, numerator over 10^decimals. */
 function fraction(text: string): readonly [bigint, bigint] {
   const [whole = "0", decimals = ""] = text.split(".");
@@ -336,8 +352,14 @@ function read(table: CsvTable, context: ReadContext): ImportResult {
   ): Decimal | null => {
     const value = text(row, header);
     if (value === "") return null;
-    // T212 writes plain decimals with up to 10 places; anything else, an
-    // exponent, a comma, an absurd size, is not trusted as a number.
+    // T212 writes plain decimals with up to 10 places, and a zero in a share
+    // count or a price sometimes as "0E-10"; anything else, another exponent,
+    // a comma, an absurd size, is not trusted as a number. A split reads a
+    // share count's own text, which this zero never reaches: it is refused
+    // as a quantity first.
+    if (TEN_DECIMALS.has(column) && ZERO_WITH_EXPONENT.test(value)) {
+      return Decimal.ZERO;
+    }
     if (!NUMBER.test(value)) throw new BadCell(column);
     return Decimal.parse(value);
   };
