@@ -212,6 +212,49 @@ describe("earlier revisions", () => {
   });
 });
 
+describe("a takeover paid in shares, under a real export's header", () => {
+  // V4 as a real export writes it: no Notes column when no row has a note.
+  // The rows are made up (test/fixtures/trading212/README.md).
+  const result = imported("t212-invest-v4-2026-takeover.csv");
+
+  it("refuses the takeover's two rows and the rights, and reads the rest", () => {
+    expect(result.format).toBe("trading212-csv-v4");
+    // The sale priced "0E-10" is refused as a sale at zero, the mark of a
+    // takeover paid in shares (06 §4.3), not as a number it cannot read.
+    expect(
+      result.diagnostics.map((d) => [d.code, d.params, d.source?.row]),
+    ).toEqual([
+      [
+        "unsupportedAction",
+        { broker: "trading212", action: "Custom stock distribution" },
+        3,
+      ],
+      ["invalidPrice", {}, 6],
+      [
+        "unsupportedAction",
+        { broker: "trading212", action: "Stock distribution" },
+        7,
+      ],
+    ]);
+    expect(kinds(result)).toEqual([
+      "trade",
+      "dividend",
+      "withholding",
+      "dividend",
+      "trade",
+    ]);
+    expect(accountedRows(result)).toEqual([2, 3, 4, 5, 6, 7, 8]);
+  });
+
+  it("reads dividends priced to 6 decimals, and a tax of 0.00 as none", () => {
+    const gross = result.events.flatMap((e) =>
+      e.kind === "dividend" ? [e.gross.amount.toString()] : [],
+    );
+    // 10 x 0.4335 net + 0.77 withheld; 30 x 0.62, nothing withheld.
+    expect(gross).toEqual(["5.105", "18.6"]);
+  });
+});
+
 describe("rows it refuses rather than guesses", () => {
   const BUY =
     "Market buy,2026-01-06 14:31:02+00:00,US1912161007,KO,Coca-Cola,,EOF1,2,69.5,USD,1.17,,,118.55,EUR,,";
@@ -282,6 +325,36 @@ describe("rows it refuses rather than guesses", () => {
     expect(result.diagnostics[0]?.params).toEqual({ column: "No. of shares" });
   });
 
+  it('zero written "0E-10" in a share count or a price, and no other exponent', () => {
+    const result = v4(
+      "Market sell,2026-09-08 14:05:12+00:00,US1912161007,KO,Coca-Cola,,EOF1,2,0E-10,USD,,-50,EUR,0.00,EUR,,",
+      "Market buy,2026-09-08 14:05:12+00:00,US1912161007,KO,Coca-Cola,,EOF1,0E-10,69.5,USD,,,,1,EUR,,",
+      "Market buy,2026-09-08 14:05:12+00:00,US1912161007,KO,Coca-Cola,,EOF1,2,1.230E-7,USD,,,,1,EUR,,",
+      "Market buy,2026-09-08 14:05:12+00:00,US1912161007,KO,Coca-Cola,,EOF1,2,0E-10x,USD,,,,1,EUR,,",
+      "Market buy,2026-09-08 14:05:12+00:00,US1912161007,KO,Coca-Cola,,EOF1,2,0e-10,USD,,,,1,EUR,,",
+      "Market buy,2026-09-08 14:05:12+00:00,US1912161007,KO,Coca-Cola,,EOF1,2,0E-6,USD,,,,1,EUR,,",
+      "Dividend (Dividend),2026-09-08 14:05:12+00:00,US1912161007,KO,Coca-Cola,,,20,0.4335,USD,,,,7.41,EUR,0E-10,USD",
+      "Market buy,2026-09-08 14:05:12+00:00,US1912161007,KO,Coca-Cola,,EOF1,2,69.5,USD,,,,0E-10,EUR,,",
+    );
+    const price = { column: "Price / share" };
+    // A zero price is the mark of a takeover paid in shares (06 §4.3), and a
+    // zero share count no quantity. A tax or a total is kept to 2 decimals,
+    // so there the form is not a zero T212 writes.
+    expect(
+      result.diagnostics.map((d) => [d.code, d.params, d.source?.row]),
+    ).toEqual([
+      ["invalidPrice", {}, 2],
+      ["invalidQuantity", {}, 3],
+      ["invalidNumber", price, 4],
+      ["invalidNumber", price, 5],
+      ["invalidNumber", price, 6],
+      ["invalidNumber", price, 7],
+      ["invalidNumber", { column: "Withholding tax" }, 8],
+      ["invalidNumber", { column: "Total" }, 9],
+    ]);
+    expect(result.events).toEqual([]);
+  });
+
   it("dividend tax in another currency, or with a sign", () => {
     const result = v4(
       "Dividend (Dividend),2026-04-01 12:10:44+00:00,US1912161007,KO,Coca-Cola,,,20,0.4335,USD,,,,7.41,EUR,1.31,EUR",
@@ -317,6 +390,25 @@ describe("rows it refuses rather than guesses", () => {
       ["splitRatioUnclear", 6],
     ]);
     expect(accountedRows(result)).toEqual([2, 3, 4, 5, 6]);
+  });
+
+  it('split halves with "0E-10": a share count is refused first, a price is not used', () => {
+    const half = (action: string, time: string, shares: string) =>
+      `${action},${time},US00000ACME1,ACME,Acme Corp,,,${shares},0E-10,USD,,,,775.86,EUR,,`;
+    const result = v4(
+      half("Stock split close", "2026-03-02 07:00:00", "0E-10"),
+      half("Stock split open", "2026-03-02 07:00:00", "9"),
+      half("Stock split close", "2026-04-02 07:00:00", "3"),
+      half("Stock split open", "2026-04-02 07:00:00", "9"),
+    );
+    // Refused as a quantity, the zero never reaches the ratio, which reads
+    // a share count's own text; a split's price is not used, so a zero
+    // there, in either form, leaves the split as it is.
+    expect(blocking(result)).toEqual([
+      ["invalidQuantity", 2],
+      ["splitUnpaired", 3],
+    ]);
+    expect(kinds(result)).toEqual(["split", "ignored:pairedRow"]);
   });
 });
 
