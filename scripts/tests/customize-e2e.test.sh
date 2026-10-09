@@ -25,15 +25,21 @@
 # this checkout, and is torn down on exit.
 #
 # Cases:
-#   1. A fresh, uncustomized clone (this repo's own HEAD — Blueprint never
-#      "kickoffs" itself) — customize.sh must report outstanding TODOs.
+#   1. A clone of this repo's own HEAD. While HEAD is still the uncustomized
+#      template, customize.sh must report outstanding TODOs. Once the project
+#      has run /kickoff, HEAD is no longer a "just cloned" tree, so only the
+#      state-independent checks run (GitHub checklist, no GitLab leftovers) and
+#      Case 3 carries the placeholder-detection proof.
 #   2. A simulated completed /kickoff — customize.sh must report all clear,
 #      no placeholder token survives in the templated files, CLAUDE.md still
 #      reads as sane markdown, and doctor.sh runs to completion (exit 0, git
 #      hooks installed, minimum prerequisites present).
 #   3. Negative control (the FAILS-if-a-placeholder-survives proof, run
 #      automatically rather than by hand-and-restore): starting from the
-#      Case 2 tree, put ONE placeholder back — customize.sh must catch it.
+#      Case 2 tree, inject ONE placeholder — customize.sh must catch it. It is
+#      injected (appended), not restored by swapping a filled-in value back,
+#      so the control still bites after a real /kickoff replaced every
+#      placeholder with project-specific text.
 
 set -euo pipefail
 
@@ -81,6 +87,10 @@ sed_edit() { # <file> <sed-expr...>
 # (no GNU-only `0,/re/` sed address extension, which macOS/BSD sed rejects).
 # Used by the negative control to reintroduce exactly one placeholder.
 replace_first() { # <file> <find> <replace>
+  # Same mode-preservation as sed_edit: this rewrites .claude/hooks/*.sh, and a
+  # hook that loses its exec bit is one customize.sh rightly warns about.
+  local mode
+  mode="$(stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1")"
   awk -v find="$2" -v repl="$3" '
     !done {
       i = index($0, find)
@@ -89,6 +99,7 @@ replace_first() { # <file> <find> <replace>
     { print }
   ' "$1" > "$1.awktmp"
   mv "$1.awktmp" "$1"
+  chmod "$mode" "$1"
 }
 
 # Delete the FIRST HTML comment block in a file (CLAUDE.md's SETUP CHECKLIST
@@ -145,23 +156,42 @@ simulate_kickoff() { # <dir>
     -e 's/^## Sam —/## Lena Kim —/' \
     -e 's/^## Maya —/## Taylor Brooks —/'
 
-  # .gitlab-ci.yml — the pristine template already reports this section
-  # clean (its check is indent-anchored and the shipped comment lines are
-  # indented — a known quirk, out of scope for this issue), so nothing to do.
+  # .github/workflows/ci.yml — the application's own lint/test/build workflow
+  # is the one CI file the template cannot ship (the stack is the adopter's
+  # choice), so a completed setup has added one. The harness workflows
+  # (governance, security, docs, release), Dependabot and the issue/PR
+  # templates ship with the template and must already be in HEAD — the
+  # simulation deliberately does NOT create them, so a port that drops one, or
+  # leaves .gitlab-ci.yml / renovate.json behind, fails Case 2 here.
+  mkdir -p "$d/.github/workflows"
+  cat > "$d/.github/workflows/ci.yml" <<'CIEOF'
+name: ci
+on: [pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "application tests run here"
+CIEOF
 
   # Makefile — drop the commented Node/multi-stack example recipe lines that
   # trip the "uncomment your stack" check; a customized Makefile has either
   # picked one stack (uncommented) or deleted the unused examples.
   sed_edit "$d/Makefile" '/^#.*cd (frontend|backend)/d'
 
+  # .github/ISSUE_TEMPLATE/config.yml — the security link's repository name.
+  sed_edit "$d/.github/ISSUE_TEMPLATE/config.yml" 's#github\.com/OWNER/REPO/#github.com/acme/widget/#'
+
   # CONTRIBUTING.md
   sed_edit "$d/CONTRIBUTING.md" 's/\[PROJECT NAME\]/Acme Widget/g'
   sed_edit "$d/CONTRIBUTING.md" 's/\[FILL IN[^]]*\]/#support on Slack/g'
 
   # .claude/hooks/post-edit-checks.sh — retarget the example file patterns
-  # at a real stack instead of the template's Django/Prisma placeholders.
+  # at a real stack instead of the template's placeholder module names.
   replace_first "$d/.claude/hooks/post-edit-checks.sh" \
-    'models.py (Django), schema.prisma' 'models.go, schema.sql'
+    'parser.py (Python), importer.ts (TypeScript)' 'ibkr_parser.py, edavki_writer.py'
 
   # scripts/release.sh and docs/adr/ already report clean on a pristine
   # checkout of this repo (no template placeholder left in either) — nothing
@@ -223,10 +253,12 @@ run_doctor() { # <dir> -> prints combined stdout+stderr, returns doctor.sh's exi
 
 # ─── Case 1: a fresh, uncustomized clone reports outstanding TODOs ────────────
 #
-# This is the baseline negative control: this repo IS the template, it never
-# runs its own /kickoff, so its own HEAD is always in the "just cloned" state.
-# If this ever silently passes (Remaining: 0), customize.sh stopped detecting
-# the very placeholders it ships with.
+# While HEAD is still the template, this is the baseline negative control: a
+# "just cloned" tree must report TODOs, and if it ever silently passes
+# (Remaining: 0), customize.sh stopped detecting the very placeholders it ships
+# with. After /kickoff, HEAD is customized on purpose, so those two assertions
+# would test the project's progress rather than the script; Case 3's injected
+# placeholders prove detection instead.
 
 D1="$TMP/fresh"
 build_scratch_clone "$D1"
@@ -235,15 +267,29 @@ set +e
 out_fresh="$(run_customize "$D1")"; rc_fresh=$?
 set -e
 
-r=1; [[ "$rc_fresh" -ne 0 ]] && r=0
-check "fresh clone: customize.sh exits non-zero (outstanding TODOs)" "$r"
+if grep -qF '[PROJECT NAME]' "$D1/CLAUDE.md"; then
+  r=1; [[ "$rc_fresh" -ne 0 ]] && r=0
+  check "fresh clone: customize.sh exits non-zero (outstanding TODOs)" "$r"
 
+  r=1
+  case "$out_fresh" in
+    *"Remaining: 0"*) ;;
+    *"Remaining: "*) r=0 ;;
+  esac
+  check "fresh clone: at least one [ ] TODO item reported" "$r"
+else
+  echo "SKIP: fresh clone TODO assertions — HEAD has run /kickoff (no [PROJECT NAME] left); Case 3 proves detection."
+fi
+
+# The project is hosted on GitHub: the manual-settings checklist and the next
+# steps must be GitHub's, and nothing may still point a new adopter at GitLab.
 r=1
 case "$out_fresh" in
-  *"Remaining: 0"*) ;;
-  *"Remaining: "*) r=0 ;;
+  *"GitHub repository settings"*"Private vulnerability reporting"*"status:wip"*"gh auth login"*) r=0 ;;
 esac
-check "fresh clone: at least one [ ] TODO item reported" "$r"
+check "fresh clone: GitHub settings checklist and 'gh auth login' are printed" "$r"
+r=0; grep -qiE 'glab|gitlab →|GitLab project settings' <<< "$out_fresh" && r=1
+check "fresh clone: no GitLab settings or glab commands in the report" "$r"
 
 # ─── Case 2: a simulated completed /kickoff reports all clear ────────────────
 
@@ -296,7 +342,7 @@ check "customized clone: doctor.sh smoke run exits 0 (git/make/python3 present, 
 
 D3="$TMP/regressed"
 cp -R "$D2" "$D3"
-replace_first "$D3/CLAUDE.md" 'Acme Widget' '[PROJECT NAME]'
+printf '\n[PROJECT NAME]\n' >> "$D3/CLAUDE.md"
 
 set +e
 out_regressed="$(run_customize "$D3")"; rc_regressed=$?
@@ -315,7 +361,7 @@ check "negative control: customize.sh names the specific regression" "$r"
 # control isn't just proving one grep still works.
 D4="$TMP/regressed-personas"
 cp -R "$D2" "$D4"
-replace_first "$D4/.claude/personas.md" '## Priya Shah —' '## Alex —'
+printf '\n## Alex — Solo Developer\n' >> "$D4/.claude/personas.md"
 
 set +e
 out_regressed2="$(run_customize "$D4")"; rc_regressed2=$?

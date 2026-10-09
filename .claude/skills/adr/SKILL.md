@@ -117,7 +117,7 @@ delta between the issue that proposed it and the ADR that settled it is exactly
 **the set of rejected options** — the most expensive thing to accidentally
 implement.
 
-Nothing in the pipeline can catch this: every gate reads the diff, and **no gate
+Nothing in CI can catch this: every gate reads the diff, and **no gate
 has ever read an issue body against an ADR**. Building one would be a poor trade
 — it cannot distinguish a divergence from an issue that legitimately implements
 one section — so this is a checklist step at a moment that already exists.

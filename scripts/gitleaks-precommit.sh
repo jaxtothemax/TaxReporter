@@ -3,8 +3,8 @@
 #
 # ## Why a hook, not just CI
 #
-# The GitLab secret-detection component and the gitleaks-scan job (both in
-# .gitlab-ci.yml) only fire once a branch has already been pushed — by which
+# The gitleaks-scan job (.github/workflows/security.yml) and GitHub's own
+# secret scanning only fire once a branch has already been pushed — by which
 # point rotation, not prevention, is the only remedy. A pre-commit hook is the
 # only placement in this pipeline that can stop a secret before it ever
 # leaves a contributor's machine.

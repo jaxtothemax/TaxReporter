@@ -62,7 +62,7 @@
 //   node scripts/check-added-files-covered.mjs [options]
 //
 //   --target-ref <ref>        Git ref to diff against (default:
-//                              origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME,
+//                              origin/$GITHUB_BASE_REF (the PR base branch),
 //                              or origin/main outside CI).
 //   --no-fetch                 Skip `git fetch` of the target branch (assumes
 //                              it is already up to date locally).
@@ -547,7 +547,9 @@ function main() {
   const cwd = process.cwd();
   let targetRef = opts.targetRef;
   if (!targetRef) {
-    const branch = process.env.CI_MERGE_REQUEST_TARGET_BRANCH_NAME || 'main';
+    // GITHUB_BASE_REF is set only on pull_request events; a push to main diffs
+    // against main itself, which is the same default the GitLab original used.
+    const branch = process.env.GITHUB_BASE_REF || 'main';
     targetRef = `origin/${branch}`;
     if (!opts.noFetch) {
       const fetch = spawnSync('git', ['fetch', 'origin', branch, '--depth=100'], { cwd, stdio: 'inherit' });

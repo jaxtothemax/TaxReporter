@@ -1,0 +1,158 @@
+# ─── Dependency and secret scanning ───────────────────────────────────────────
+#
+# Two gates, both blocking:
+#
+#   - osv-scan classifies OSV-Scanner's advisory findings by severity and
+#     fails the run at or above a configurable threshold.
+#   - gitleaks-scan scans the FULL working tree for secrets, and is also wired
+#     as a pre-commit hook — the only placement that can stop a secret before
+#     it is ever committed, since every job here only runs after a push.
+#
+# Same rules as every other gate (scripts/CLAUDE.md, via
+# .github/workflows/CLAUDE.md): self-test first, in the SAME job, before the
+# real scan.
+#
+# Triggers: every PR, every push to main (these runs are part of what
+# release.yml's release-pipeline-gate reads as proof), and weekly against main —
+# an advisory can be published against a version already sitting in an
+# unchanged, committed lockfile, and a diff-triggered scan only ever catches
+# that after it shipped. GitHub's own secret scanning and push protection are
+# repository settings, not jobs; enable them too — they complement gitleaks with
+# a different ruleset, the way GitLab's secret-detection component did upstream.
+
+name: security
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "41 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Superseded PR runs are canceled; main is keyed by SHA and never canceled (see
+# governance.yml for why every main commit needs its own completed run).
+concurrency:
+  group: security-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # OSV-Scanner: dependency vulnerability scan against the OSV.dev advisory
+  # database, covering every ecosystem it supports (npm, PyPI, Go modules, and
+  # 20+ others). `--recursive` auto-discovers whatever lockfiles exist in the
+  # tree — no per-stack wiring, so this job needs no changes as the stack lands.
+  #
+  # OSV-Scanner has no native severity threshold (confirmed on v2.3.8: no
+  # --severity / --fail-on / --audit-level flag), so it exits non-zero on ANY
+  # advisory. scripts/osv-severity-gate.sh classifies the JSON output against
+  # OSV_SEVERITY_THRESHOLD — see that script's header for the full exit-code
+  # contract, and for ALLOW_UNRESOLVED, the named opt-out for a scan that
+  # genuinely could not reach the advisory database.
+  #
+  # `--allow-no-lockfiles` makes "nothing to scan" — a clone with no stack yet —
+  # a clean pass rather than a hard error: it exits 0 and writes
+  # `{"results": null}`, which the gate treats identically to an empty result
+  # set. A genuine scan failure (osv-scanner exits non-zero and writes NO output
+  # file at all — not empty, absent) is exactly what the gate's missing-file
+  # fail-closed path exists for; `|| true` below only swallows the "advisories
+  # found" exit code, never masks that distinction.
+  #
+  # Exit 2 from the gate (below-threshold advisories only) was `allow_failure`
+  # on GitLab — a yellow job. GitHub Actions has no per-exit-code allow-failure,
+  # and `continue-on-error` would swallow exit 1 too, so the gate step maps 2 to
+  # a warning annotation plus a job-summary entry and passes; 1 and 3 still fail.
+  osv-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Per clone: LOW, MEDIUM, HIGH, or CRITICAL — see scripts/osv-severity-gate.sh.
+      OSV_SEVERITY_THRESHOLD: "HIGH"
+      OSV_SCANNER_VERSION: v2.3.8
+      OSV_SCANNER_SHA256: bc98e15319ed0d515e3f9235287ba53cdc5535d576d24fd573978ecfe9ab92dc
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned osv-scanner
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -sSfL -o "$RUNNER_TEMP/bin/osv-scanner" \
+            "https://github.com/google/osv-scanner/releases/download/${OSV_SCANNER_VERSION}/osv-scanner_linux_amd64"
+          echo "${OSV_SCANNER_SHA256}  $RUNNER_TEMP/bin/osv-scanner" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/bin/osv-scanner"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      # Write the JSON report first. osv-scanner exits non-zero both when
+      # advisories are found (expected — severity banding is delegated to the
+      # gate below) and when the scan fails outright (network down); `|| true`
+      # lets either continue to the gate, which tells them apart by whether a
+      # valid results file exists.
+      - name: Scan
+        run: osv-scanner scan source --recursive --allow-no-lockfiles . --format json --output-file osv-report.json || true
+      # Self-test FIRST, in this SAME job, before trusting the real verdict.
+      - run: sh scripts/osv-severity-gate.sh --self-test
+      - name: Severity gate
+        run: |
+          rc=0
+          sh scripts/osv-severity-gate.sh osv-report.json || rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "::warning title=osv-scan::Advisories below ${OSV_SEVERITY_THRESHOLD} only (or ALLOW_UNRESOLVED=1) — non-blocking. See the log and the osv-report artifact."
+            {
+              echo "### osv-scan: non-blocking advisories"
+              echo ""
+              echo "Only advisories below the ${OSV_SEVERITY_THRESHOLD} threshold were found (or the scan was unresolved with ALLOW_UNRESOLVED=1). Dependency debt, not a block — see the job log."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          exit "$rc"
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: osv-report
+          path: osv-report.json
+          retention-days: 7
+          # Absent only when the scan itself failed, which the gate above
+          # already failed the job for, naming the cause.
+          if-no-files-found: warn
+
+  # gitleaks: full working-tree secret scan using the upstream default ruleset,
+  # backed by the documented allowlist in .gitleaks.toml (auto-discovered at the
+  # repo root). Not limited to a diff: `gitleaks dir .` scans every file in the
+  # checkout, unconditionally, since a secret can land in any file regardless of
+  # what changed.
+  #
+  # Also wired as a local pre-commit hook (scripts/gitleaks-precommit.sh, via
+  # scripts/setup-hooks.sh / hooks/pre-commit) — this job is the hard,
+  # merge-blocking gate; the hook is the earliest possible local catch, and
+  # matters specifically for a branch with no open PR yet, which gets no CI run
+  # until one exists.
+  gitleaks-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GITLEAKS_VERSION: 8.30.1
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned gitleaks
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -sSfL -o "$RUNNER_TEMP/gitleaks.tar.gz" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  $RUNNER_TEMP/gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP/bin" gitleaks
+          chmod +x "$RUNNER_TEMP/bin/gitleaks"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      # Self-test FIRST, in this SAME job — the one place in CI where the
+      # gitleaks binary the self-test's detection case needs is guaranteed
+      # present, so it is also the only place that proof can run at all.
+      - run: bash scripts/gitleaks-precommit.sh --self-test
+      - run: gitleaks dir . --no-banner --redact --exit-code 1

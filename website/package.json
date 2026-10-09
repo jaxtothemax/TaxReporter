@@ -1,5 +1,5 @@
 {
-  "name": "blueprint-website",
+  "name": "taxreporter-website",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -11,14 +11,12 @@
     "typecheck": "astro check"
   },
   "dependencies": {
-    "@astrojs/starlight": "^0.41.3",
-    "astro": "^7.2.8",
-    "astro-mermaid": "^2.1.0",
-    "mermaid": "^11.17.2"
+    "@astrojs/starlight": "^0.42.5",
+    "astro": "^7.3.6"
   },
   "devDependencies": {
-    "@astrojs/check": "^0.9.9",
-    "typescript": "~5.6.0"
+    "@astrojs/check": "^0.9.10",
+    "typescript": "~6.0.3"
   },
   "engines": {
     "node": ">=22.12.0"

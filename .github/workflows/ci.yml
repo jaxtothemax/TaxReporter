@@ -1,0 +1,204 @@
+# ─── Application CI ───────────────────────────────────────────────────────────
+#
+# The application's own gates — the TypeScript pnpm workspace under packages/
+# and apps/ — as opposed to the harness's (governance.yml, security.yml,
+# docs.yml). Read .github/workflows/CLAUDE.md (which imports scripts/CLAUDE.md)
+# before touching this file.
+#
+# Every application job runs the SAME `make <target>` a developer and the git
+# hooks run (install-deps, lint, format-check, typecheck, test, build), so a
+# green check here means exactly what a green `make` means locally. The
+# commands themselves live once, in the root package.json scripts.
+#
+# Gate SCRIPTS are the exception: check-added-files-covered.mjs and
+# check-licenses.mjs are called directly from `run:` — never through make — and
+# each runs its own --self-test first, in its own job.
+# check-gate-selftest-parity.sh and check-prepush-parity.sh find gates by
+# reading these files, and a gate hidden behind a make target is invisible to
+# both.
+#
+# Triggers: every PR, every push to main (these runs are part of what
+# release.yml's release-pipeline-gate should read as proof that a tagged commit
+# passed), and by hand.
+
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Superseded PR runs are canceled; main is keyed by SHA and never canceled (see
+# governance.yml for why every main commit needs its own completed run).
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # Every job below sets up the same toolchain: pnpm at the version the root
+  # package.json "packageManager" field pins (pnpm/action-setup reads it), Node
+  # from .nvmrc, the pnpm store cached by setup-node, then `make install-deps`
+  # (`pnpm install --frozen-lockfile` — a stale lockfile fails the job).
+
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: make install-deps
+      - run: make lint
+
+  format-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: make install-deps
+      - run: make format-check
+
+  typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: make install-deps
+      - run: make typecheck
+
+  # Vitest over every package, with v8 coverage. The Cobertura report is
+  # uploaded for added-files-covered below — asserted non-empty first, because
+  # an upload that finds nothing would otherwise pass this job and leave that
+  # gate with no report to read.
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: make install-deps
+      - run: make test
+      - run: sh scripts/ci-assert-artifacts.sh coverage/cobertura-coverage.xml
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage
+          path: coverage/cobertura-coverage.xml
+          retention-days: 7
+          if-no-files-found: error
+
+  # A brand-new source file with zero tests never appears in a coverage report,
+  # so a diff-coverage tool scores it 100% instead of 0%. This fails the
+  # run when a file ADDED by the PR under packages/ or apps/ has no row in the
+  # report the test job just produced. The layer flags come from the Makefile's
+  # COVERAGE_LAYERS, the one definition `make check-added-files-covered` uses.
+  #
+  # The gate SKIPS, exit 0, when it has no report or cannot find a merge base —
+  # right on a laptop, a silent pass here — so both are asserted first. It runs
+  # with --no-fetch against the complete history `fetch-depth: 0` checks out:
+  # its own fetch is `--depth=100`, which would make this clone shallow.
+  added-files-covered:
+    needs: [test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: coverage
+          path: coverage
+      - name: Assert the report and the merge base exist (a blind gate must not pass)
+        env:
+          BASE_REF: ${{ github.base_ref || 'main' }}
+        run: |
+          sh scripts/ci-assert-artifacts.sh coverage/cobertura-coverage.xml
+          git rev-parse --verify --quiet "refs/remotes/origin/${BASE_REF}" >/dev/null
+          git merge-base "origin/${BASE_REF}" HEAD >/dev/null
+      - run: node scripts/check-added-files-covered.mjs --self-test
+      - name: Every added source file appears in the coverage report
+        run: |
+          read -ra layers <<<"$(make -s print-coverage-layers)"
+          node scripts/check-added-files-covered.mjs --no-fetch "${layers[@]}"
+
+  # Every package (tsc) and both apps (apps/cli/dist, apps/web/dist). A build
+  # that exits 0 is not proof it produced anything, so the entry points are
+  # asserted and the CLI is run once.
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: make install-deps
+      - run: make build
+      - run: sh scripts/ci-assert-artifacts.sh apps/web/dist/index.html apps/cli/dist/bin.js
+      - name: Run the built CLI
+        run: |
+          out="$(node apps/cli/dist/bin.js --help)"
+          printf '%s\n' "$out"
+          grep -q "Usage: taxreporter" <<<"$out"
+
+  # Every dependency's license is AGPL-3.0-compatible: production, development
+  # and optional alike. The policy (allowlist, deny-by-default, reasoned
+  # EXCEPTIONS) lives in scripts/check-licenses.mjs. The install comes first:
+  # the gate reads the installed tree, and an unreadable one is exit 2, not a
+  # pass.
+  license-compliance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: make install-deps
+      - run: node scripts/check-licenses.mjs --self-test
+      - run: node scripts/check-licenses.mjs

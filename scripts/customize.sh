@@ -11,6 +11,12 @@ cd "$REPO_ROOT"
 
 # shellcheck source-path=SCRIPTDIR source=lib/git-hooks-dir.sh
 . "$REPO_ROOT/scripts/lib/git-hooks-dir.sh"
+# shellcheck source-path=SCRIPTDIR source=lib/gh-repo.sh
+. "$REPO_ROOT/scripts/lib/gh-repo.sh"
+
+# owner/repo (or HOST/owner/repo on GitHub Enterprise) from origin — never
+# hardcoded. Empty on a fresh scaffold with no GitHub remote yet.
+GH_REPO_SLUG="$(gh_repo_from_url "$(git remote get-url origin 2>/dev/null || true)")"
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -69,29 +75,69 @@ else
   ok "Custom personas defined in .claude/personas.md"
 fi
 
-# ─── CI pipeline ──────────────────────────────────────────────────────────────
+# ─── CI: GitHub Actions ───────────────────────────────────────────────────────
+#
+# This project is hosted on GitHub. Blueprint ships GitLab CI; a scaffold that
+# still carries .gitlab-ci.yml (or Renovate, which only served GitLab here) next
+# to the workflows is half-ported, and the half nobody runs is the half that
+# rots — every gate in it reads as configured while never executing.
 
-heading ".gitlab-ci.yml"
+heading ".github/ (GitHub Actions, Dependabot)"
 
-if grep -qE "^#.*- local: ci/(python|node|docker|go)\.yml" .gitlab-ci.yml 2>/dev/null; then
-  todo "Uncomment the relevant stack includes in .gitlab-ci.yml (ci/python.yml, ci/node.yml, etc.)"
+# The four harness workflows by name, not "any *.yml": an adopter's own ci.yml
+# would otherwise satisfy a check that exists to catch a dropped gate workflow.
+MISSING_WF=""
+for wf in governance security docs release; do
+  [[ -f ".github/workflows/${wf}.yml" ]] || MISSING_WF="$MISSING_WF ${wf}.yml"
+done
+if [[ -z "$MISSING_WF" ]]; then
+  ok "Harness workflows present (.github/workflows/: governance, security, docs, release)"
 else
-  ok "CI stack includes configured in .gitlab-ci.yml"
+  todo "Add the missing harness workflow(s) to .github/workflows/:${MISSING_WF}"
 fi
 
-# Check if any ci/*.yml files have been customized beyond the template
-if [[ -d "ci" ]]; then
-  UNCONFIGURED=0
-  for f in ci/python.yml ci/node.yml ci/go.yml; do
-    if [[ -f "$f" ]] && grep -q "FILL IN\|your_" "$f" 2>/dev/null; then
-      UNCONFIGURED=$((UNCONFIGURED + 1))
-    fi
-  done
-  if [[ $UNCONFIGURED -gt 0 ]]; then
-    todo "Configure variables (paths, thresholds) at the top of the active ci/*.yml file(s)"
-  else
-    ok "CI stack file(s) look configured"
-  fi
+if [[ -f ".github/workflows/ci.yml" || -f ".github/workflows/ci.yaml" ]]; then
+  ok "Application CI workflow present (.github/workflows/ci.yml)"
+else
+  todo "Add .github/workflows/ci.yml with your stack's lint/typecheck/test/build jobs once the stack is chosen"
+fi
+
+if grep -lq "\[FILL IN" .github/workflows/*.yml .github/workflows/*.yaml 2>/dev/null; then
+  todo "Fill in the [FILL IN ...] placeholder(s) in .github/workflows/*.yml"
+fi
+
+if [[ -e ".gitlab-ci.yml" ]]; then
+  todo "Delete .gitlab-ci.yml — this project runs CI on GitHub Actions (.github/workflows/)"
+else
+  ok "No .gitlab-ci.yml (CI is GitHub Actions only)"
+fi
+
+if [[ -d ".gitlab" ]]; then
+  todo "Delete .gitlab/ — issue and PR templates live in .github/ISSUE_TEMPLATE/ and .github/pull_request_template.md"
+fi
+
+if [[ -f ".github/dependabot.yml" ]]; then
+  ok "Dependabot configured (.github/dependabot.yml)"
+else
+  todo "Add .github/dependabot.yml (github-actions ecosystem at minimum)"
+fi
+
+if [[ -e "renovate.json" || -e ".renovaterc" || -e ".renovaterc.json" ]]; then
+  todo "Delete the Renovate config — Dependabot (.github/dependabot.yml) owns dependency updates here"
+else
+  ok "No Renovate config (Dependabot owns dependency updates)"
+fi
+
+if [[ -f ".github/pull_request_template.md" ]] && compgen -G ".github/ISSUE_TEMPLATE/*.yml" >/dev/null; then
+  ok "Issue forms and PR template present in .github/"
+else
+  todo "Add .github/ISSUE_TEMPLATE/*.yml issue forms and .github/pull_request_template.md"
+fi
+
+# The issue chooser's security link is static YAML — the one place the repo name
+# cannot be derived at runtime — so it ships as an OWNER/REPO placeholder.
+if grep -q "github.com/OWNER/REPO/" .github/ISSUE_TEMPLATE/config.yml 2>/dev/null; then
+  todo "Replace OWNER/REPO in .github/ISSUE_TEMPLATE/config.yml's security link with ${GH_REPO_SLUG:-<owner>/<repo>}"
 fi
 
 # ─── Makefile ─────────────────────────────────────────────────────────────────
@@ -172,9 +218,9 @@ heading ".claude/hooks/post-edit-checks.sh"
 
 if [[ -f ".claude/hooks/post-edit-checks.sh" ]]; then
   if grep -q "# Add your project" .claude/hooks/post-edit-checks.sh 2>/dev/null || \
-     grep -q "models\.py\|schema\.prisma" .claude/hooks/post-edit-checks.sh 2>/dev/null; then
+     grep -q "parser\.py (Python), importer\.ts (TypeScript)" .claude/hooks/post-edit-checks.sh 2>/dev/null; then
     todo "Customize .claude/hooks/post-edit-checks.sh with file patterns relevant to your stack"
-    echo "       Examples: models.py → migration-check, schema.prisma → prisma migrate"
+    echo "       Examples: your broker-export parser module → security-review, your XML writer → security-review"
   else
     ok "Post-edit hook configured"
   fi
@@ -194,25 +240,75 @@ if [[ -d ".claude/hooks" ]]; then
     fi
   done
   [[ $NONEXEC -eq 0 ]] && ok "All .claude/hooks/*.sh are executable"
-  # The pre-MR security gate references /rbac-check and /security-review — remind to tune it.
+  # The pre-MR security gate requires the security-review agent — remind to tune its paths.
   if [[ -f ".claude/hooks/pre-mr-security-gate.sh" ]] && grep -q "CUSTOMIZE" .claude/hooks/pre-mr-security-gate.sh 2>/dev/null; then
     echo "       Tip: tune sensitive-path patterns in .claude/hooks/pre-mr-security-gate.sh for your stack."
   fi
 fi
 
-# ─── GitLab project settings ──────────────────────────────────────────────────
+# ─── GitHub repository settings ───────────────────────────────────────────────
 
-heading "GitLab project settings (manual — cannot verify automatically)"
+heading "GitHub repository settings (manual — cannot verify automatically)"
 
-echo "  Verify these in GitLab → Settings:"
+# The links point at THIS repository (a fork or a rename included) because the
+# slug comes from origin; a GitHub Enterprise slug already carries its host.
+if [[ -n "$GH_REPO_SLUG" ]]; then
+  case "$GH_REPO_SLUG" in
+    */*/*) SETTINGS_URL="https://${GH_REPO_SLUG}/settings" ;;
+    *)     SETTINGS_URL="https://github.com/${GH_REPO_SLUG}/settings" ;;
+  esac
+  echo "  Repository: ${GH_REPO_SLUG}  (${SETTINGS_URL})"
+else
+  SETTINGS_URL="https://github.com/<owner>/<repo>/settings"
+  echo "  No GitHub origin yet — create the repository first:"
+  echo "    gh repo create <owner>/<repo> --public --source . --remote origin"
+fi
 echo ""
-echo "  [ ] Merge requests → Only allow merge if pipeline succeeds"
-echo "  [ ] Repository → Protected branches: protect 'main' (no direct push)"
-echo "  [ ] Repository → Default branch: 'main'"
-echo "  [ ] Merge requests → Delete source branch by default (optional)"
+echo "  Verify these in GitHub → Settings:"
 echo ""
-echo "  See the docs → 'Start a project' → 'GitLab project settings' for the full list:"
-echo "  https://docs.blueprint.macrodream.co/getting-started/start-a-project/#3-gitlab-project-settings"
+echo "  [ ] Rules → Rulesets (or Branches → branch protection) for 'main':"
+echo "        require a pull request before merging (no direct pushes),"
+echo "        require status checks to pass (the governance and security workflow jobs),"
+echo "        block force pushes and deletion"
+echo "  [ ] General → Pull Requests: 'Automatically delete head branches' on"
+echo "        (scripts/wt prune reaps a worktree only once its branch is gone from origin)"
+echo "  [ ] Rules → Rulesets: a tag ruleset for 'v*' — only maintainers create, update"
+echo "        or delete release tags (release.yml publishes on a v* tag push)"
+echo "  [ ] Pages → Build and deployment → Source: 'GitHub Actions' (docs.yml deploys the site)"
+echo "  [ ] Security → Private vulnerability reporting: enabled"
+echo "        (the issue chooser's security link points reporters there)"
+echo "  [ ] General → Default branch: 'main'"
+echo "  [ ] Issues → labels exist (scripts and skills apply them; GitHub labels are"
+echo "        not scoped, so release:* exclusivity is kept by the tools, not GitHub):"
+echo "        release:committed  release:reserve  release:stretch  status:wip"
+echo "        no-changelog  feature  bug  task  feedback"
+echo "      Create any that are missing with, e.g.:"
+echo "        gh label create release:committed --color 0e8a16 --description 'Ships, or the release slips'"
+echo "        gh label create release:reserve   --color fbca04 --description 'Slot held for inbound work from real users'"
+echo "        gh label create release:stretch   --color c5def5 --description 'Ships if there is time; moves at feature freeze'"
+echo "        gh label create status:wip        --color ec9a29 --description 'Checked out by an agent/worktree (scripts/wt)'"
+echo "        gh label create no-changelog      --color ededed --description 'PR needs no changelog fragment'"
+echo "        gh label create feature; gh label create bug; gh label create task; gh label create feedback"
+echo ""
+echo "  Settings: ${SETTINGS_URL}"
+
+# Best effort, never a TODO: with an authenticated gh and a GitHub origin, name
+# the labels that are actually missing. Offline, logged out, or no origin, this
+# says nothing rather than guessing — the manual checklist above still stands.
+if [[ -n "$GH_REPO_SLUG" ]] && command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+  HAVE_LABELS="$(gh label list --repo "$GH_REPO_SLUG" --limit 1000 --json name --jq '.[].name' 2>/dev/null || true)"
+  if [[ -n "$HAVE_LABELS" ]]; then
+    MISSING_LABELS=""
+    for l in release:committed release:reserve release:stretch status:wip no-changelog feature bug task feedback; do
+      grep -qxF "$l" <<< "$HAVE_LABELS" || MISSING_LABELS="$MISSING_LABELS $l"
+    done
+    if [[ -n "$MISSING_LABELS" ]]; then
+      warn "GitHub labels missing on ${GH_REPO_SLUG}:${MISSING_LABELS}"
+    else
+      ok "All harness labels exist on ${GH_REPO_SLUG}"
+    fi
+  fi
+fi
 
 # ─── .env ─────────────────────────────────────────────────────────────────────
 
@@ -238,6 +334,7 @@ if [[ $TODO -gt 0 ]]; then
   echo "  Quick reference:"
   echo "    make setup    — install git hooks"
   echo "    make doctor   — verify prerequisites"
+  echo "    gh auth login — authenticate the GitHub CLI"
   echo ""
   exit 1
 else
@@ -245,6 +342,10 @@ else
   echo ""
   echo "  Suggested next steps:"
   echo "    make doctor         — verify all prerequisites are installed"
-  echo "    glab auth login     — authenticate the GitLab CLI"
-  echo "    git checkout -b feat/first-feature && /mr"
+  echo "    gh auth login       — authenticate the GitHub CLI"
+  if [[ -z "$GH_REPO_SLUG" ]]; then
+    echo "    gh repo create <owner>/<repo> --source . --remote origin --push"
+    echo "                        — create the GitHub repository (no origin yet)"
+  fi
+  echo "    git checkout -b feat/first-feature && /mr   — /mr opens a GitHub pull request"
 fi

@@ -1,41 +1,65 @@
-# [PROJECT NAME] — Claude Instructions
-
-<!--
-SETUP CHECKLIST — complete before first use, then delete this block:
-[ ] Replace [PROJECT NAME] with your project name throughout
-[ ] Define personas in the Personas section (3–5 is ideal)
-[ ] Fill in tech stack in General conventions
-[ ] Set test directory paths in General conventions
-[ ] Set docs directory paths in Documentation conventions
-[ ] Set API stability version in Backward compatibility (or remove section if pre-1.0)
-[ ] Remove sections marked [REMOVE IF NOT APPLICABLE]
-[ ] Remove all HTML comments once setup is complete
--->
+# TaxReporter — Claude Instructions
 
 ---
 
 ## Personas
 
-<!--
-Personas power the /voc command and voc agent. Each persona should capture:
-  - Role and context (who are they, what is their day like?)
-  - Primary workflow (what do they use this product for?)
-  - Biggest pain point (what frustrates them most today?)
-  - What they value most (speed? accuracy? control? simplicity?)
+TaxReporter turns exports from **foreign brokers** into XML that Slovenian tax residents
+import into FURS eDavki: **Doh-KDVP** (gains on securities) and **Doh-Div** (dividends), every
+amount converted at the **Banka Slovenije** rate. Foreign brokers do not report to FURS, so
+the filer owns every number. Full personas: `.claude/personas.md`.
 
-3–5 personas is the right number. Too few misses perspectives; too many dilutes the signal.
+- **Maja** (Trading 212 saver, beginner): monthly fractional ETF buys, first-time filer, sold once in 2026. Values simplicity, privacy and plain-language reassurance. Pain: hundreds of slices, each needing its own BSI rate; paid services want her statement on their server.
+- **Luka** (active IBKR investor + old Trading 212 account, advanced): ~300 trades/year in USD/GBP/CHF, splits, a spin-off, US dividends. Values correctness, determinism, provenance, CLI. Pain: no tool runs FIFO per ISIN across brokers; corporate actions and withholding reversals are guessed.
+- **Nina** (tech employee with Schwab RSUs/ESPP, intermediate): sells vested lots. Values explanations of why each value was chosen. Pain: vest lots, sell-to-cover and acquisition codes are confusing and advice is contradictory.
+- **Tadej** (open-source contributor, advanced): wants to add eToro/Revolut adapters in an evening. Values a small adapter interface, golden-file tests, fast CI. Pain: existing tools are single-broker, untested, or non-commercially licensed.
+- **Mojca** (accountant filing for private clients, intermediate): a dozen clients each February. Values reproducibility, a printable audit report, data staying on the office PC. Pain: messy overlapping exports; uploading client data to third parties creates GDPR obligations.
 
-Example set for a project management tool:
+---
 
-- **Maya** (Project Manager, mid-size team): plans sprints, monitors progress, needs at-a-glance status across 8 simultaneous workstreams. Values: speed and overview. Pain: too many context switches, can't see the whole picture in one place.
-- **Jordan** (Senior Engineer, power user): lives in the board all day, uses keyboard shortcuts, relies on the audit trail for incident retrospectives. Values: accuracy, keyboard nav, full history. Pain: anything that interrupts flow or hides information.
-- **Sam** (Designer, occasional user): checks in a few times a week to update card status and add notes. Values: intuitive UI that requires no training. Pain: features that assume daily familiarity.
-- **Alex** (IT Admin): provisions users, manages SSO, monitors usage, handles onboarding. Values: control, visibility, low maintenance. Pain: anything requiring manual intervention at scale.
--->
+## Tax correctness — always on
 
-- **[Name]** ([Role]): [context, workflow, values, pain point]
-- **[Name]** ([Role]): [context, workflow, values, pain point]
-- **[Name]** ([Role]): [context, workflow, values, pain point]
+A wrong number here becomes a wrong tax return that a real person signs. These rules apply
+to every change; the research behind them is in `docs/research/` (start with its README),
+and a change to any of them needs a primary source (law text, FURS instructions or schema,
+Banka Slovenije) cited in that directory **in the same PR**.
+
+- **Exchange rates come from Banka Slovenije only.** BSI quotes units of foreign currency per
+  1 EUR, so `EUR = amount / rate`. Use the list valid on the event date; for a weekend or TARGET
+  holiday that is the last list published **before** it (fail loudly past a 10-day look-back).
+  Currencies missing from the daily list use the BSI monthly list. Never use the broker's FX
+  rate or an ECB rate silently, and keep the rate's provenance (source, list date, value) next
+  to every converted amount so the UI and audit report can show it.
+- **Dates:** acquisition and disposal use the trade (contract) date, never settlement; a
+  dividend uses the date it was paid.
+- **No binary floating point** for money, quantities or rates — use the project's decimal type,
+  keep the original source strings, and round only when writing a form field, at that field's
+  scale.
+- **FIFO per security across every broker and account** of the taxpayer. Lots are matched by
+  ISIN, never per file.
+- **Never drop an input row silently.** Every row becomes a ledger event, an explicit
+  "ignored (reason)" record, or a blocking diagnostic. An unsupported corporate action is
+  refused with a diagnostic, never guessed.
+- **FURS XML is generated in schema order and validated** against the vendored XSDs in
+  `packages/furs/schemas/` in tests, plus the business rules the XSD does not encode (an
+  8-digit tax number is required, a security list needs at least one purchase and one sale,
+  empty typed elements are omitted, `F2` codes mean different things per list type). FURS
+  edits its XSDs in place, so a schema change is a tax-rule change.
+- **The tool prepares a return for the user to review; it never files.** Present computed tax
+  as an estimate and show where every figure came from.
+
+## Privacy — always on
+
+- **Everything runs on the user's device.** There is no backend, no account, no telemetry.
+- The only permitted network calls are fetching the project's own published rate snapshot
+  (contains no user data) and the **opt-in** LLM check: bring-your-own key, explicit consent,
+  and the exact redacted payload shown before anything is sent. Its findings are advisory and
+  never change a computed value.
+- Never log, cache outside a location the user chose, or put into error messages: tax numbers,
+  names, addresses, account or order IDs, or raw broker rows.
+- Real broker exports live only in `private/` (gitignored). Committed fixtures are synthetic or
+  anonymized: scrub account, order and transaction IDs, names, and any amounts that could
+  identify a person.
 
 ---
 
@@ -43,117 +67,80 @@ Example set for a project management tool:
 
 Apply these to all new code and any existing code touched in a change. CI enforces a subset automatically — do not rely on it as the first line of defense.
 
-**Backend:**
-- **No raw SQL** — always use the ORM or parameterized queries; never string-interpolate user input into a query
-- **Input validation at the boundary** — validate and sanitize at the API/serializer layer, not in views or models
-- **Never log sensitive fields** — passwords, tokens, emails, and PII must not appear in log statements
-- **Use `secrets` not `random`** for any token, key, or nonce generation
-- **Flag `shell=True`** — any `subprocess` call with `shell=True` must have an inline comment explaining why it is safe; prefer list-form args
-- **No hardcoded credentials** — secrets come from env vars only; never commit `.env` files or literal key values
-- **Object-level authorization** — when fetching a resource by PK, always confirm the requesting user has access to that specific object (IDOR prevention)
+**Untrusted input (every imported file is hostile):**
+- **Bound everything** — file size, row count, decompressed size of XLSX/ZIP (zip bombs), and recursion depth
+- **No code execution from data** — no `eval`, `new Function`, or dynamic `import()` of anything derived from a file
+- **XML parsing never resolves DTDs or external entities** (XXE); reject a DOCTYPE in broker XML
+- **Regexes run on file content must not backtrack catastrophically** (ReDoS); prefer anchored, linear patterns
+- **Parsers do not touch the network**
+
+**Generated output:**
+- **XML is built through the writer's escaping API** — never string-concatenate unescaped text into XML
+- **CSV/XLSX audit exports neutralize formula injection** — prefix cells starting with `=`, `+`, `-`, `@`, tab or CR
+
+**Secrets:**
+- **No hardcoded credentials** — the only secret is the user's own LLM API key, supplied at runtime (env var for the CLI, in-memory or explicitly opted-in local storage in the browser), never logged and never committed
+- **Use `crypto.getRandomValues` / `crypto.randomUUID`**, not `Math.random`, for anything that must be unguessable
 
 **Frontend:**
-- **No `dangerouslySetInnerHTML`** unless content is sanitized server-side and the reason is documented inline
+- **No `dangerouslySetInnerHTML`** unless the content is sanitized and the reason is documented inline
+- **Keep the static app under a strict Content Security Policy** — no inline scripts, no third-party origins except the opt-in LLM endpoint
 
 ---
 
-## Branching model — GitLab Flow
+## Branching model — GitHub Flow
 
-This project follows [GitLab Flow](https://docs.gitlab.com/ee/topics/gitlab_flow.html) with environment branches:
+This project follows GitHub Flow with tagged releases:
 
 ```
-feature branch ──MR──► main (staging) ──merge──► production
-                         ▲                           │
-                         └── hotfix (cherry-pick) ───┘
+feature branch ──PR──► main ──tag vX.Y.Z──► GitHub Release
 ```
 
 ### Branches
 
-| Branch | Purpose | Deploys to | Protected |
-|---|---|---|---|
-| `main` | Integration branch — latest accepted code | Staging / QA | Yes — no direct push, MR only |
-| `production` | Stable release — what users run | Production | Yes — no direct push, MR only |
-| `feat/*`, `fix/*`, `docs/*`, `chore/*` | Short-lived feature/fix branches | — | No |
-
-<!--
-[REMOVE IF NOT APPLICABLE] For projects that need a pre-production gate:
-
-| `pre-production` | Release candidate gate | Pre-production | Yes — MR only |
-
-Flow becomes: feature → main → pre-production → production
--->
+| Branch | Purpose | Protected |
+|---|---|---|
+| `main` | Integration branch — latest accepted code; the docs site deploys from it | Yes — PRs only, required status checks, no direct push |
+| `feat/*`, `fix/*`, `docs/*`, `chore/*` | Short-lived feature/fix branches | No |
 
 ### Workflow
 
 **Feature development:**
 1. `git checkout main && git pull origin main`
-2. `git checkout -b <prefix>/<short-description>`
+2. `git checkout -b <prefix>/<short-description>` (or `scripts/wt new <issue>` for a worktree)
 3. Make changes, commit, push branch
-4. Open MR targeting `main`, wait for a **green pipeline**, then merge
-5. `main` auto-deploys to staging for verification
+4. Open a PR targeting `main` (`/mr`), wait for **green checks**, then a maintainer merges
 
-**Promoting to production:**
-1. When `main` is verified on staging, open an MR from `main` → `production`
-2. This MR should be a fast-forward or clean merge — never rebase or squash
-3. Wait for the pipeline, then merge
-4. `production` auto-deploys to production
-5. Tagging and the GitLab release are a manual step, run right after the release MR
-   merges — `git tag vX.Y.Z && git push origin vX.Y.Z`, then
-   `glab release create vX.Y.Z --notes-file docs/releases/vX.Y.Z.md` (see the `release`
-   skill's Step 5 and `website/src/content/docs/guides/release-workflow.md`). If this
-   project uses the full variant with a `production` branch, tag on `production`
-   instead of `main`.
+**Releasing:**
+1. `/release` prepares the release PR (version bump, changelog assembly, `docs/releases/vX.Y.Z.md`)
+2. After it merges and the merged commit's checks on `main` are green, tag it:
+   `git tag vX.Y.Z && git push origin vX.Y.Z`
+3. `.github/workflows/release.yml` re-checks that commit's status and publishes the GitHub Release
+   from `docs/releases/vX.Y.Z.md`
 
-**Hotfixes:**
-1. Branch from `main` (not `production`) — upstream first, always
-2. Open MR targeting `main`, fix, merge
-3. Cherry-pick the fix commit to `production`: `git cherry-pick <sha> && git push`
-4. If the fix is urgent and can't wait for staging verification, branch from `production` instead, but immediately backport to `main` after
+**Hotfixes:** branch from `main`, PR, merge, tag a patch release. There is no `production`
+branch; add one only if the project starts maintaining patch lines for older minors.
 
 **Rules:**
-- **Never merge `production` back into `main`** — changes flow downstream only
-- **Never commit directly to `main` or `production`** — all changes go through MRs
-- **Never merge an MR with a failing pipeline** — fix the root cause; never bypass CI
+- **Never commit directly to `main`** — all changes go through PRs
+- **Never merge a PR with failing checks** — fix the root cause; never bypass CI
 
-### When to adopt each variant
-
-**Start with the simple variant** (feature → main → tag) when:
-- The project is pre-1.0 or in a rapid iteration phase (alpha, beta, RC)
-- There are no users depending on a stable deployed instance
-- "Release" means cutting a tag, not deploying to a running service
-- The team is small and every merge to `main` is implicitly a release candidate
-
-Simple variant workflow:
-1. Feature branch → MR → `main`
-2. Tag `main` for releases: `git tag vX.Y.Z`
-
-**Adopt the full GitLab Flow** (feature → main → production) when:
-- Users depend on a running instance and unverified changes must not reach them
-- You need to accumulate multiple MRs on `main` before promoting to production
-- You're maintaining patch releases (e.g. 1.0.x) while developing the next minor (1.1)
-- Hotfixes need to reach production without carrying unrelated in-progress work from `main`
-
-**The transition is simple** — when you're ready:
-1. `git checkout main && git checkout -b production && git push -u origin production`
-2. Protect the `production` branch in GitLab settings
-3. Uncomment the `deploy-production` job in `.gitlab-ci.yml`
-
-There is no migration, no history rewrite, and no disruption. The `production` branch starts as a copy of `main` and diverges naturally as you begin promoting selectively.
+---
 
 ## General conventions
 
 - Branch naming: `feat/`, `fix/`, `docs/`, `chore/`
 - **Changelog entries use fragment files** — create `changelog.d/<slug>.<type>.md` instead of editing `CHANGELOG.md` directly. Valid types: `added`, `changed`, `fixed`, `security`. Fragments are assembled at release time.
-- **Tests and docs go in the same commit as the code change** — never as a follow-up commit or separate MR. A code change without its test update is incomplete:
-  - Frontend tests: `[FILL IN: e.g. frontend/src/test/]`
-  - Backend tests: `[FILL IN: e.g. backend/app/tests/]`
-  - Documentation: `[FILL IN: e.g. docs/]`
+- **Tests and docs go in the same commit as the code change** — never as a follow-up commit or separate PR. A code change without its test update is incomplete:
+  - Tests: colocated `*.test.ts` / `*.test.tsx` next to the source in `packages/*/src/` and `apps/*/src/`
+  - Fixtures: `packages/<package>/test/fixtures/` — synthetic or anonymized only (see *Privacy*)
+  - User documentation: `website/src/content/docs/`; contributor documentation: `docs/` (`adr/`, `research/`, `spec/`, `releases/`)
 - **Grep before renaming any symbol, field, or env var** — run `grep -r 'old_name' .` across the full repo (including CI config, docs, and test files) before committing the rename. Missing a shadow copy in a test fixture or CI job env block is the most common failure class in batch commits.
 - **Declare a load-bearing call site in `load-bearing.declarations`** — when a guard, hook, filter, or validator is wired in by exactly **one** line, and deleting that line leaves the whole suite green, add a stanza there. `scripts/check-load-bearing.sh` (pre-push + CI) then fails when that line disappears. This is the only failure class where nothing else in the harness goes red: the guard stops guarding, silently, and every test keeps passing. Do not declare ordinary code — the test for a declaration is to delete the line and run the suite, not to reason about it
-- Use **US English** everywhere — "color" not "colour", "canceled" not "cancelled", "authorization" not "authorisation"
-- When writing complex business logic (transactions, permission checks, non-obvious sequencing), add a comment explaining **why** — not what, but the intent or constraint
+- Use **US English** in code, comments and English docs — "color" not "colour", "canceled" not "cancelled". Slovenian is used verbatim for FURS/BSI terms and quotations (`Doh-KDVP`, *popisni list*, *tečajnica*)
+- When writing complex business logic (lot matching, rate selection, rounding, form-field mapping), add a comment explaining **why** — the legal rule or constraint, with a pointer to the `docs/research/` section — not what
 
-**Tech stack:** [FILL IN: e.g. Python 3.12 / Django 5 / PostgreSQL 16 / React 18 / TypeScript / Vite]
+**Tech stack:** TypeScript (strict, ESM) on Node 24 LTS · pnpm workspaces (`packages/core`, `packages/fx`, `packages/furs`, `packages/brokers`, `packages/pipeline`, `apps/cli`, `apps/web`) · Vitest · ESLint + Prettier · React + Vite static web app and a Node CLI · Astro Starlight docs site (`website/`) on GitHub Pages · GitHub Actions. No backend, no database. Architecture: `docs/adr/`.
 
 ---
 
@@ -161,46 +148,48 @@ There is no migration, no history rewrite, and no disruption. The `production` b
 
 These rules prevent common workflow failures that waste CI cycles and cause merge conflicts:
 
-- **Always use heredoc syntax for multi-line strings** — git commit messages, MR descriptions (`glab mr create --description`), and any shell command that takes a multi-line argument. Inline `\n` is not interpreted as a newline by the shell and renders as literal text. Correct pattern:
+- **Always use heredoc syntax for multi-line strings** — git commit messages, PR descriptions (`gh pr create --body`), and any shell command that takes a multi-line argument. Inline `\n` is not interpreted as a newline by the shell and renders as literal text. Correct pattern:
   ```bash
-  glab mr create --title "..." --description "$(cat <<'EOF'
+  gh pr create --base main --title "..." --body "$(cat <<'EOF'
   ## Summary
   - bullet one
   EOF
   )"
   ```
-- **Never auto-merge MRs** — agents and skills must create the MR and stop. The user reviews and merges all MRs manually
+- **Never auto-merge PRs** — agents and skills must create the PR and stop. The user reviews and merges all PRs manually (`gh pr merge` is denied in `.claude/settings.json`)
 - **Always branch from `main`** — never branch from another feature branch, even if your work depends on it. If you need changes from an unmerged branch, wait for it to land in `main` first
 - **Fetch before comparing to remote** — when checking whether local and remote branches diverge, always `git fetch origin` first. Stale local refs cause false conclusions
-- **Rebase sequence for batched MRs** — when merging a series of related MRs in order, after each MR lands: pull `main`, rebase the next branch onto `main`, run its tests, force-push, then hand back for merge
+- **Rebase sequence for batched PRs** — when merging a series of related PRs in order, after each PR lands: pull `main`, rebase the next branch onto `main`, run its tests, force-push, then hand back for merge
 - **Pre-release is a one-time gate, not a fix loop** — `/pre-release full` runs all agents once to produce a report. Fix issues in separate commits, then re-run only if a full re-audit is warranted. Do not run `/pre-release full` iteratively to verify each fix
-- **Parallel/multi-issue work uses `scripts/wt`** — for concurrent issues or parallel agent sessions, create an isolated git worktree with `scripts/wt new <issue>`. It branches off the latest `origin/main` into a sibling `../<repo>-wt/` dir, auto-detects and symlinks dev-dep dirs (`.venv`, `node_modules`, etc.) back to the main checkout, and shares the Docker stack via `COMPOSE_PROJECT_NAME`. WIP cap is 10 (warns at 8; raise it per invocation with `WT_CAP` for a deliberate burst). Each worktree's `.envrc` exports its own test database (`WT_TEST_DB`) and E2E server ports (`WT_E2E_PORT`, `WT_E2E_DEV_PORT`) — `source .envrc` before running tests. `wt new` / `wt claim` **check the issue out** — a `status::wip` scoped label plus a check-out comment (`WT_LOCK_LABEL` to rename) — and refuse an issue already checked out unless `--force`; `wt prune`, `wt remove` (once the issue is closed) and `wt release <issue>` clear it, and `/batch` skips labeled issues. **Nothing reaps a worktree after a forge merge**: from the main checkout, `scripts/wt prune` removes every worktree whose branch merged and was deleted on origin — whether it landed as a merge commit, a rebased or amended tip, or a squash — and `scripts/wt remove <issue>` removes one. This prevents one session's `git checkout` from swapping the working tree under another. The script is layout-agnostic and needs no customization; run `scripts/wt help` for all subcommands.
+- **Parallel/multi-issue work uses `scripts/wt`** — for concurrent issues or parallel agent sessions, create an isolated git worktree with `scripts/wt new <issue>`. It branches off the latest `origin/main` into a sibling `../<repo>-wt/` dir and auto-detects and symlinks dev-dep dirs (`node_modules` etc.) back to the main checkout. WIP cap is 10 (warns at 8; raise it per invocation with `WT_CAP` for a deliberate burst). `wt new` / `wt claim` **check the issue out** — a `status:wip` label plus a check-out comment posted with `gh issue comment` (`WT_LOCK_LABEL` to rename) — and refuse an issue already checked out unless `--force`; `wt prune`, `wt remove` (once the issue is closed) and `wt release <issue>` clear it, and `/batch` skips labeled issues. **Nothing reaps a worktree after a PR merge**: from the main checkout, `scripts/wt prune` removes every worktree whose branch merged and was deleted on origin — whether it landed as a merge commit, a rebased or amended tip, or a squash — and `scripts/wt remove <issue>` removes one. This prevents one session's `git checkout` from swapping the working tree under another. Run `scripts/wt help` for all subcommands.
 
 ---
 
-## Milestone commitment — every issue in a dated milestone carries one `release::` label
+## Milestone commitment — every issue in a dated milestone carries one `release:*` label
 
 A milestone with a date is a promise, and a few hundred issues against one date
-is not a plan. State the shape of that promise with one **scoped** label per
-issue. Scoped labels (`key::value`) are mutually exclusive in GitLab, so an issue
-holds exactly one of these and the tracker enforces it:
+is not a plan. State the shape of that promise with exactly one of these labels per
+issue. GitHub labels are **not** mutually exclusive (there are no scoped labels), so
+exclusivity is ours to keep: whenever you apply one, remove the other two in the same
+call — `gh issue edit <N> --add-label release:committed --remove-label release:reserve,release:stretch`.
+`/tracker-hygiene` reports issues that carry more than one.
 
 | Label | Meaning |
 |---|---|
-| `release::committed` | Ships, or the release slips. The **only** issues that appear as bullets in a public roadmap's section for that milestone. |
-| `release::reserve` | A slot held against inbound work from real users. Spent when someone real hits something. The reserve is a number written on the milestone, not a sentiment. |
-| `release::stretch` | Stays in the milestone and ships if there is time. Moves to the next milestone at feature freeze without discussion. Never a roadmap bullet. |
+| `release:committed` | Ships, or the release slips. The **only** issues that appear as bullets in a public roadmap's section for that milestone. |
+| `release:reserve` | A slot held against inbound work from real users. Spent when someone real hits something. The reserve is a number written on the milestone, not a sentiment. |
+| `release:stretch` | Stays in the milestone and ships if there is time. Moves to the next milestone at feature freeze without discussion. Never a roadmap bullet. |
 
 - **When an issue moves into the current dated milestone — whether you file it
   there, re-milestone it, or a script places it — stop and ask the user which of
   the three applies. Never infer it.** The commitment state is the user's call
-  every time: a guessed `release::committed` is a promise nobody made, and a
-  guessed `release::stretch` quietly drops work the user meant to ship. If the
+  every time: a guessed `release:committed` is a promise nobody made, and a
+  guessed `release:stretch` quietly drops work the user meant to ship. If the
   user's own instruction already names the label, apply it without asking. If the
   user does not answer, **leave the issue unlabeled and say so** — an unlabeled
   issue in a dated milestone is a visible gap, a guessed label is an invisible one.
-- Changing an issue's commitment means applying the new value; the scoped key
-  drops the old one. Do not stack them.
+- Changing an issue's commitment means applying the new value and removing the old
+  one in the same edit. Do not stack them.
 - Whatever label the project uses for intended-but-unmilestoned work is not a
   fourth value on this axis. Reason tags (`0.X-hardening` and the like) coexist
   with any of the three.
@@ -208,18 +197,16 @@ holds exactly one of these and the tracker enforces it:
   (charter work → committed, other bugs → reserve, polish and unclaimed features
   → stretch). It is not a substitute for asking on each subsequent move.
 
+---
+
 ## Testing conventions
 
-- **Run scoped tests before committing** — run the affected test file(s) locally before every `git commit`. Run your type checker (`make typecheck`) after any typed language change — it catches fixture and interface drift that behavioral tests miss. Do not treat CI as the first line of defense.
-- **Grep for changed string literals** across all test files when renaming UI copy: `grep -r 'old text' [FILL IN: test dir]/`
+- **Run scoped tests before committing** — run the affected test file(s) locally before every `git commit` (`pnpm vitest run <path>`). Run `make typecheck` after any TypeScript change — it catches fixture and interface drift that behavioral tests miss. Do not treat CI as the first line of defense.
+- **Golden files for anything FURS ingests** — every form builder change is covered by an expected-XML golden test that is also validated against the vendored XSD. Update a golden file only together with the reason (the rule or source that changed) in the same commit.
+- **One fixture per known broker export revision** — broker formats drift; an adapter change adds a fixture for the new header set and keeps the old ones passing.
+- **Known-answer tests for rates and rounding** — e.g. NOK on 2025-10-23 is 11.8529 (BSI, differs from today's ECB value), a Saturday resolves to Friday's list, TWD uses the monthly list (see `docs/research/03-bsi-exchange-rates.md`).
+- **Grep for changed string literals** across all test files when renaming UI copy: `grep -r 'old text' packages apps`
 - **Stale mocks fail silently** — if a module's exported API changes (new function, renamed arg), every test file mocking that module must be updated in the same commit
-
-<!-- [REMOVE IF NOT APPLICABLE] Django threaded test convention -->
-<!--
-### Threaded tests — always close DB connections
-Any test that spawns threads touching the ORM must call the DB connection cleanup before the thread returns.
-Why: thread-local connections remain open after the thread exits, causing teardown to fail when dropping the test database.
--->
 
 ---
 
@@ -227,7 +214,7 @@ Why: thread-local connections remain open after the thread exits, causing teardo
 
 - Docs live in the repo alongside the code — never in a separate repo
 - When writing or updating documentation, invoke `/docs`
-- Docs root: `[FILL IN: e.g. docs/]`
+- Docs root: `website/src/content/docs/` (user docs; the roadmap page `website/src/content/docs/roadmap.md` is the single source of truth below) and `docs/` (ADRs, research, specs, release notes)
 
 ### Version-status tense — past-tense claims reference shipped versions only
 
@@ -247,12 +234,10 @@ version that has not tagged, because nothing bound them to a single source. A wr
 on a version claim is a user-facing accuracy bug, not a style preference — there is no
 fast-path exemption.
 
-<!-- [FILL IN] Version callout convention — uncomment and adapt -->
-<!--
+Version callouts in user docs:
 - New features: add `> **Added in X.Y**` immediately after the section heading
 - Changed/fixed behavior: no callout
 - Patch releases: no callout — only minor releases and pre-releases get callouts
--->
 
 ---
 
@@ -298,9 +283,9 @@ Blueprint ships this pattern two ways:
 - **`scripts/CLAUDE.md`** is live today — real rules for this repo's own CI gate
   scripts (`ci/CLAUDE.md` is a one-line `@` import of it, so `ci/**` picks up the same
   rules without duplicating them).
-- **`backend/CLAUDE.md.example`, `frontend/CLAUDE.md.example`, `tests/CLAUDE.md.example`**
+- **`frontend/CLAUDE.md.example`, `tests/CLAUDE.md.example`**
   are portable rule sets with nowhere to live yet — Blueprint ships no application code,
-  so there is no `backend/` or `tests/` tree to put a real `CLAUDE.md` in. Once your
+  so there is no real `frontend/` or `tests/` tree to put a real `CLAUDE.md` in. Once your
   project creates one, **move** (not copy) the matching `.example` file into it and
   rename to `CLAUDE.md`.
 
@@ -372,9 +357,9 @@ one entry per line, as `make pre-push-checks` does.
   // ("Bash(git push --force:*)"); both forms are equivalent. No wildcard
   // means an exact-command match.
   "permissions": {
-    "allow": [],                  // e.g. ["Bash(make test)", "Bash(glab mr list *)"]
+    "allow": [],                  // e.g. ["Bash(make test)", "Bash(gh pr list *)"]
     "ask": [],                    // prompt before running — e.g. ["Bash(git push *)"]
-    "deny": []                    // never allowed — e.g. ["Read(./.env)", "Bash(glab mr merge *)"]
+    "deny": []                    // never allowed — e.g. ["Read(./.env)", "Bash(gh pr merge *)"]
   },
 
   // Hook security
@@ -493,8 +478,8 @@ hook that counts or blocks fan-out was considered and rejected, not skipped:
 **What is enforceable today lives at the agent-definition layer, not `settings.json`:**
 an agent whose `.claude/agents/<name>.md` frontmatter omits `Agent` from `tools:` cannot
 spawn sub-agents at all — that's a real, load-bearing restriction, not prose (see
-`accessibility`, `perf-check`, `rbac-check`, `ux-review`, `completeness-check`,
-`schema-check`, `generated-artifact-check`, all deliberately tools-restricted this way).
+`accessibility`, `ux-review`, `completeness-check`, `generated-artifact-check`, all
+deliberately tools-restricted this way).
 The fan-out *ceiling* — wave size, no re-delegation, model choice — is enforced by
 review discipline instead: see *Subagent fan-out ceiling* under *Agent workflow* below,
 and verify what a delegated agent actually did (`git log`, the MR it opened) rather than
@@ -516,11 +501,13 @@ chain out of habit; proportional ceremony is the point.
 | Dependency bump (single package, no API change) | `dependency` → `changelog` → `/mr` |
 | Docs-only | `docs` (if a new page) → `completeness-check` → `/mr` |
 | Chore / CI config / lint-only | `/mr` |
-| Backend-only feature (new endpoint or model) | `architect` → pre-MR gate batch → `test-scaffold` → `completeness-check` → `changelog` → `/mr` |
-| Wiring onto an already-designed surface (a form or toggle bound to an *existing* API contract, inside a shell whose design already shipped, no new interaction pattern) | `ux-review` (visual diff) → `rbac-check` + `security-review` + `regression-check` → `test-scaffold` → `completeness-check` → `changelog` → `/mr` |
+| Core-logic-only change (parser, calculation, or output generation; no UI change) | `architect` → pre-MR gate batch → `test-scaffold` → `completeness-check` → `changelog` → `/mr` |
+| Wiring onto an already-designed surface (a form or toggle bound to *existing* core logic, inside a shell whose design already shipped, no new interaction pattern) | `ux-review` (visual diff) → `security-review` + `regression-check` → `test-scaffold` → `completeness-check` → `changelog` → `/mr` |
 | Frontend-only feature (no API change) | `architect` → `ux-design` → implement → `ux-review` + `accessibility` → `test-scaffold` → `completeness-check` → `changelog` → `/mr` |
 | New user-visible feature (full stack) | `/voc` → `architect` → `ux-design` → implement → pre-MR gate batch → `ux-review` + `accessibility` → `test-scaffold` → `completeness-check` → `changelog` → `/mr` |
-| New trust-boundary subsystem (auth, uploads, tenancy, external input) | `threat-model` → `architect` → implement → pre-MR gate batch (incl. `security-review` + `rbac-check`) → `test-scaffold` → `completeness-check` → `changelog` → `/mr` |
+| Broker adapter (new broker, or a new export revision of a supported one) | implement with anonymized fixtures for every known header revision → `security-review` + `regression-check` → `test-scaffold` (if uncovered) → `completeness-check` → `changelog` → `/mr` |
+| Tax-rule, exchange-rate-rule or FURS-schema change | primary source cited in `docs/research/` → `architect` → implement + golden-file updates → `regression-check` → `completeness-check` → `changelog` (`changed`, naming affected returns) → `/mr` |
+| New trust-boundary subsystem (file import/parsing of untrusted input, generated output another system ingests, external input) | `threat-model` → `architect` → implement → pre-MR gate batch (incl. `security-review`) → `test-scaffold` → `completeness-check` → `changelog` → `/mr` |
 
 When a change spans rows, take the **union**. When a change is genuinely ambiguous,
 default to the **heavier** row — but say which row you chose and why, so the user
@@ -531,15 +518,14 @@ nothing, that is a signal to add a carve-out row here — see `/kaizen`.
 
 ## Pre-MR gate batch — run in parallel, not serially
 
-The pre-MR gate cluster — `regression-check`, `security-review`, `rbac-check`,
-`perf-check` — are **independent reads of the same diff**. None depends on another's
+The pre-MR gate pair — `regression-check` and `security-review` — are
+**independent reads of the same diff**. Neither depends on the other's
 output. Run them as a **single parallel agent batch** (multiple Agent calls in one
 message), then consolidate the findings before `/mr`. Serial invocation of these is
 the single biggest avoidable source of pre-MR drag.
 
 Apply only the gates relevant to the diff:
-- `security-review` + `rbac-check` — only if a view, route, handler, endpoint, serializer, permission, or auth path changed
-- `perf-check` — only if a query or data-access path changed
+- `security-review` — only if file import/parsing, input handling, output generation, or a dependency's trust surface changed
 - `regression-check` — **always**, on any source-touching branch
 
 **Then, before `git push`, run `completeness-check`** (`.claude/agents/completeness-check.md`)
@@ -552,14 +538,14 @@ so the fix diff stays separable. Then at most **one** more pass, never a loop: a
 **round 2** (fresh Opus, not shown round 1's findings) when round 1 reported a
 `class-missed` or `collateral` BLOCKER or four or more findings; otherwise a narrow
 **fix-diff re-check** of the fix commits only, when round 1 returned a BLOCKER or a fix
-commit changes executable behavior (application code, CI or chart logic, a gate or check
-script, a migration — not docs, tests, comments, or changelog text). Record the re-check as
+commit changes executable behavior (application code, CI logic, a gate or check
+script — not docs, tests, comments, or changelog text). Record the re-check as
 `gate: completeness-check/fix-diff — <N> findings` (`/fix-diff`, not parentheses: the
 ledger parser drops a label with a space or paren), `n/a` when the fix round was docs,
 tests, comments, or changelog only; record round 2 as a second `completeness-check` line with
 `round 2` first in its parenthetical. See `.claude/agents/completeness-check.md`
 § After round 1. Its `## Requirements`
-table goes in the MR description, and the `mr-followups` CI job fails any MR description
+table goes in the PR description, and the `pr-followups` CI job fails any PR description
 that names a follow-up without an open issue.
 
 Any 🔴 Critical/High finding stops the MR: surface it and ask the user how to
@@ -630,16 +616,14 @@ Do not skip the VoC step for user-facing work. If a feature has no UI component,
 
 ### During implementation
 - **`test-scaffold`** (sonnet) — when test coverage doesn't exist for affected code
-- **`security-review`** (opus) — when modifying endpoints, auth logic, or input handling
-- **`rbac-check`** (sonnet) — when adding or modifying any endpoint, view, or permission rule; a missing permission check is a vulnerability, not a nit
-- **`perf-check`** (sonnet) — when modifying queries or data access patterns
+- **`security-review`** (opus) — when modifying file import/parsing, input handling, or generated output
 - **`dependency`** (sonnet) — before adding any new package
 
 ### Before creating an issue
-- Search the tracker for duplicates and partial overlaps in open and recently closed issues (`glab issue list --search "<key terms>" --all`) before filing a new one; `/tracker-hygiene` sweeps for them after the fact
+- Search the tracker for duplicates and partial overlaps in open and recently closed issues (`gh issue list --state all --search "<key terms>"`) before filing a new one; `/tracker-hygiene` sweeps for them after the fact
 
 ### Before merging
-- Run the **pre-MR gate batch** (`regression-check`, `security-review`, `rbac-check`, `perf-check`) as one parallel agent batch — see the *Pre-MR gate batch* section above. Apply only the gates relevant to the diff.
+- Run the **pre-MR gate batch** (`regression-check`, `security-review`) as one parallel agent batch — see the *Pre-MR gate batch* section above. Apply only the gates relevant to the diff.
 - **`completeness-check`** (sonnet; opus when `batch`'s escalation criteria apply) — after the gate batch, before `git push`: a fresh agent audits the branch against its issue
 - **`changelog`** (sonnet) — creates fragment file for the CI changelog-check job
 - **`docs`** (sonnet) — when writing or updating documentation
@@ -662,18 +646,18 @@ Run `/pre-release full` at feature freeze and again before cutting a release tag
 - **`/import-spec`** — convert a PRD/spec/feature list into structured tracker issues ⛔
 - **`/import-design`** — convert a design guide into `frontend/CLAUDE.md` for the UX agents
 - **`/dotplanning`** — plan a release milestone before development starts (feature→asset map, gaps, sequenced plan, HTML report) ⛔
-- **`/mr`** — open a merge request (includes pre-flight checks and test verification) ⛔
-- **`/fix-mr`** — get a blocked MR to green AND mergeable: pipeline failures and conflicts with the default branch (up to 3 iterations) ⛔
-- **`/mass-merge`** — land a batch of already-green MRs without reddening the default branch ⛔
+- **`/mr`** — open a pull request (includes pre-flight checks and test verification; the name is kept from upstream Blueprint) ⛔
+- **`/fix-mr`** — get a blocked PR to green AND mergeable: failing checks and conflicts with the default branch (up to 3 iterations) ⛔
+- **`/mass-merge`** — land a batch of already-green PRs without reddening the default branch ⛔
 - **`/batch`** — land a wave of milestone issues in parallel, one worktree and one delegated agent per issue ⛔
 - **`/review`** — code review against project conventions for a file or branch diff
 - **`/adr`** — create an Architecture Decision Record with sequential numbering
-- **`/ci-debug`** — diagnose a failing CI pipeline
+- **`/ci-debug`** — diagnose a failing GitHub Actions run
 - **`/kaizen`** — audit the development harness for friction and propose ranked speed wins
 - **`/incident-postmortem`** — postmortem one resolved harness/process incident; writes the lesson to the memory store
 - **`/tracker-hygiene`** — sweep the tracker for label, duplicate, and staleness drift between kickoffs
 - **`/release`** — create a release (version suggestion, pre-flight, changelog rotation) ⛔
-- **`/pre-release`** — cross-cutting audit (security, perf, regression, docs) before a release
+- **`/pre-release`** — cross-cutting audit (security, regression, docs) before a release
 - **`/voc`** — Voice of the Customer panel (also available as an agent for proactive invocation)
 - **`/voc-audit`** — VoC panel against a shipped surface, findings verified against the code ⛔
 - **`/sunset-check`** — decide whether an existing surface should be removed, fixed, narrowed, or demoted
@@ -690,7 +674,7 @@ not apply to `regression-check` and `security-review` inside a `/batch` wave.
 | Model | Used for | Why |
 |---|---|---|
 | **opus** | architect, threat-model, security-review, ux-design, regression-check, voc | Cross-file reasoning, trade-off analysis, persona empathy, attack scenario modeling |
-| **sonnet** | changelog, completeness-check (opus when `batch`'s escalation criteria apply), dependency, docs, perf-check, rbac-check, test-scaffold, ux-review, accessibility | Pattern matching, checklist execution, structured code generation |
+| **sonnet** | changelog, completeness-check (opus when `batch`'s escalation criteria apply), dependency, docs, generated-artifact-check, test-scaffold, ux-review, accessibility | Pattern matching, checklist execution, structured code generation |
 
 Opus agents that delegate Phase 1 research use sonnet sub-agents for the mechanical scanning, then do the synthesis themselves. This balances cost and quality.
 
@@ -721,72 +705,33 @@ Use `disableMcpServers: true` for agents that handle sensitive code or credentia
 <!-- - **`enterprise-check`** (opus) — when classifying a feature as open-core vs enterprise -->
 <!-- - **`ai-review`** (sonnet) — when a feature must be reachable by an MCP/agent client -->
 
-Schema and generated-contract changes are **not** examples — `schema-check` and
-`generated-artifact-check` ship with the blueprint. Both classes cost production
-incidents in every stack that has them, so neither is left to be rediscovered.
+Generated-contract changes are **not** examples — `generated-artifact-check` ships with
+the blueprint. That class costs production incidents in every stack that has it, so it
+is not left to be rediscovered.
 
 ---
 
-## Backward compatibility — always on from [X.Y]
+## Compatibility — pre-1.0
 
-<!--
-CUSTOMIZE: Set [X.Y] to your API stability version. Remove this entire section
-if you haven't reached a public API contract yet.
--->
+There is no stable public API before 1.0. What must never break, in any release:
 
-[PROJECT NAME] [X.Y] is a public API contract. Every change must be backward compatible unless a major version bump is explicitly planned.
+- **Generated XML stays importable** — it validates against the current FURS XSDs and passes
+  the business rules in *Tax correctness*. A FURS schema update is handled before the next
+  filing season, not after users hit it.
+- **A change that alters a computed figure for the same input** (a rate rule, a rounding rule,
+  lot matching, a field mapping) is a `changed` changelog fragment that says which returns are
+  affected, with the source that justifies it.
 
-### REST API
-- **Never remove or rename a field** from an existing response — add new fields, deprecate old ones, never delete them in a patch or minor release
-- **Never change a field's type** (e.g. string → integer, nullable → required) without a major bump
-- **Never remove an endpoint** — return `410 Gone` with a deprecation notice for at least one minor release first
-- **New optional params only** — never add a required query param to an existing endpoint; new body fields must be optional with a sensible default
-
-### Database migrations
-- **Every new column must be nullable or have a default** — `NOT NULL` without a default requires a multi-step deploy and blocks zero-downtime upgrades
-- **Never drop a column or table** in the same migration that removes the ORM reference — separate by at least one release cycle
-- **Rename = add + copy + drop** across three separate releases
-
-### Settings and env vars
-- **Never rename an env var** — add the new name and keep the old as a deprecated alias for at least one minor release
-- **Never change the default value** of an existing env var in a way that alters behavior for existing installs
-
-<!-- [REMOVE IF NOT APPLICABLE] WebSocket event schema -->
-<!--
-### WebSocket / real-time event schema
-- **Never remove an event type** — add new ones freely; mark old ones deprecated for at least one release
-- **Never remove a field from an event payload** — add fields freely; removals require a major bump
-- Keep a stable `{event, data}` envelope shape — never flatten back to a spread payload
--->
-
-<!-- [REMOVE IF NOT APPLICABLE] TypeScript interface rules -->
-<!--
-### TypeScript / frontend contracts
-- Shared interfaces must match backend serializer fields exactly — update both in the same MR when adding a field
-- Never remove a field from a shared interface without confirming it is unreferenced across the entire frontend
--->
+Until 1.0, CLI flags, configuration and saved-session formats may change, but every change
+is in the changelog. **Never rename an env var** without keeping the old name as a deprecated
+alias for at least one minor release.
 
 ---
 
-<!-- [REMOVE IF NOT APPLICABLE] Open core / enterprise boundary -->
-<!--
-## Open core vs. enterprise boundary
-
-[PROJECT NAME] follows an open-core model. A small team must be able to use the product end-to-end without the enterprise edition.
-
-Ask: **"Can a small team work together effectively without this feature?"**
-- No → OSS core
-- Yes → enterprise candidate
-
-Enterprise candidates: SSO/SAML, audit logs, advanced analytics, automation rules, multi-tenancy, white-labeling, compliance tooling.
-
-Rules:
-- Never add enterprise code to the OSS repo
-- OSS must expose clean extension points that enterprise plugs into without modifying OSS files
--->
-
-<!-- [REMOVE IF NOT APPLICABLE] Frontend design system link -->
-<!--
 ## Frontend UI conventions
-See [`frontend/CLAUDE.md`](frontend/CLAUDE.md) for design system rules — color tokens, buttons, inputs, modals, typography, and component patterns.
--->
+
+The web app (`apps/web`) has no design system yet. When one exists, generate
+`apps/web/CLAUDE.md` with `/import-design` (move `frontend/CLAUDE.md.example` there as the
+starting point) so `ux-design` and `ux-review` check against it. Until then: Slovenian and
+English UI strings come from one message catalog, never inline literals, and every screen is
+usable by keyboard alone.

@@ -318,7 +318,7 @@ that is the entire reason the declaration exists.
 Three ways out, in order of likelihood:
   1. The deletion was accidental — restore the call.
   2. The guard moved — update the declaration's path:/call: to the new site.
-  3. The guard is genuinely gone — delete the whole stanza, and say in the MR what now
+  3. The guard is genuinely gone — delete the whole stanza, and say in the PR what now
      covers what it covered. Removing the declaration is a reviewable one-line diff; that
      is the point.
 MSG

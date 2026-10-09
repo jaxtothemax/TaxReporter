@@ -28,9 +28,13 @@ tier**, and it goes in the provenance banner.
 **(i) The project's own tracker** — has anyone real already spoken on this?
 
 ```bash
-glab issue list --search "<feature keywords>" -P 20
-glab issue list --label "user-report" -P 20
+gh issue list --search "<feature keywords>" --limit 20
+gh issue list --label "feedback" --limit 20
 ```
+
+(`feedback` is this project's label for reports from real users. Both commands resolve
+the repository from the origin remote; with no origin or no GitHub repo yet they fail
+with a "no git remotes" error — record source (i) as "no tracker" and continue to (ii).)
 
 **(ii) External practitioner discourse** — what do people who do this job for a
 living say about this *class* of functionality?
@@ -133,7 +137,7 @@ research.** Nobody was asked anything. Head every panel output with the tier:
 
 The rules this banner exists to enforce:
 
-- **Never present panel output as customer feedback** in an issue, MR, ADR,
+- **Never present panel output as customer feedback** in an issue, PR, ADR,
   roadmap entry, commit message, or anything else user-facing. If a persona
   finding is worth filing, file it on its own merits and say a simulated panel
   surfaced it.

@@ -1,0 +1,60 @@
+name: Bug report
+description: Something produced a wrong result, crashed, or behaved unexpectedly.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. **Never attach a real broker export or a generated
+        eDavki XML file, and never paste your tax number, name, address, or account
+        numbers.** Issues are public. Redact identifiers, or build the smallest
+        made-up file that still shows the problem.
+
+        Security problems do not belong here: use the private vulnerability
+        report linked from the "New issue" page instead.
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear, concise description of the bug.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should happen?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happens instead?
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      value: |
+        - Version:
+        - OS:
+        - Browser (if applicable):
+        - Broker and export type (if applicable):
+  - type: textarea
+    id: logs
+    attributes:
+      label: Screenshots / logs
+      description: Relevant screenshots, error messages, or log output, with personal data redacted.
+      render: text

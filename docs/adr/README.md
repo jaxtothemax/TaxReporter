@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-This directory contains Architecture Decision Records (ADRs) for [PROJECT NAME].
+This directory contains Architecture Decision Records (ADRs) for TaxReporter.
 
 An ADR captures a significant architectural decision: what was decided, why, and
 what the consequences are. It is a permanent record — once accepted, ADRs are not

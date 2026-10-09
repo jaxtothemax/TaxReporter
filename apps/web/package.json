@@ -1,0 +1,31 @@
+{
+  "name": "@taxreporter/web",
+  "version": "0.0.0",
+  "private": true,
+  "description": "TaxReporter in the browser: a static single-page app in which all processing happens locally.",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@fontsource-variable/geist": "^5.3.0",
+    "@fontsource-variable/geist-mono": "^5.3.0",
+    "@phosphor-icons/react": "^2.1.10",
+    "@taxreporter/brokers": "workspace:*",
+    "@taxreporter/core": "workspace:*",
+    "@taxreporter/furs": "workspace:*",
+    "@taxreporter/fx": "workspace:*",
+    "@taxreporter/pipeline": "workspace:*",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "vite": "^8.3.3"
+  }
+}

@@ -1,13 +1,15 @@
 ---
 name: release
-description: Create a release following GitLab Flow. Determines version from changelog, runs pre-flight checks with parallel sub-agents, executes release script, and guides through MR/tag/deploy.
+description: Create a release following GitHub Flow. Determines version from changelog, runs pre-flight checks with parallel sub-agents, executes release script, and guides through the release PR, the tag, and the GitHub Release that release.yml publishes.
 disable-model-invocation: true
 argument-hint: "[version]"
 ---
 
 # Release
 
-You are creating a release following GitLab Flow. Follow these steps exactly.
+You are creating a release following GitHub Flow (the simple variant: feature branch →
+pull request → `main`, then a `vX.Y.Z` tag on `main`). In this repository an MR is a
+GitHub pull request (PR). Follow these steps exactly.
 
 ## Step 0 — Get the version string
 
@@ -46,27 +48,30 @@ Launch **2 sub-agents in parallel** (both with `model: "sonnet"`). Wait for both
 > Check the following and report pass/fail for each:
 > - [ ] Working tree is clean (`git status --porcelain`)
 > - [ ] On `main` branch with latest pulled (`git branch --show-current`, `git fetch origin`, `git diff main..origin/main`)
-> - [ ] No open MRs targeting main that are marked as release-blocking (`glab mr list --target-branch main --label release-blocker 2>/dev/null`)
+> - [ ] No open PRs targeting main that are marked as release-blocking (`gh pr list --base main --state open --label release-blocker 2>/dev/null`)
 > - [ ] `CHANGELOG.md [Unreleased]` has entries (`grep -A 30 '\[Unreleased\]' CHANGELOG.md`)
 > - [ ] `scripts/release.sh` exists and is executable
 > - [ ] Every version-bearing manifest agrees (`python3 scripts/check-version-lockstep.py`)
-> - [ ] Every credential the publish jobs need already exists (`glab variable list`, or the
->       forge's secrets page — a masked value will not print, its existence will). A
->       missing one fails **after** the tag is pushed, which is the one moment in the
->       release when nothing can be un-done cheaply.
-> - [ ] **Inventory every tag-only job that changed since the last tag.** A tag pipeline
->       runs the CI config as it stood at the tag commit, and these jobs run nowhere else,
->       so a job edited since the previous `v*` tag has never run in its current form.
->       Upstream, every cut across two minor lines found at least one such defect by
->       burning a version. Run `bash scripts/check-tag-only-jobs.sh` — it inventories
->       every job whose rules match `$CI_COMMIT_TAG` (or `only: tags`) and reports any
->       whose block text is new or changed since the last `v*` tag; exit 1 means at
+> - [ ] Every credential the publish jobs need already exists (`gh secret list` and
+>       `gh variable list`, plus `gh secret list --env <name>` for any `environment:`
+>       a tag-triggered job names — a secret's value never prints, its existence does).
+>       `release.yml` needs only the built-in `GITHUB_TOKEN` until a publish job is
+>       added that needs more. A missing one fails **after** the tag is pushed, which is
+>       the one moment in the release when nothing can be un-done cheaply.
+> - [ ] **Inventory every tag-only job that changed since the last tag.** A tag push
+>       runs the workflow files as they stood at the tagged commit, and these jobs run
+>       nowhere else, so a job edited since the previous `v*` tag has never run in its
+>       current form. Upstream, every cut across two minor lines found at least one such
+>       defect by burning a version. Run `bash scripts/check-tag-only-jobs.sh` — it
+>       inventories every tag-only job (in this repository, the jobs of
+>       `.github/workflows/release.yml`, which triggers on `push: tags: ['v*']`) and
+>       reports any that is new or changed since the last `v*` tag; exit 1 means at
 >       least one. For each one it lists, either run a probe that exercises it without
->       a tag (a manual job, or a variable-gated dry run in an MR pipeline) or report it
->       as **unproven until the tag** — the script inventories, it does not judge
->       whether a flagged job was actually probed. A changed `environment:`, `id_tokens:`
->       or credential name also changes what the registry sees: confirm the binding on
->       the registry side, not only in the YAML.
+>       a tag (a `workflow_dispatch` dry run, or a step gated so it also runs on a PR)
+>       or report it as **unproven until the tag** — the script inventories, it does not
+>       judge whether a flagged job was actually probed. A changed `environment:`,
+>       `permissions:` (`id-token: write` for OIDC) or secret name also changes what the
+>       registry sees: confirm the binding on the registry side, not only in the YAML.
 > - [ ] **Days and commits since the last `v*` tag.** If about four weeks, or several
 >       hundred non-merge commits, have passed without a tag, say so. A cut that large
 >       carries untested publish changes *and* a large change surface at once.
@@ -131,52 +136,55 @@ different facts, and the second one is the one a reader needs.
 
 ## Step 3 — Merge to main
 
-1. Create an MR from the release branch → `main`
-2. Wait for the pipeline to pass
-3. Merge the MR
+1. Create a PR from the release branch → `main`, in the `/mr` skill's format:
+   `gh pr create --base main --head chore/release-{version} --title "chore: release v{version}" --body "$(cat <<'EOF' … EOF)"`
+2. Wait for its checks to pass (`gh pr checks <N>`)
+3. Hand the PR URL to the user to merge. Agents never merge: `gh pr merge` is under
+   `deny` in `.claude/settings.json`, and the user merges every PR by hand. Wait for
+   them to confirm the merge before Step 5.
 
-**If you poll the pipeline with a loop rather than a single check, write it as
+**If you poll the checks with a loop rather than a single check, write it as
 `while true; do …; if [ "$s" = success ] || [ "$s" = failed ]; then break; fi; sleep N; done`,
 never `until …; case $s in …esac; do sleep N; done`.** A `case` statement is the last command
 of the loop body and returns 0 whether or not a branch matched, so an `until` gated on it exits
-after the very first iteration — the loop "completes" immediately regardless of the pipeline's
+after the very first iteration — the loop "completes" immediately regardless of the checks'
 real state, and a background watcher's "finished" notification then carries no information.
-Read the pipeline's actual status after the loop returns; don't trust that it returned.
+Read the checks' actual status after the loop returns; don't trust that it returned. Bound
+the loop and run it in the background — foreground `sleep` is blocked in the agent harness.
 
-## Step 4 — Promote to production (GitLab Flow)
+## Step 4 — Promote to production (full variant only)
 
-If the project uses a `production` branch:
+This repository uses the simple variant: `main` is the release branch and there is no
+`production` branch, so skip this step.
 
-```bash
-git checkout production
-git pull origin production
-git merge main
-git push origin production
-```
-
-If the project uses a single-branch model (no `production` branch), skip this step.
+If the project later adopts a protected `production` branch (see *When to adopt each
+variant* in `CLAUDE.md`), promote by PR, never by a direct push: `gh pr create --base
+production --head main`. The user merges it as a plain merge, never a rebase or squash.
+Then tag on `production` in Step 5.
 
 ## Step 5 — Tag and release
 
-**First: the commit's own branch pipeline must be green.** A tag pipeline is not the
-branch pipeline running again — pipelines are triggered per ref, so the tag starts an
-independent pipeline in which every job whose rule matches a branch or a merge request
-*does not exist*. Nothing links the two, so a tag will publish from a commit whose branch
-pipeline failed, and the first sign of it is a public artifact. Upstream shipped a broken
-release this way twice.
+**First: the commit's own checks on `main` must be green.** A tag push is not the branch
+run happening again — workflows trigger per event, so the tag starts only the workflows
+whose `on:` matches a tag (`release.yml`). `governance.yml`, `security.yml` and every
+other `pull_request` / `push: branches: [main]` workflow *does not run* for it. Nothing
+links the two, so a tag will publish from a commit whose `main` run failed, and the first
+sign of it is a public artifact. Upstream shipped a broken release this way twice.
 
 ```bash
-glab ci list --ref main --per-page 5      # or --ref production, per the variant in use
+git checkout main && git pull
+gh run list --branch main --event push --commit "$(git rev-parse HEAD)" \
+  --json workflowName,status,conclusion
 ```
 
-Confirm the pipeline at **this exact commit** succeeded — not the newest one on the
-branch. In CI this is enforced by `release-pipeline-gate`
-(`scripts/check-release-pipeline.sh`), which every tag-triggered publish or deploy job
-must `needs:`; a job with no `needs:` waits only for earlier stages, which is a weaker
-promise than it looks.
+Confirm every run at **this exact commit** completed with `success` — not the newest run
+on the branch, and not just one of the workflows. In CI this is enforced by the
+`release-pipeline-gate` job of `release.yml` (`scripts/check-release-pipeline.sh`),
+which every tag-triggered publish job must `needs:`. A job without that `needs:` starts
+in parallel with the gate, so it publishes whether or not the gate passes.
 
-Then tag the commit on the deployment branch (`production` if it exists, otherwise
-`main`):
+Then tag the commit on `main` (on `production` instead, if the full variant is in
+use):
 
 ```bash
 git tag v{version}
@@ -186,38 +194,62 @@ git push origin v{version}
 `scripts/release.sh` has already refused a version whose tag exists on the remote, or one
 that `RELEASE_PUBLISHED_CHECK` reports as already published. Registries refuse to
 overwrite a version, so that failure otherwise arrives only after the tag is pushed.
-Every tag-triggered job that declares `artifacts:paths` ends with
-`sh scripts/ci-assert-artifacts.sh <paths>` (the `artifact-assertions` CI job enforces
-the wiring), because GitLab marks a job successful when its upload found nothing.
+Every tag-triggered job that uploads files runs `sh scripts/ci-assert-artifacts.sh
+<paths>` before the upload (the `artifact-assertions` CI job enforces the wiring),
+because `actions/upload-artifact` defaults to `if-no-files-found: warn` and marks the
+step successful when it uploaded nothing.
 
-Create the release from the tag, using the generated notes:
+**The tag push publishes the release.** `release.yml` runs `release-pipeline-gate`, and
+when it passes, creates the GitHub Release from `docs/releases/v{version}.md`, the notes
+`scripts/release.sh` generated. Watch that run and then confirm the release exists:
 
 ```bash
-glab release create v{version} --notes-file docs/releases/v{version}.md
+gh run list --workflow release.yml --commit "$(git rev-parse HEAD)" \
+  --json databaseId,status,conclusion
+gh release view v{version}
 ```
 
-Never hand-write the notes into the forge UI. Notes that are typed rather than derived
+If the gate passed and the publish job then failed for an infrastructure reason, re-run
+just that job first (`gh run rerun <run-id> --failed`). Create the release by hand only
+when that does not fix it, or when `release.yml` is not on the tagged commit at all:
+
+```bash
+gh release create v{version} --verify-tag --notes-file docs/releases/v{version}.md
+```
+
+`--verify-tag` makes `gh` refuse when the tag does not exist on the remote. Without it,
+`gh release create` makes a new tag at the default branch's tip, which may not be the
+commit you gated on. Add `--prerelease` for a `-rc.N` / `-beta.N` version. **Never
+hand-create the release after `release-pipeline-gate` failed.** That bypasses the one
+check that ties the tag to a green commit. If the tagged commit's checks were only slow,
+re-run the workflow once they are green (`gh run rerun <run-id>`). If they failed, the
+fix is a new commit, and so a new version.
+
+Never hand-write the notes into the GitHub UI. Notes that are typed rather than derived
 describe what someone remembered, and they drift from the tag they claim to describe.
 
 ## Step 6 — Post-release verification
 
-- [ ] Tag exists on the correct commit
-- [ ] Release notes are accurate
-- [ ] Staging and production are running the new version
-- [ ] Documentation is deployed (if applicable)
+- [ ] Tag exists on the correct commit (`git ls-remote --tags origin v{version}`)
+- [ ] Release notes are accurate (`gh release view v{version}`)
+- [ ] Anything deployed from `main` is serving the new version
+- [ ] Documentation is deployed (if applicable): the `docs.yml` run for this commit on
+      `main` succeeded and GitHub Pages shows the new version
 - [ ] **A default install resolves to this release** — not merely "the publish job
       succeeded"
 
-That last one is a different question from the one the pipeline answers, and the
+That last one is a different question from the one CI answers, and the
 difference is where a release goes wrong quietly. Registries rank by semver, and a plain
 `X.Y.Z` outranks every `X.Y.Z-rc.N` and `X.Y.Z-beta.N` **forever** — so one bad stable
-artifact keeps winning against every pre-release published after it, and on Helm even
-`--devel` will not reach past it. Package managers have the same shape in their own
-dialect (`latest` on npm, an unpinned `pip install`, a mutable container tag).
+artifact keeps winning against every pre-release published after it. Package managers
+each have this shape in their own dialect (`latest` on npm, an unpinned `pip install`,
+GitHub's "Latest release" badge).
 
-So check what an unpinned consumer actually gets — `helm show chart oci://…` with no
-`--version`, `npm view <pkg> version`, `docker pull <image>` with no tag — and check that
-what it resolves to works: for a chart, that the image tag it defaults to **exists** in
-the registry. If the answer is a broken artifact, republishing under a new version does
+So check what an unpinned consumer actually gets — `npm view <pkg> version`, an
+unpinned `pip index versions <pkg>`, the release a fresh visitor downloads
+(`gh api 'repos/{owner}/{repo}/releases/latest' --jq .tag_name`, which skips drafts and
+pre-releases) — and check
+that what it resolves to works: for a downloadable build, that every asset it links to
+**exists** and runs. If the answer is a broken artifact, republishing under a new version does
 not fix it; the bad version has to be deleted, which usually needs a permission no
-pipeline has. Say so in the release notes rather than leaving a consumer to discover it.
+CI job has. Say so in the release notes rather than leaving a consumer to discover it.

@@ -1,0 +1,98 @@
+# ─── Release (tag pushes only) ────────────────────────────────────────────────
+#
+# Cutting a release: merge the release PR to main, wait for main's runs to go
+# green, then push the tag from main:
+#
+#   git tag vX.Y.Z && git push origin vX.Y.Z
+#
+# This workflow then publishes the GitHub Release from
+# docs/releases/vX.Y.Z.md (written by scripts/release.sh / release-notes.sh in
+# the release PR). If the release was already created by hand
+# (`gh release create vX.Y.Z --notes-file docs/releases/vX.Y.Z.md`), the publish
+# job leaves it alone — but a hand-created release skips the pipeline gate
+# below, so prefer letting this workflow do it.
+#
+# A tag run is NOT main's runs running again. GitHub triggers workflows per ref,
+# so pushing a tag at a commit that is already on main starts only the
+# workflows whose `on:` matches a tag push — this one. Nothing in
+# governance.yml, security.yml or docs.yml runs for the tag, and nothing links
+# their results to this run. Without release-pipeline-gate a tag publishes
+# happily from a commit whose own main runs are red. Give every tag-triggered
+# publish or deploy job `needs: [release-pipeline-gate]` — a job with no
+# `needs:` starts immediately, in parallel, which is not the same promise.
+#
+# Every job here is tag-only, so it runs for the first time in its current form
+# at the next tag: `bash scripts/check-tag-only-jobs.sh` lists the ones changed
+# since the last tag (the release skill's Step 1), and any job here that uploads
+# an artifact must assert each path first (`scripts/ci-assert-artifacts.sh`,
+# enforced by check-artifact-assertions.sh in governance.yml).
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+# Never cancel a release mid-flight; a second push of the same tag waits.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # Polls main's workflow runs for the tagged commit (up to 30 minutes, for the
+  # tag-pushed-before-main-finished race) and fails closed unless every one of
+  # them concluded success. RELEASE_PIPELINE_WORKFLOWS lists the workflows that
+  # MUST have run, ci.yml (the application jobs) included.
+  release-pipeline-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: bash scripts/check-release-pipeline.sh --self-test
+      - run: bash scripts/check-release-pipeline.sh "$GITHUB_SHA"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_PIPELINE_REF: ${{ github.event.repository.default_branch }}
+          RELEASE_PIPELINE_WORKFLOWS: "governance.yml security.yml docs.yml ci.yml"
+
+  publish-release:
+    needs: [release-pipeline-gate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          NOTES="docs/releases/${TAG}.md"
+          # An empty or missing notes file would publish a release with no notes
+          # and a green job — the same "succeeded with nothing" hole the
+          # artifact assertions exist for.
+          sh scripts/ci-assert-artifacts.sh "$NOTES"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::notice title=publish-release::Release ${TAG} already exists (created by hand?) — leaving it as is."
+            exit 0
+          fi
+          args=(--verify-tag --title "$TAG" --notes-file "$NOTES")
+          # SemVer pre-release tags (v1.2.0-rc.1) are published as pre-releases.
+          case "$TAG" in *-*) args+=(--prerelease) ;; esac
+          gh release create "$TAG" "${args[@]}"

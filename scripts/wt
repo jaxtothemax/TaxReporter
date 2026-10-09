@@ -4,7 +4,7 @@
 # Usage:
 #   scripts/wt new <issue|branch-name> [--force]
 #                                        Create a worktree + branch off origin/<default>.
-#                                        Checks out the issue (status::wip label +
+#                                        Checks out the issue (status:wip label +
 #                                        comment) so a parallel session or /batch wave
 #                                        does not grab it; refuses an issue that is
 #                                        already checked out unless --force takes it over.
@@ -13,14 +13,14 @@
 #   scripts/wt release <issue>           Release an issue check-out (clear the label).
 #   scripts/wt list                      List active worktrees and WIP count.
 #   scripts/wt remove <issue|name>       Remove a worktree by issue # or name; if the
-#                                        issue is closed, clears its status::wip label
+#                                        issue is closed, clears its status:wip label
 #                                        too (left in place while the issue is open).
 #   scripts/wt prune                     Remove worktrees whose branches were merged to
 #                                        the default branch and deleted on origin —
 #                                        including a tip rewritten after its last push,
 #                                        or a squash merge. Refuses to remove worktrees
 #                                        with uncommitted work. Nothing runs this after
-#                                        a forge merge: run it yourself. Releases each
+#                                        a PR merge: run it yourself. Releases each
 #                                        pruned worktree's issue check-out.
 #   scripts/wt stash [push|pop|apply|list|show|drop]
 #                                        Worktree-PRIVATE stash. Use this, never
@@ -51,29 +51,33 @@
 #      are skipped unless --force.
 #   3. Each worktree's .envrc exports a unique WT_TEST_DB, so parallel test runs
 #      get isolated databases and no external lock is needed.
-# Issue check-out lock: every agent shares one forge identity, so an assignee or a
+# Issue check-out lock: every agent shares one GitHub identity, so an assignee or a
 # comment does not stop a parallel session from taking the same issue. `wt new` /
-# `wt claim` apply a `status::wip` scoped label plus a check-out comment and refuse
-# an issue that already carries it; `wt remove` / `wt prune` / `wt release` clear it.
-# It is advisory and best-effort — with no forge CLI, or on an API error, the
-# worktree is still created (with a warning); the local guards above carry the
-# correctness, the label is the shared signal. `/batch` reads it when selecting.
+# `wt claim` apply a `status:wip` label plus a check-out comment (`gh issue
+# comment`) and refuse an issue that already carries it; `wt remove` / `wt prune` /
+# `wt release` clear it. It is advisory and best-effort — with no `gh`, no origin,
+# or on an API error, the worktree is still created (with a warning); the local
+# guards above carry the correctness, the label is the shared signal. `/batch`
+# reads it when selecting.
 #
 # The `wt list` output shows branch, age, and pushed-state so it is obvious at a
 # glance whose worktree is whose.
 #
 # This script is layout-agnostic: it auto-detects which dev-dep dirs exist
 # (.venv, node_modules, backend/.venv, frontend/node_modules,
-# packages/api/.venv, packages/web/node_modules) and symlinks only those, and
-# picks glab or gh for issue-title lookup based on origin's host. Override any
-# default via env:
+# packages/api/.venv, packages/web/node_modules) and symlinks only those. Issue
+# lookups, the check-out lock and squash-merge detection go through `gh` against
+# the repository origin points at (owner/repo is never hardcoded — gh resolves it
+# from the remote). Override any default via env:
 #   WT_BASE             where worktrees are created       (default ../<repo>-wt)
 #   WT_CAP / WT_WARN    WIP error / warn thresholds       (default 10 / 8)
 #   WT_COMPOSE_PROJECT  shared compose project name       (default repo dir name)
 #   WT_SYMLINK_DIRS     space-separated dev-dep dirs to symlink (default: auto-detect)
-#   WT_LOCK_LABEL       issue check-out label             (default status::wip)
+#   WT_LOCK_LABEL       issue check-out label             (default status:wip)
 #   WT_GRACE_MIN        minutes a fresh worktree is prune-protected (default 30)
-#   WT_FORGE            glab | gh — forge CLI for lookups (default: from origin's host)
+#   WT_FORGE            gh | none — forge CLI for lookups (default: gh when origin is
+#                       a GitHub host, none otherwise; set gh for a GitHub Enterprise
+#                       host whose name does not contain "github")
 #   WT_PREVIEW_PORT_BASE / WT_DEV_PORT_BASE / WT_PORT_SPAN
 #                       per-worktree E2E port band        (default 43100 / 44100 / 800)
 
@@ -93,6 +97,12 @@ case "$GIT_COMMON_DIR" in
   *)  REPO_ROOT="$(cd "$CURRENT_TOPLEVEL" && cd "$(dirname "$GIT_COMMON_DIR")" && pwd)" ;;
 esac
 REPO_NAME="$(basename "$REPO_ROOT")"
+# Pin every gh call to the repository origin points at (GH_REPO), so a fork with an
+# `upstream` remote never has its check-out lock land on the upstream project's
+# issue of the same number. See scripts/lib/gh-repo.sh.
+# shellcheck source-path=SCRIPTDIR source=lib/gh-repo.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/gh-repo.sh"
+gh_export_repo "$REPO_ROOT"
 WT_BASE="${WT_BASE:-${REPO_ROOT%/*}/${REPO_NAME}-wt}"
 WT_CAP="${WT_CAP:-10}"
 WT_WARN="${WT_WARN:-8}"
@@ -101,9 +111,10 @@ WT_WARN="${WT_WARN:-8}"
 # agent or terminal created moments ago and has not pushed yet. --force overrides.
 WT_GRACE_MIN="${WT_GRACE_MIN:-30}"
 WT_OWNER_FILE=".wt-owner"
-# Scoped label used as the issue check-out lock (see header). Scoped (`status::`)
-# so it is mutually exclusive with any other `status::*` label on GitLab.
-WT_LOCK_LABEL="${WT_LOCK_LABEL:-status::wip}"
+# Label used as the issue check-out lock (see header). GitHub labels are not
+# scoped, so nothing makes `status:wip` exclusive with other `status:*` labels —
+# the lock only ever adds or removes this one label, which is all it needs.
+WT_LOCK_LABEL="${WT_LOCK_LABEL:-status:wip}"
 WT_STASH_NS="refs/wt-stash"
 # Per-worktree E2E port band (see "Per-worktree E2E ports" below). One shared
 # offset, so a worktree's two ports carry the same index. The defaults sit below
@@ -150,14 +161,19 @@ die()  { err "$*"; exit 1; }
 # Helpers
 # ---------------------------------------------------------------------------
 
-# Detect the forge CLI for issue-title lookup based on origin's host.
+# Detect the forge CLI from origin's host. GitHub is this project's forge, so the
+# only CLI is gh; anything that is not a GitHub remote (including no origin at all,
+# which is how a fresh scaffold starts) yields "" and every forge step degrades to
+# a warning instead of failing — worktree management must work offline.
 forge_cli() {
-  if [[ -n "${WT_FORGE:-}" ]]; then printf '%s\n' "$WT_FORGE"; return; fi
+  if [[ -n "${WT_FORGE:-}" ]]; then
+    case "$WT_FORGE" in gh) echo gh ;; *) echo "" ;; esac
+    return
+  fi
   local url; url="$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || true)"
   case "$url" in
-    *github.com*) echo gh ;;
-    *gitlab*)     echo glab ;;
-    *)            echo "" ;;
+    *github*) echo gh ;;
+    *)        echo "" ;;
   esac
 }
 
@@ -184,13 +200,11 @@ derive_branch_name() {
   if [[ "$input" =~ ^[0-9]+$ ]]; then
     local cli title=""
     cli="$(forge_cli)"
-    case "$cli" in
-      glab) command -v glab >/dev/null 2>&1 && title="$(glab issue view "$input" --output json 2>/dev/null \
-              | python3 -c 'import json,sys; print(json.load(sys.stdin).get("title",""))' || true)" ;;
-      gh)   command -v gh >/dev/null 2>&1 && title="$(gh issue view "$input" --json title -q .title 2>/dev/null || true)" ;;
-    esac
+    if [[ "$cli" == gh ]] && command -v gh >/dev/null 2>&1; then
+      title="$(cd "$REPO_ROOT" && gh issue view "$input" --json title -q .title 2>/dev/null || true)"
+    fi
     if [[ -z "$title" ]]; then
-      die "couldn't look up issue #$input (need ${cli:-glab/gh} installed + authed); pass a full branch name like 'feat/$input-something'"
+      die "couldn't look up issue #$input (need gh installed + authed and a GitHub origin); pass a full branch name like 'feat/$input-something'"
     fi
     printf "feat/%s-%s" "$input" "$(slugify "$title")"; return
   fi
@@ -354,32 +368,21 @@ resolve_port_offset() {
 # Merge detection for prune
 # ---------------------------------------------------------------------------
 
-# True (0) if the forge has a MERGED MR/PR from branch $1 whose head SHA is exactly
-# $2. Every failure — no CLI, unauthenticated, offline, unparseable output — is a 1,
-# so a lookup that cannot answer keeps the worktree rather than reaping it.
+# True (0) if GitHub has a MERGED pull request from branch $1 whose head SHA is
+# exactly $2. Every failure — no CLI, unauthenticated, offline, empty output — is a
+# 1, so a lookup that cannot answer keeps the worktree rather than reaping it.
+#
+# `--limit 100`: `gh pr list` returns 30 by default, and a branch name reused across
+# many merged PRs (rare, but a recycled `chore/deps` does it) must not push the
+# matching one off the first page — a miss here is a false keep, never a false prune.
 merged_mr_has_sha() {
-  local branch="$1" tip="$2" out enc
-  case "$(forge_cli)" in
-    glab)
-      command -v glab >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1 || return 1
-      enc="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$branch" 2>/dev/null)" || return 1
-      out="$(cd "$REPO_ROOT" && glab api "projects/:id/merge_requests?state=merged&source_branch=${enc}" 2>/dev/null)" || return 1
-      python3 -c '
-import json, sys
-try:
-    mrs = json.loads(sys.stdin.read())
-except Exception:
-    sys.exit(1)
-sys.exit(0 if any(isinstance(m, dict) and m.get("sha") == sys.argv[1] for m in mrs) else 1)
-' "$tip" <<< "$out" 2>/dev/null
-      ;;
-    gh)
-      command -v gh >/dev/null 2>&1 || return 1
-      out="$(cd "$REPO_ROOT" && gh pr list --state merged --head "$branch" --json headRefOid --jq '.[].headRefOid' 2>/dev/null)" || return 1
-      grep -qxF "$tip" <<< "$out"
-      ;;
-    *) return 1 ;;
-  esac
+  local branch="$1" tip="$2" out
+  [[ "$(forge_cli)" == gh ]] || return 1
+  command -v gh >/dev/null 2>&1 || return 1
+  out="$(cd "$REPO_ROOT" && gh pr list --state merged --head "$branch" --limit 100 \
+           --json headRefOid --jq '.[].headRefOid' 2>/dev/null)" || return 1
+  [[ -n "$out" ]] || return 1
+  grep -qxF "$tip" <<< "$out"
 }
 
 # How branch $1's work reached origin/<default>, or empty if that cannot be shown.
@@ -389,7 +392,7 @@ sys.exit(0 if any(isinstance(m, dict) and m.get("sha") == sys.argv[1] for m in m
 #   patch    — the tip was rewritten after its last push (an amend, a local rebase, a
 #              forge-side rebase), so that SHA never reached the default branch, but
 #              `git cherry` finds every one of the branch's patches already there.
-#   mr       — a merged MR/PR from this branch has exactly this head SHA. Covers a
+#   mr       — a merged PR from this branch has exactly this head SHA. Covers a
 #              squash merge, whose one combined commit matches no single patch.
 #
 # The ancestor test alone kept every rewritten or squashed tip forever with a false
@@ -420,14 +423,10 @@ branch_merged_how() {
 #
 # See the header. Every helper degrades to a warning or a no-op when the forge CLI
 # is missing or the call fails — worktree management must never break on a
-# network blip. Each is written for glab and gh, matching forge_cli.
+# network blip. All of them go through gh, matching forge_cli.
 
 lock_available() {
-  case "$(forge_cli)" in
-    glab) command -v glab >/dev/null 2>&1 ;;
-    gh)   command -v gh >/dev/null 2>&1 ;;
-    *)    return 1 ;;
-  esac
+  [[ "$(forge_cli)" == gh ]] && command -v gh >/dev/null 2>&1
 }
 
 # Extract the issue number from a branch name (`feat/1462-foo` -> 1462), or empty
@@ -439,31 +438,19 @@ issue_from_branch() {
 }
 
 # Print one JSON document for issue $1: {"labels": [...], "state": "open|closed",
-# "notes": [...]}. Empty on any failure. Normalizes glab and gh so the readers
-# below parse one shape.
+# "notes": [...]}. Empty on any failure. Normalizes gh's shape (label objects,
+# OPEN/CLOSED state, comment objects) so the readers below parse one flat shape.
 issue_info() {
   local issue="$1" raw
-  case "$(forge_cli)" in
-    glab)
-      raw="$(cd "$REPO_ROOT" && glab issue view "$issue" --comments --output json 2>/dev/null)" || return 0
-      python3 -c '
-import json, sys
-d = json.loads(sys.stdin.read())
-notes = d.get("Notes") or d.get("notes") or []
-print(json.dumps({"labels": d.get("labels") or [],
-                  "state": (d.get("state") or "").lower(),
-                  "notes": [(n.get("body") or "") for n in notes]}))
-' <<< "$raw" 2>/dev/null || true ;;
-    gh)
-      raw="$(cd "$REPO_ROOT" && gh issue view "$issue" --json labels,state,comments 2>/dev/null)" || return 0
-      python3 -c '
+  [[ "$(forge_cli)" == gh ]] || return 0
+  raw="$(cd "$REPO_ROOT" && gh issue view "$issue" --json labels,state,comments 2>/dev/null)" || return 0
+  python3 -c '
 import json, sys
 d = json.loads(sys.stdin.read())
 print(json.dumps({"labels": [l.get("name", "") for l in d.get("labels") or []],
                   "state": (d.get("state") or "").lower(),
                   "notes": [(c.get("body") or "") for c in d.get("comments") or []]}))
-' <<< "$raw" 2>/dev/null || true ;;
-  esac
+' <<< "$raw" 2>/dev/null || true
 }
 
 # Print "locked" if issue $1 carries the lock label, else "" (also "" on lookup failure).
@@ -500,39 +487,32 @@ print(hits[-1] if hits else "")
 ' <<< "$info" 2>/dev/null || true
 }
 
-# Create the lock label if the project does not have it yet (idempotent).
+# Create the lock label if the repository does not have it yet. `gh issue edit
+# --add-label` refuses a label that does not exist, so this must run first. Listed
+# before created: `gh label create --force` would otherwise rewrite the color and
+# description an owner may have customized on every single check-out.
 ensure_lock_label() {
-  case "$(forge_cli)" in
-    glab)
-      grep -qF "$WT_LOCK_LABEL" <<<"$(cd "$REPO_ROOT" && glab label list 2>/dev/null)" && return 0
-      (cd "$REPO_ROOT" && glab label create -n "$WT_LOCK_LABEL" -c "#ec9a29" \
-        -d "Checked out by an agent/worktree (scripts/wt) - do not grab in parallel" \
-        >/dev/null 2>&1) || true ;;
-    gh)
-      (cd "$REPO_ROOT" && gh label create "$WT_LOCK_LABEL" --color ec9a29 --force \
-        --description "Checked out by an agent/worktree (scripts/wt) - do not grab in parallel" \
-        >/dev/null 2>&1) || true ;;
-  esac
+  [[ "$(forge_cli)" == gh ]] || return 0
+  local have
+  have="$(cd "$REPO_ROOT" && gh label list --limit 1000 --json name --jq '.[].name' 2>/dev/null || true)"
+  grep -qxF "$WT_LOCK_LABEL" <<< "$have" && return 0
+  (cd "$REPO_ROOT" && gh label create "$WT_LOCK_LABEL" --color ec9a29 \
+    --description "Checked out by an agent/worktree (scripts/wt) - do not grab in parallel" \
+    >/dev/null 2>&1) || true
 }
 
 # Post comment $2 on issue $1 (best effort; returns non-zero on failure).
 issue_note() {
-  case "$(forge_cli)" in
-    glab) (cd "$REPO_ROOT" && glab issue note "$1" -m "$2" >/dev/null 2>&1) ;;
-    gh)   (cd "$REPO_ROOT" && gh issue comment "$1" --body "$2" >/dev/null 2>&1) ;;
-  esac
+  [[ "$(forge_cli)" == gh ]] || return 1
+  (cd "$REPO_ROOT" && gh issue comment "$1" --body "$2" >/dev/null 2>&1)
 }
 
 # Apply the lock to issue $1: label + a check-out comment recording branch/worktree.
 apply_lock() {
   local issue="$1" branch="$2" path="$3" ts
   ensure_lock_label
-  case "$(forge_cli)" in
-    glab) (cd "$REPO_ROOT" && glab issue update "$issue" --label "$WT_LOCK_LABEL" >/dev/null 2>&1) \
-            || warn "could not apply '$WT_LOCK_LABEL' to #$issue (check glab auth)" ;;
-    gh)   (cd "$REPO_ROOT" && gh issue edit "$issue" --add-label "$WT_LOCK_LABEL" >/dev/null 2>&1) \
-            || warn "could not apply '$WT_LOCK_LABEL' to #$issue (check gh auth)" ;;
-  esac
+  (cd "$REPO_ROOT" && gh issue edit "$issue" --add-label "$WT_LOCK_LABEL" >/dev/null 2>&1) \
+    || warn "could not apply '$WT_LOCK_LABEL' to #$issue (check 'gh auth status')"
   ts="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
   issue_note "$issue" "🔒 checked out ${ts} · branch \`${branch}\` · worktree \`${path}\`" \
     || warn "could not post check-out comment to #$issue"
@@ -541,10 +521,7 @@ apply_lock() {
 # Release the lock on issue $1: remove the label and post a release comment.
 clear_lock() {
   local issue="$1" branch="$2" ts
-  case "$(forge_cli)" in
-    glab) (cd "$REPO_ROOT" && glab issue update "$issue" --unlabel "$WT_LOCK_LABEL" >/dev/null 2>&1) || true ;;
-    gh)   (cd "$REPO_ROOT" && gh issue edit "$issue" --remove-label "$WT_LOCK_LABEL" >/dev/null 2>&1) || true ;;
-  esac
+  (cd "$REPO_ROOT" && gh issue edit "$issue" --remove-label "$WT_LOCK_LABEL" >/dev/null 2>&1) || true
   ts="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
   issue_note "$issue" "🔓 released ${ts} · branch \`${branch}\`" || true
 }
@@ -553,7 +530,7 @@ clear_lock() {
 # empty. No-op (with a warning) when no forge CLI is available.
 assert_claimable() {
   local issue="$1" force="$2" note
-  lock_available || { warn "no forge CLI — the #$issue '$WT_LOCK_LABEL' label won't be set; the local worktree dir and prune grace window still protect this work"; return 0; }
+  lock_available || { warn "no forge CLI (gh with a GitHub origin) — the #$issue '$WT_LOCK_LABEL' label won't be set; the local worktree dir and prune grace window still protect this work"; return 0; }
   if [[ "$(issue_is_locked "$issue")" == "locked" && -z "$force" ]]; then
     err "issue #$issue is already checked out (label '$WT_LOCK_LABEL')."
     note="$(last_checkout_note "$issue")"
@@ -582,7 +559,7 @@ cmd_new() {
 
   local count; count="$(wt_count)"
   if (( count >= WT_CAP )); then
-    die "WIP cap reached (${count}/${WT_CAP}). Run 'scripts/wt prune' to reap worktrees whose MRs already merged, or finish/remove one first. Override with WT_CAP if you must."
+    die "WIP cap reached (${count}/${WT_CAP}). Run 'scripts/wt prune' to reap worktrees whose PRs already merged, or finish/remove one first. Override with WT_CAP if you must."
   fi
   if (( count >= WT_WARN )); then
     warn "${count}/${WT_CAP} active worktrees — approaching the WIP cap"
@@ -765,7 +742,7 @@ cmd_claim() {
     esac
   done
   [[ "$issue" =~ ^[0-9]+$ ]] || die "usage: wt claim <issue-number> [--force]"
-  lock_available || die "no forge CLI (glab/gh) available — cannot claim #$issue"
+  lock_available || die "no forge CLI (gh with a GitHub origin) available — cannot claim #$issue"
   assert_claimable "$issue" "$force"
   apply_lock "$issue" "(not started)" "(claim only — no worktree yet)"
   if [[ -n "$force" ]]; then
@@ -781,7 +758,7 @@ cmd_release() {
   [[ $# -ge 1 ]] || die "usage: wt release <issue-number>"
   local issue="$1"
   [[ "$issue" =~ ^[0-9]+$ ]] || die "release needs a numeric issue number"
-  lock_available || die "no forge CLI (glab/gh) available — cannot release #$issue"
+  lock_available || die "no forge CLI (gh with a GitHub origin) available — cannot release #$issue"
   clear_lock "$issue" "(manual release)"
   ok "released check-out of #$issue"
 }
@@ -827,7 +804,7 @@ cmd_prune() {
     fi
     case "$merged_how" in
       patch) merged_note="; local tip rewritten after push, every patch already in $DEFAULT_BRANCH" ;;
-      mr)    merged_note="; merged MR head matches the local tip" ;;
+      mr)    merged_note="; merged PR head matches the local tip" ;;
     esac
 
     # Same dirty-check as cmd_remove, except that a TRACKED .envrc / .wt-owner
@@ -886,7 +863,16 @@ cmd_doctor() {
     fi
   fi
 
-  if command -v docker >/dev/null 2>&1; then
+  # Only a repo that actually has a compose file has a stack to share. A tree
+  # with none (a local-first CLI/browser app) gets a note, not a warning to
+  # install software it does not use.
+  local compose_file="" f
+  for f in compose.yaml compose.yml docker-compose.yaml docker-compose.yml; do
+    [[ -e "$REPO_ROOT/$f" ]] && { compose_file="$f"; break; }
+  done
+  if [[ -z "$compose_file" ]]; then
+    dim "  no compose file in the main checkout — docker stack check skipped"
+  elif command -v docker >/dev/null 2>&1; then
     local up
     up="$(docker ps --filter "name=^${COMPOSE_PROJECT_NAME_DEFAULT}-" --format '{{.Names}}' 2>/dev/null | sed -n '1,3p' | tr '\n' ' ' || true)"
     if [[ -n "$up" ]]; then

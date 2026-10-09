@@ -24,7 +24,10 @@ Usage:
     python3 scripts/adr-accepted-issue-sweep.py --show-unrankable
     python3 scripts/adr-accepted-issue-sweep.py --self-test
 
-The project is read from $CI_PROJECT_PATH, else from the `origin` remote.
+The repository (`owner/repo`) is read from $GITHUB_REPOSITORY (set by GitHub
+Actions), else from the `origin` remote; it is never hardcoded. Issues are read
+through `gh api`, so `gh auth login` (or GH_TOKEN) must be in place. With no
+GitHub repository to ask, the sweep says so instead of reporting zero issues.
 """
 
 from __future__ import annotations
@@ -37,7 +40,6 @@ import subprocess
 import sys
 import tempfile
 from glob import glob
-from urllib.parse import quote
 
 ADR_REF = re.compile(r"ADR-(\d{3,4})")
 # Two ADR template shapes: a `## Status` section (heading style) and a
@@ -56,16 +58,18 @@ DATE = re.compile(r"(20\d\d-\d\d-\d\d)")
 CORRECTION = re.compile(r"correct|audit|reconcil|back-?fill|restat", re.I)
 
 
-def project_path() -> str:
-    """`group/project`, URL-encoded for the API path."""
-    p = os.environ.get("CI_PROJECT_PATH")
-    if not p:
-        url = subprocess.run(
-            ["git", "remote", "get-url", "origin"], capture_output=True, text=True
-        ).stdout.strip()
-        m = re.search(r"[:/]([^:/]+/[^/]+?)(?:\.git)?$", url)
-        p = m.group(1) if m else ""
-    return quote(p, safe="")
+def repo_slug() -> str:
+    """`owner/repo` from $GITHUB_REPOSITORY, else a GitHub origin remote; "" if neither."""
+    p = os.environ.get("GITHUB_REPOSITORY", "").strip()
+    if p:
+        return p
+    url = subprocess.run(
+        ["git", "remote", "get-url", "origin"], capture_output=True, text=True
+    ).stdout.strip()
+    if "github" not in url:
+        return ""
+    m = re.search(r"[:/]([^:/]+/[^/]+?)(?:\.git)?/?$", url)
+    return m.group(1) if m else ""
 
 
 def adr_index(root: str) -> dict[int, str]:
@@ -101,21 +105,40 @@ def adr_status(path: str) -> tuple[str, str | None, bool, str]:
     return ("Accepted", d.group(1) if d else None, bool(CORRECTION.search(head)), head)
 
 
-def open_issues(project: str) -> list[dict]:
+def only_issues(batch: list) -> list[dict]:
+    """Drop pull requests: GitHub's issues endpoint returns PRs too, marked by a
+    `pull_request` key. A PR body that says "implements ADR-NNNN" is the branch
+    doing the work, not an issue whose scope predates the ADR."""
+    return [i for i in batch if isinstance(i, dict) and "pull_request" not in i]
+
+
+def open_issues(repo: str) -> list[dict]:
     issues: list[dict] = []
+    # Explicit pages rather than `gh api --paginate`: older gh versions emit one
+    # JSON array per page, concatenated, which json.loads rejects — and a sweep
+    # that silently read page one only would under-report with no signal.
     for page in range(1, 30):
-        r = subprocess.run(
-            ["glab", "api", f"projects/{project}/issues?state=opened&per_page=100&page={page}"],
-            capture_output=True,
-            text=True,
-        )
+        try:
+            r = subprocess.run(
+                ["gh", "api", f"repos/{repo}/issues?state=open&per_page=100&page={page}"],
+                capture_output=True,
+                text=True,
+            )
+        except FileNotFoundError:
+            print("adr-accepted-issue-sweep: gh is not installed; no issues read.", file=sys.stderr)
+            break
+        if r.returncode != 0:
+            print(f"adr-accepted-issue-sweep: could not read issues of {repo} (page {page}); "
+                  "the counts below cover only what was read. Check 'gh auth status'.",
+                  file=sys.stderr)
+            break
         try:
             batch = json.loads(r.stdout)
         except json.JSONDecodeError:
             break
         if not batch:
             break
-        issues += batch
+        issues += only_issues(batch)
     return issues
 
 
@@ -137,7 +160,7 @@ def _classify_reference(
         return None
     created = issue["created_at"][:10]
     row = (
-        issue["iid"],
+        issue["number"],
         created,
         n,
         date,
@@ -157,7 +180,7 @@ def classify(issues: list[dict], adrs: dict[int, str], only: int | None, since: 
     risk, suppressed, unrankable = [], [], []
     buckets = {"risk": risk, "suppressed": suppressed, "unrankable": unrankable}
     for issue in issues:
-        blob = (issue.get("title") or "") + " " + (issue.get("description") or "")
+        blob = (issue.get("title") or "") + " " + (issue.get("body") or "")
         for n in sorted({int(x) for x in ADR_REF.findall(blob)}):
             if only and n != only:
                 continue
@@ -216,12 +239,18 @@ def self_test() -> int:
           adr_status(os.path.join(adr_dir, "0006-undated.md"))[1], None)
 
     adrs = adr_index(tmp)
-    issues = [
-        {"iid": 10, "created_at": "2026-04-01T00:00:00Z", "title": "implements ADR-0001", "description": "", "milestone": None},
-        {"iid": 11, "created_at": "2026-06-01T00:00:00Z", "title": "implements ADR-0001", "description": "", "milestone": None},
-        {"iid": 12, "created_at": "2026-04-01T00:00:00Z", "title": "implements ADR-0005", "description": "", "milestone": None},
-        {"iid": 13, "created_at": "2026-04-01T00:00:00Z", "title": "implements ADR-0006", "description": "", "milestone": None},
+    # GitHub REST issue shape: `number`, `body`; the issues endpoint also returns
+    # pull requests (carrying a `pull_request` key), which must be dropped.
+    raw = [
+        {"number": 10, "created_at": "2026-04-01T00:00:00Z", "title": "implements ADR-0001", "body": "", "milestone": None},
+        {"number": 11, "created_at": "2026-06-01T00:00:00Z", "title": "implements ADR-0001", "body": None, "milestone": None},
+        {"number": 12, "created_at": "2026-04-01T00:00:00Z", "title": "t", "body": "implements ADR-0005", "milestone": {"title": "0.1"}},
+        {"number": 13, "created_at": "2026-04-01T00:00:00Z", "title": "implements ADR-0006", "body": "", "milestone": None},
+        {"number": 14, "created_at": "2026-04-01T00:00:00Z", "title": "implements ADR-0001", "body": "",
+         "milestone": None, "pull_request": {"url": "https://api.github.com/x"}},
     ]
+    issues = only_issues(raw)
+    check("pull requests from the issues endpoint are dropped", [i["number"] for i in issues], [10, 11, 12, 13])
     risk, suppressed, unrankable = classify(issues, adrs, None, None)
     check("issue written before acceptance is flagged", [r[0] for r in risk], [10])
     check("issue written after acceptance is not flagged", 11 in [r[0] for r in risk], False)
@@ -249,7 +278,12 @@ def main() -> int:
         ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True
     ).stdout.strip() or "."
     adrs = adr_index(root)
-    issues = open_issues(project_path())
+    repo = repo_slug()
+    if not repo:
+        print("adr-accepted-issue-sweep: no GitHub repository to read issues from "
+              "(no $GITHUB_REPOSITORY and no GitHub origin remote) — nothing swept.")
+        return 0
+    issues = open_issues(repo)
 
     risk, suppressed, unrankable = classify(issues, adrs, args.adr, args.since)
 

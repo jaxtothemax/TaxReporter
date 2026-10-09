@@ -1,0 +1,26 @@
+# Prettier formats the application and its tooling config, and nothing else.
+# Everything outside that is the Blueprint delivery harness (scripts/, hooks/,
+# .claude/, .github/, docs/, website/, the root *.md files, ...), which keeps
+# its own conventions and gates and must never be rewritten by `make format`.
+#
+# So this file is an ALLOWLIST: ignore every top-level entry, then re-include
+# the application trees and the root config files by name. A new top-level
+# directory stays out of Prettier's reach until someone adds it here on purpose.
+/*
+!/packages/
+!/apps/
+!/package.json
+!/pnpm-workspace.yaml
+!/tsconfig*.json
+!/*.config.js
+!/*.config.ts
+
+# Build output inside the application trees (also in .gitignore, which Prettier
+# reads too — repeated here so this file alone states the scope).
+dist/
+coverage/
+
+# The vendored FURS schemas are pinned byte-for-byte by SHA-256 (see
+# packages/furs/schemas/README.md). Prettier has no XML parser today, but an XML
+# plugin added later would reformat them and break every pin.
+packages/furs/schemas/*.xsd

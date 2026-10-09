@@ -1,7 +1,7 @@
 ---
 name: regression-check
 model: opus
-description: Use proactively before opening any merge request on a branch that changes source code. Audits for regressions by mapping changed files to risk zones, finding stale mocks and fixtures, and running affected test suites.
+description: Use proactively before opening any pull request on a branch that changes source code. Audits for regressions by mapping changed files to risk zones, finding stale mocks and fixtures, and running affected test suites.
 tools: Read, Grep, Glob, Bash, Agent
 ---
 

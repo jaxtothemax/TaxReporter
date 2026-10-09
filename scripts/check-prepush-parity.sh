@@ -6,7 +6,7 @@
 # `pre-push` mirrored eight bespoke CI gates. A ninth — of exactly that shape —
 # was not among them, so the one gate policing a design-token ratchet was the
 # one nobody could run before pushing. A breach passed `make pre-push` cleanly
-# and failed the MR pipeline: precisely the round trip `pre-push` exists to
+# and failed the PR's CI run: precisely the round trip `pre-push` exists to
 # prevent.
 #
 # It was not missed through carelessness. Two Make targets one character apart
@@ -18,8 +18,15 @@
 # added by hand as it was written, with nothing asserting the list stayed
 # complete. Fixing the one missing entry would leave that intact and the next
 # gate would fall behind the same way. So this script DERIVES the CI set from
-# the CI configuration rather than restating it, and fails when a script appears
-# there with neither a Makefile mirror nor an entry in OPT_OUT below.
+# the CI configuration (.github/workflows/*.yml) rather than restating it, and
+# fails when a script appears there with neither a Makefile mirror nor an entry in
+# OPT_OUT below.
+#
+# Discovery is a plain text match over the whole workflow file, comments
+# included, on purpose: a script named anywhere in a workflow — a commented-out
+# opt-in job, a `paths:` filter — is one uncomment away from running in CI, and
+# over-matching here costs one Makefile line, while under-matching is the
+# silent gap this script exists to close.
 #
 # ## Usage
 #
@@ -52,7 +59,9 @@ if [ "${1:-}" = "--self-test" ]; then
   mkdir -p "$tmp/scripts"
   cp "${BASH_SOURCE[0]}" "$tmp/scripts/check-prepush-parity.sh"
   printf '#!/usr/bin/env bash\nexit 0\n' > "$tmp/scripts/check-example.sh"
-  printf 'example-job:\n  script:\n    - bash scripts/check-example.sh\n' > "$tmp/.gitlab-ci.yml"
+  mkdir -p "$tmp/.github/workflows"
+  printf 'name: ci\non: [pull_request]\njobs:\n  example-job:\n    runs-on: ubuntu-latest\n    steps:\n      - run: bash scripts/check-example.sh\n' \
+    > "$tmp/.github/workflows/ci.yml"
   printf 'all:\n\t@true\n' > "$tmp/Makefile"
 
   if (cd "$tmp" && bash scripts/check-prepush-parity.sh >/dev/null 2>&1); then
@@ -87,63 +96,31 @@ MAKEFILE="Makefile"
 #
 # Format: one "basename<TAB>reason" per line.
 #
-# check-chart-registry.sh is the clearest legitimate case: its oracle is the
-# published OCI chart registry, not the working tree. No commit in this repo
-# can fix a registry drifting (a stable chart shadowing its own betas), and a
-# red here would block an UNRELATED push — exactly the two disqualifiers
-# above, and exactly the corollary scripts/CLAUDE.md's "a gate that cannot
-# reach its oracle must go RED" section names: "a gate whose input is not the
-# repository cannot live in pre-push". It still self-tests in its own CI job
-# (helm-registry-drift in ci/helm.yml) — see check-gate-selftest-parity.sh —
-# this opt-out is ONLY about the pre-push mirror, not about the gate's
-# ability to fail. Run it directly: bash scripts/check-chart-registry.sh.
-#
-# Second entry (#37): the OSV severity gate's oracle is the OSV.dev advisory
-# database, reached only by running the osv-scanner binary over network — not
-# the repository. Per scripts/CLAUDE.md's "a gate that cannot reach its
-# oracle must go RED" corollary, that disqualifies it from pre-push: no commit
-# can fix a lookup failure, and a red here would block an unrelated push. Its
-# --self-test IS hermetic (synthetic JSON fixtures, no network) and is proven
-# in its own CI job before the real scan — see .gitlab-ci.yml — but is
+# The OSV severity gate is the clearest legitimate case (#37): its oracle is the
+# OSV.dev advisory database, reached only by running the osv-scanner binary over
+# network — not the repository. Per scripts/CLAUDE.md's "a gate that cannot
+# reach its oracle must go RED" corollary, that disqualifies it from pre-push:
+# no commit can fix a lookup failure, and a red here would block an unrelated
+# push. Its --self-test IS hermetic (synthetic JSON fixtures, no network) and is
+# proven in its own CI job before the real scan — see .github/workflows/security.yml — but is
 # deliberately not given its own Makefile line either, so this OPT_OUT stays
 # the single place that explains the constraint instead of a text-match
 # technicality doing it silently.
-#
-# Third entry (#40): nightly_load_test.py's real invocation needs a LIVE
-# booted API, a data-volume fixture large enough to be representative, and a
-# multi-minute time budget — none of which pre-push, a seconds-scale offline
-# check over the working tree, can stand up. Unlike check-chart-registry.sh
-# and osv-severity-gate.sh above, its oracle is not literally external state
-# (no registry, no advisory feed) — it is infrastructure the developer's own
-# clone must provide (LOAD_TEST_API_BOOT_SCRIPT; see ci/python.yml), which is
-# exactly why no generic Makefile target for it can mean anything in this
-# template repo the way `helm-drill` does for a self-contained kind cluster.
-# Its --self-test IS hermetic (pure percentile/budget-comparison/
-# budget-resolution functions, no network, no files) and is proven in its own
-# CI job (python-nightly-load-test in ci/python.yml) before the real run —
-# see check-gate-selftest-parity.sh — but is deliberately not given its own
-# Makefile line either, for the same reason as osv-severity-gate.sh: doing so
-# would satisfy this script's own text-match check for the wrong reason and
-# hide the real constraint behind a technicality. Run its self-test by hand:
-# python3 scripts/nightly_load_test.py --self-test.
 OPT_OUT="
-check-chart-registry.sh	EXTERNAL: oracle is the published OCI chart registry, not the working tree — no commit fixes a registry drift and a red would block an unrelated push (scripts/CLAUDE.md's pre-push corollary)
 ci-assert-artifacts.sh	runtime helper a publish job calls on the artifacts IT just built; there is nothing to assert before the job runs. Its behavior is proven by check-artifact-assertions.sh --self-test, which pre-push runs
-check-mr-followups.sh	reads the MR description from the GitLab API, which does not exist before the push that opens the MR; run it by hand with --file <description.md>
+check-pr-followups.sh	reads the PR description from the GitHub API, which does not exist before the push that opens the PR; run it by hand with --file <description.md>
 osv-severity-gate.sh	oracle is the OSV.dev advisory database (network), not the repository — see scripts/CLAUDE.md 'a gate that cannot reach its oracle must go RED'
-nightly_load_test.py	real invocation needs a live booted API + a representative data-volume fixture + a multi-minute time budget, none of which pre-push can stand up — see scripts/CLAUDE.md's pre-push corollary; --self-test is hermetic and proven in its own CI job (python-nightly-load-test in ci/python.yml)
 "
 
 # ─── Discover the CI gate scripts ────────────────────────────────────────────
 
 CI_FILES=()
-for f in .gitlab-ci.yml .gitlab-ci.yaml; do [ -f "$f" ] && CI_FILES+=("$f"); done
-for f in ci/*.yml ci/*.yaml .github/workflows/*.yml .github/workflows/*.yaml; do
+for f in .github/workflows/*.yml .github/workflows/*.yaml; do
   [ -f "$f" ] && CI_FILES+=("$f")
 done
 
 if [ "${#CI_FILES[@]}" -eq 0 ]; then
-  echo "ERROR: no CI configuration found (.gitlab-ci.yml, ci/*.yml, .github/workflows/*)." >&2
+  echo "ERROR: no CI configuration found (.github/workflows/*.yml)." >&2
   exit 2
 fi
 

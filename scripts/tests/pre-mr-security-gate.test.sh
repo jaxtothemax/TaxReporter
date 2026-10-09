@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # scripts/tests/pre-mr-security-gate.test.sh — the pre-MR security gate hook
-# fires on the event it actually claims to cover now: a `glab mr create`
-# Bash call, not the literal string "/mr" in a user prompt (issue #11).
+# fires on the event it actually claims to cover now: a `gh pr create`
+# Bash call (a GitHub pull request — this repository's "MR"), not the literal
+# string "/mr" in a user prompt (issue #11).
 #
 # The hook is not itself a CI gate — it is a Claude Code PreToolUse hook, so
-# it has no job of its own in .gitlab-ci.yml. This is the bucket
+# it has no job of its own in .github/workflows/. This is the bucket
 # scripts/tests/wt-args.test.sh models: hermetic, no gate job to piggyback
 # on, run directly from `tooling-self-tests`.
 #
@@ -13,7 +14,7 @@
 # from inside a throwaway git repo, and asserts on its JSON output:
 # `permissionDecision: "deny"` (blocked, with a reason) or no output at all
 # (the hook exits 0 silently — the common case, and the one that must stay
-# free for every non-MR Bash call).
+# free for every non-PR Bash call).
 
 set -uo pipefail
 
@@ -101,46 +102,77 @@ make_repo sensitive app/views.py "def view(): pass"
 make_repo docs_only README.md "some docs"
 make_repo nonsensitive app/utils.py "def util(): pass"
 
-MR_CREATE='glab mr create --title "x" --target-branch main --description "desc"'
+PR_CREATE='gh pr create --title "x" --base main --body "desc"'
 
-# ── Case 1: a real `glab mr create` on a branch with sensitive source
+# ── Case 1: a real `gh pr create` on a branch with sensitive source
 # changes fires the gate. ────────────────────────────────────────────────
-check "glab mr create + sensitive diff → denied" \
-  "$TMP/sensitive" "$MR_CREATE" deny
+check "gh pr create + sensitive diff → denied" \
+  "$TMP/sensitive" "$PR_CREATE" deny
 
-# ── Case 2: a non-MR Bash command never fires it, even on the same
-# sensitive branch. ─────────────────────────────────────────────────────
-check "non-MR command on the same branch → allowed" \
+# ── Case 2: a non-PR Bash command never fires it, even on the same
+# sensitive branch — including read-only `gh pr` subcommands. ───────────
+check "non-PR command on the same branch → allowed" \
   "$TMP/sensitive" 'git push -u origin feat/x' allow
+check "read-only gh pr view on the same branch → allowed" \
+  "$TMP/sensitive" 'gh pr view --json number,url' allow
 
 # ── Case 3: the SKIP_SECURITY_GATE=1 opt-out bypasses the gate. ─────────
 check "SKIP_SECURITY_GATE=1 prefix → allowed" \
-  "$TMP/sensitive" "SKIP_SECURITY_GATE=1 $MR_CREATE" allow
+  "$TMP/sensitive" "SKIP_SECURITY_GATE=1 $PR_CREATE" allow
 
-# ── Case 4: the opt-out phrase appearing only inside the --description
+# ── Case 4: the opt-out phrase appearing only inside the --body
 # heredoc body must NOT bypass the gate — it has to be a real env-var
 # assignment on the command, not prose the hook happens to read. ────────
 # Deliberately single-quoted: this builds the literal `$(cat <<'EOF'` text
 # fed to the hook as fixture data, not an expression meant to expand here.
 # shellcheck disable=SC2016
-DESC_WITH_PHRASE='glab mr create \
+BODY_WITH_PHRASE='gh pr create \
   --title "x" \
-  --target-branch main \
-  --description "$(cat <<'"'"'EOF'"'"'
-Use SKIP_SECURITY_GATE=1 glab mr create to bypass this hook.
+  --base main \
+  --body "$(cat <<'"'"'EOF'"'"'
+Use SKIP_SECURITY_GATE=1 gh pr create to bypass this hook.
 EOF
 )"'
-check "opt-out phrase only in description body → still denied" \
-  "$TMP/sensitive" "$DESC_WITH_PHRASE" deny
+check "opt-out phrase only in PR body → still denied" \
+  "$TMP/sensitive" "$BODY_WITH_PHRASE" deny
 
 # ── Case 5: source changed but nothing sensitive still requires the gate
-# (rbac-check is required on every source-touching branch). ─────────────
-check "glab mr create + non-sensitive source diff → denied" \
-  "$TMP/nonsensitive" "$MR_CREATE" deny
+# (security-review is required on every source-touching branch). ───────
+check "gh pr create + non-sensitive source diff → denied" \
+  "$TMP/nonsensitive" "$PR_CREATE" deny
 
 # ── Case 6: a docs-only branch never fires the gate at all. ─────────────
-check "glab mr create + docs-only diff → allowed" \
-  "$TMP/docs_only" "$MR_CREATE" allow
+check "gh pr create + docs-only diff → allowed" \
+  "$TMP/docs_only" "$PR_CREATE" allow
+
+# ── Case 6b: `gh pr new` is gh's built-in alias for `gh pr create`; it
+# opens the same PR, so it must hit the same gate. ──────────────────────
+check "gh pr new (alias) + source diff → denied" \
+  "$TMP/nonsensitive" 'gh pr new --title "x" --base main --body "desc"' deny
+
+# ── Case 6c: a `gh pr create` chained after another statement is still a
+# real invocation, not prose. ───────────────────────────────────────────
+check "git push && gh pr create + source diff → denied" \
+  "$TMP/nonsensitive" "git push -u origin feat/x && $PR_CREATE" deny
+
+# ── Case 7: the deny reason names security-review as the ONE required gate,
+# so an agent is never told to wait for a gate this project does not ship. ─
+reason_gates="$(
+  cd "$TMP/nonsensitive" || exit 1
+  python3 -c '
+import json, sys
+print(json.dumps({"tool_name": "Bash", "tool_input": {"command": sys.argv[1]}}))
+' "$PR_CREATE" | "$HOOK" | python3 -c '
+import json, sys
+reason = json.load(sys.stdin)["hookSpecificOutput"]["permissionDecisionReason"]
+print(",".join(l[2:] for l in reason.splitlines() if l.startswith("- ") and " " not in l[2:]))
+'
+)"
+if [ "$reason_gates" = "security-review" ]; then
+  pass "deny reason requires exactly security-review"
+else
+  fail "deny reason required gates '$reason_gates', wanted exactly 'security-review'"
+fi
 
 [ "$rc" -eq 0 ] && echo "pre-mr-security-gate: self-test passed."
 exit "$rc"

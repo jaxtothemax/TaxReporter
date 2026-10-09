@@ -56,5 +56,5 @@ files. The release script calls this automatically.
 ## When to skip
 
 The CI `changelog-check` job auto-skips for branches that only touch CI config,
-docs, tests, or tooling. You can also add the `~no-changelog` label to skip
+docs, tests, or tooling. You can also add the `no-changelog` pull request label to skip
 manually.

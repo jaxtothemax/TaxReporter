@@ -9,13 +9,13 @@
 # the WIP cap.
 #
 # The fix must not trade a false keep for a false prune, so each widened path has a
-# near-identical negative twin that must SURVIVE: a squash merge whose MR head is not
+# near-identical negative twin that must SURVIVE: a squash merge whose PR head is not
 # the local tip, and a branch where only SOME patches reached the default branch.
 # Each positive case also asserts its precondition — that the ancestor test really
 # fails for it — or it would pass against the unfixed script and prove nothing.
 #
-# The forge CLI is stubbed: the sandbox has no forge, and a real CLI would fail every
-# MR lookup, so the squash case could never pass.
+# The forge CLI is stubbed: the sandbox has no GitHub, and a real gh would fail every
+# merged-PR lookup, so the squash case could never pass.
 
 set -euo pipefail
 
@@ -29,16 +29,29 @@ check() { # <label> <0 = pass>
   else echo "SELF-TEST FAILED: $1" >&2; fail=1; fi
 }
 
-# `glab api …` prints $GLAB_STUB_JSON (default: no MRs); anything else is a no-op.
+# `gh pr list …` answers from $GH_STUB_JSON (default: no merged PRs), applying the
+# `--jq '.[].headRefOid'` filter wt passes the way real gh would; anything else is
+# a no-op. The stub also records that it was asked for MERGED PRs of the right head
+# branch — a lookup that drifted to another state or branch would otherwise still
+# pass the squash case on the fixture alone.
 mkdir -p "$TMP/bin"
-cat > "$TMP/bin/glab" <<'EOF'
+cat > "$TMP/bin/gh" <<'EOF'
 #!/usr/bin/env bash
-if [[ "${1:-}" == "api" ]]; then printf '%s\n' "${GLAB_STUB_JSON:-[]}"; fi
+if [[ "${1:-} ${2:-}" == "pr list" ]]; then
+  printf '%s\n' "$*" >> "${GH_STUB_LOG:-/dev/null}"
+  [[ "$*" == *"--state merged"* ]] || exit 0
+  python3 -c '
+import json, sys
+for pr in json.loads(sys.argv[1]):
+    print(pr.get("headRefOid", ""))
+' "${GH_STUB_JSON:-[]}"
+fi
 exit 0
 EOF
-chmod +x "$TMP/bin/glab"
+chmod +x "$TMP/bin/gh"
 export PATH="$TMP/bin:$PATH"
-export WT_FORGE=glab
+export WT_FORGE=gh
+export GH_STUB_LOG="$TMP/gh.log"
 # Sandbox worktrees are seconds old; without this every case is a grace-window keep.
 export WT_GRACE_MIN=0
 # Hermetic git: no user or system config (hooks paths, default branch, signing).
@@ -88,8 +101,8 @@ land() {
 }
 
 RUN_OUT=""
-prune_in() { # prune_in <repo> [stubbed MR json]
-  RUN_OUT="$( cd "$1" && GLAB_STUB_JSON="${2:-[]}" bash "$WT" prune 2>&1 )" || true
+prune_in() { # prune_in <repo> [stubbed merged-PR json]
+  RUN_OUT="$( cd "$1" && GH_STUB_JSON="${2:-[]}" bash "$WT" prune 2>&1 )" || true
 }
 
 not_ancestor() { # 0 when the branch tip is NOT in main's history
@@ -116,7 +129,7 @@ prune_in "$D"
 check "rewritten tip whose patch is in main: worktree removed" "$([[ ! -d "$P" ]] && echo 0 || echo 1)"
 check "rewritten tip: the report says why" "$(grep -q 'every patch already in main' <<< "$RUN_OUT"; echo $?)"
 
-# --- Case 3: squash merge, merged MR head == local tip ------------------------
+# --- Case 3: squash merge, merged PR head == local tip ------------------------
 D="$TMP/c3"; mk_repo "$D"
 P="$(add_wt "$D" feat/3-squash 2)"
 git -C "$D" merge -q --squash feat/3-squash >/dev/null && git -C "$D" commit -qm "squashed"
@@ -125,17 +138,19 @@ TIP="$(git -C "$D" rev-parse feat/3-squash)"
 CHERRY="$(git -C "$D" cherry main feat/3-squash)"
 check "squash: precondition — not an ancestor" "$(not_ancestor "$D" feat/3-squash; echo $?)"
 check "squash: precondition — git cherry cannot see it" "$([[ "$CHERRY" == *"+ "* ]] && echo 0 || echo 1)"
-prune_in "$D" "[{\"iid\": 1, \"sha\": \"$TIP\"}]"
-check "squash merge whose MR head is the tip: worktree removed" "$([[ ! -d "$P" ]] && echo 0 || echo 1)"
+prune_in "$D" "[{\"number\": 1, \"headRefOid\": \"$TIP\"}]"
+check "squash merge whose PR head is the tip: worktree removed" "$([[ ! -d "$P" ]] && echo 0 || echo 1)"
+check "squash: the lookup asked for merged PRs of this head branch" \
+  "$(grep -q -- '--state merged --head feat/3-squash' "$GH_STUB_LOG"; echo $?)"
 
-# --- Case 4: squash merge, but the MR head is NOT the local tip ---------------
+# --- Case 4: squash merge, but the PR head is NOT the local tip ---------------
 D="$TMP/c4"; mk_repo "$D"
 P="$(add_wt "$D" feat/4-squash 2)"
 git -C "$D" merge -q --squash feat/4-squash >/dev/null && git -C "$D" commit -qm "squashed"
 land "$D" feat/4-squash
-prune_in "$D" '[{"iid": 1, "sha": "0000000000000000000000000000000000000000"}]'
-check "squash merge whose MR head differs: worktree kept" "$([[ -d "$P" ]] && echo 0 || echo 1)"
-check "squash merge whose MR head differs: warns not-in-main" "$(grep -q 'NOT in origin/main' <<< "$RUN_OUT"; echo $?)"
+prune_in "$D" '[{"number": 1, "headRefOid": "0000000000000000000000000000000000000000"}]'
+check "squash merge whose PR head differs: worktree kept" "$([[ -d "$P" ]] && echo 0 || echo 1)"
+check "squash merge whose PR head differs: warns not-in-main" "$(grep -q 'NOT in origin/main' <<< "$RUN_OUT"; echo $?)"
 
 # --- Case 5: only some of the branch's patches reached main -------------------
 D="$TMP/c5"; mk_repo "$D"

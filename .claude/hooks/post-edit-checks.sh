@@ -5,44 +5,67 @@
 # CUSTOMIZE: Add patterns for your project's sensitive file types.
 # Exit 0 = informational; exit 2 = block.
 
+# The event JSON arrives on stdin, but `python3 -` reads its program from
+# stdin too (the heredoc below), so the event must be captured first and
+# handed over in an env var. Reading sys.stdin inside the heredoc program
+# finds EOF, the except branch exits 0, and the hook silently checks nothing.
+HOOK_EVENT_JSON="$(cat)"
+export HOOK_EVENT_JSON
+
 python3 - <<'PYEOF'
-import sys, json, re
+import os, sys, json, re
 
 try:
-    data = json.load(sys.stdin)
+    data = json.loads(os.environ.get("HOOK_EVENT_JSON") or "{}")
     file_path = data.get("tool_input", {}).get("file_path", "")
 except Exception:
     sys.exit(0)
 
 messages = []
 
-# ── Agent reminders for sensitive file types ──────────────────────────────────
-# CUSTOMIZE: Add patterns for your project's sensitive file types.
+# ── Agent reminders for this repo's sensitive paths ──────────────────────────
 
-# Data models changed → check migrations
-# Examples: models.py (Django), schema.prisma, migrations/, *.sql
-if re.search(r"models\.py$|schema\.prisma$|\.sql$", file_path):
-    messages.append("models/schema modified — verify migration safety")
+# Untrusted input: broker adapters parse hostile files, the rate-snapshot
+# builder parses XML downloaded from Banka Slovenije, the CLI reads any
+# path it is given, and the pipeline and the web app's worker run every
+# file a user adds (ADR 0013).
+if re.search(r"packages/(brokers|pipeline)/src/|packages/fx/(src|scripts)/|apps/cli/src/|apps/web/src/engine/", file_path):
+    messages.append(
+        "untrusted-input handling modified — run the security-review agent\n"
+        "   (size limits, no DTD/external entities, no eval, ReDoS-safe regexes)"
+    )
 
-# Endpoint/handler changed → check auth, RBAC, and security
-# Examples: views.py (Django), routes/ (Express), handlers/ (Go)
-if re.search(r"views\.py$|routes/|handlers/|controllers/", file_path):
-    messages.append("endpoint modified — use the rbac-check and security-review agents (run them as a parallel batch)")
+# Generated output that FURS ingests.
+if re.search(r"packages/furs/src/", file_path):
+    messages.append(
+        "FURS XML generation modified — update the golden files, validate them against\n"
+        "   packages/furs/schemas/, and run the security-review agent"
+    )
 
-# Auth/permission logic changed → check RBAC
-if re.search(r"permissions?\.py$|auth\.|middleware", file_path):
-    messages.append("auth/permissions modified — use the rbac-check and security-review agents")
+# Vendored FURS schemas: FURS edits them in place, so a schema change is a
+# tax-rule change, and the bytes must stay exactly what FURS published.
+if re.search(r"packages/furs/schemas/", file_path):
+    messages.append(
+        "vendored FURS schema modified — re-vendor it byte for byte, update the SHA-256\n"
+        "   table in packages/furs/schemas/README.md, and treat it as a tax-rule change"
+    )
+
+# Tax, rate and lot logic: a changed rule changes people's returns.
+if re.search(r"packages/(core|fx|furs)/src/", file_path) and not re.search(r"\.test\.tsx?$", file_path):
+    messages.append(
+        "tax/rate/lot logic modified — cite the primary source in docs/research/, and if any\n"
+        "   figure can change, add a `changed` changelog fragment naming the affected returns"
+    )
 
 # UI surface changed → remind about VoC (before design) and accessibility (after)
-# Examples: components/, pages/, features/ with *.tsx/*.jsx/*.vue/*.svelte
-if re.search(r"(components?|pages?|screens?|features?|views?)/.*\.(tsx|jsx|vue|svelte)$", file_path):
+if re.search(r"apps/web/src/.*\.(tsx|jsx)$", file_path) and not re.search(r"\.test\.tsx?$", file_path):
     messages.append(
         "🎤 UI surface changed — for a new user-facing flow, run /voc before design;\n"
         "   after implementing, run the ux-review and accessibility agents."
     )
 
 # ── Same-commit test reminder ─────────────────────────────────────────────────
-# When production source is edited (not tests/migrations), remind to update
+# When production source is edited (not tests/fixtures), remind to update
 # the corresponding test file in the same commit.
 #
 # CUSTOMIZE: Adjust path patterns for your project's source layout.

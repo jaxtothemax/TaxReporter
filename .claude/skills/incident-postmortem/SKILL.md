@@ -1,7 +1,7 @@
 ---
 name: incident-postmortem
 description: Run a structured postmortem after a harness or process incident — a red default branch, a milestone that overran unnoticed, a gate that stayed green through something it was scoped to catch, work lost to a tooling collision. Reconstructs the timeline from the mechanical trail, separates root cause from contributing factors, checks whether an existing gate should have fired, and writes the lesson into the durable memory store instead of leaving it in a transcript. Reactive and incident-scoped — distinct from /kaizen, which is periodic and pattern-scoped.
-argument-hint: "[incident description or issue/MR reference]"
+argument-hint: "[incident description or issue/PR reference]"
 ---
 
 # Incident Postmortem
@@ -58,8 +58,8 @@ re-deriving it.
 
 ## Arguments
 
-- `[incident description or issue/MR reference]` — required. An issue or MR number if one
-  exists, or free text if the incident was never tracked (common for label-edit and
+- `[incident description or issue/PR reference]` — required. An issue or pull request
+  (PR) number if one exists, or free text if the incident was never tracked (common for label-edit and
   tooling-collision incidents, which rarely get their own issue).
 
 ---
@@ -69,16 +69,21 @@ re-deriving it.
 Pull the mechanical facts rather than working from recollection.
 
 ```bash
-glab issue view <N> 2>&1      # or: gh issue view <N>
-glab mr view <N> 2>&1         # or: gh pr view <N>
+gh issue view <N> --comments 2>&1
+gh pr view <N> --comments 2>&1
+gh pr checks <N> 2>&1         # the PR's check runs at its current head sha
 ```
+
+These resolve the repository from the origin remote. With no origin (or no GitHub repo
+yet) they fail with a "no git remotes" error: there is no tracker trail, so work from the
+git log and the user's account, and say so in the report.
 
 If only a description was given, ask the user for the minimum needed to anchor Step 2:
 roughly when it started, how it was noticed (a person, a CI failure, a user report), and
 current status.
 
 Record what broke, when it started, how long it was broken, how it was noticed, and the
-blast radius — everyone's pipeline, one branch, a shipped release, lost work.
+blast radius — everyone's CI, one branch, a shipped release, lost work.
 
 ## Step 2 — Reconstruct the timeline
 
@@ -87,9 +92,15 @@ Build it from the trail, not from what anyone remembers.
 ```bash
 git log --since="<window start>" --until="<window end>" --oneline --all
 
-glab api "projects/:id/pipelines?ref=$(git symbolic-ref --short HEAD)&per_page=50" \
-  | python3 -c "import json,sys; [print(p['id'], p['status'], p['created_at']) for p in json.load(sys.stdin)]"
+gh run list --branch "$(git symbolic-ref --short HEAD)" --limit 50 \
+  --json databaseId,workflowName,event,status,conclusion,createdAt,headSha \
+  -q '.[] | "\(.databaseId) \(.workflowName) \(.event) \(.status)/\(.conclusion) \(.createdAt) \(.headSha[0:8])"'
 ```
+
+(Swap `--branch main` in when the incident is a red default branch. A GitHub Actions run
+reads `success` even when a job marked `continue-on-error: true` failed inside it, so
+open the jobs of any run in the window — `gh run view <id> --json jobs` — rather than
+trusting the run's conclusion.)
 
 Produce four timestamps: **introduced** (the action that created the bad state),
 **noticed** (when a human or system first flagged it), **understood** (when the cause was
@@ -127,7 +138,7 @@ whichever gate should have covered the change. Three outcomes, three different f
   exact check that should have caught this and did not. "It ran" is not "it checked for
   this."
 - **A gate covered it and was skipped, or marked `n/a` wrongly** → a compliance gap, not a
-  coverage gap. Name where the skip happened — an MR's `## Gates` section, a conversation
+  coverage gap. Name where the skip happened — a PR's `## Gates` section, a conversation
   turn — rather than proposing a new check for a check that already exists.
 
 ## Step 5 — Write the durable memory entry
@@ -158,17 +169,21 @@ milestone rather than the one currently shipping: the incident just fixed is alr
 motion, and a process change landing late in it adds risk without benefit.
 
 ```bash
-glab issue create --title "<slug>" --label "chore,tooling" --description "$(cat <<'EOF'
+gh issue create --title "chore(harness): <slug>" --label "task" --body "$(cat <<'EOF'
 <finding body>
 EOF
 )"
 ```
 
-If the project uses dated milestones, **ask which `release::` value applies** rather than
-inferring one — `CLAUDE.md`'s milestone-commitment rule applies to an issue this skill
-files exactly as it does to any other.
+`--label` must name a label the repository already has — GitHub does not create one on
+first use, and an unknown label fails the create (`/kickoff` creates `task`).
 
-Cross-reference the incident issue or MR, and any related `/kaizen` finding, so the two are
+If the project uses dated milestones, **ask which `release:*` label applies** rather than
+inferring one, and add it with `--milestone "<title>" --label "task,release:<value>"` —
+`CLAUDE.md`'s milestone-commitment rule applies to an issue this skill files exactly as
+it does to any other.
+
+Cross-reference the incident issue or PR, and any related `/kaizen` finding, so the two are
 not investigated twice.
 
 ## Step 7 — Report
@@ -204,7 +219,7 @@ detection gap: <noticed − introduced>
 - Replace `/kaizen`'s periodic, pattern-scoped audit
 - Audit product code for bugs
 - Edit `CLAUDE.md`, CI config, or labels directly. It proposes; the user lands any change
-  through a normal branch and MR.
+  through a normal branch and PR.
 
 ## Anti-patterns to refuse
 

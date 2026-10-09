@@ -1,0 +1,6 @@
+Action,Time,ISIN,Ticker,Name,Notes,ID,No. of shares,Price / share,Currency (Price / share),Exchange rate,Result,Currency (Result),Total,Currency (Total),Withholding tax,Currency (Withholding tax),Currency conversion from amount,Currency (Currency conversion from amount),Currency conversion to amount,Currency (Currency conversion to amount),Currency conversion fee,Currency (Currency conversion fee),Merchant name,Merchant category
+Deposit,2025-02-03 09:12:44,,,,"Bank Transfer",00000000-0000-7000-8000-000000000101,,,,,,,1500.00,"EUR",,,,,,,,,,
+Market buy,2025-02-04 15:02:11.218,US00000ACME1,ACME,"Acme Corp",,EOF0000002001,3.0000000000,290.0000000000,USD,1.03500000,,,841.80,"EUR",,,,,,,1.26,"EUR",,
+Market buy,2025-03-17 10:00:03.004,IE00BK5BQT80,VWCE,"Vanguard FTSE All-World UCITS ETF (Acc)",,EOF0000002002,1.2345678912,121.5000000000,EUR,1.00000000,,,150.00,"EUR",,,,,,,,,,
+Currency conversion,2025-06-02 08:00:00,,,,,00000000-0000-7000-8000-000000000102,,,,,,,0.00,"EUR",,,100.00,"EUR",108.50,"USD",0.15,"EUR",,
+Card debit,2025-07-11 17:45:09,,,,,00000000-0000-7000-8000-000000000103,,,,,,,-12.40,"EUR",,,,,,,,,"Kavarna","Restaurants"

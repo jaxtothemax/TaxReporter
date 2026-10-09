@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Envelope xmlns="http://edavki.durs.si/Documents/Schemas/Doh_Div_3.xsd" xmlns:edp="http://edavki.durs.si/Documents/Schemas/EDP-Common-1.xsd">
+  <edp:Header>
+    <edp:taxpayer>
+      <edp:taxNumber>12345678</edp:taxNumber>
+      <edp:taxpayerType>FO</edp:taxpayerType>
+      <edp:name>Janez Novak</edp:name>
+      <edp:address1>Slovenska cesta 1</edp:address1>
+      <edp:city>Ljubljana</edp:city>
+      <edp:postNumber>1000</edp:postNumber>
+      <edp:postName>Ljubljana</edp:postName>
+    </edp:taxpayer>
+    <edp:Workflow>
+      <edp:DocumentWorkflowID>O</edp:DocumentWorkflowID>
+    </edp:Workflow>
+    <edp:domain>edavki.durs.si</edp:domain>
+  </edp:Header>
+  <edp:AttachmentList/>
+  <edp:Signatures/>
+  <body>
+    <Doh_Div>
+      <Period>2026</Period>
+      <EmailAddress>janez.novak@example.com</EmailAddress>
+      <PhoneNumber>041123456</PhoneNumber>
+      <ResidentCountry>SI</ResidentCountry>
+      <IsResident>true</IsResident>
+      <SelfReport>false</SelfReport>
+      <WfTypeU>false</WfTypeU>
+    </Doh_Div>
+    <Dividend>
+      <Date>2026-01-15</Date>
+      <PayerIdentificationNumber>US7561091049</PayerIdentificationNumber>
+      <PayerName>Realty Income Corp.</PayerName>
+      <PayerAddress>11995 El Camino Real, San Diego, CA 92130, United States</PayerAddress>
+      <PayerCountry>US</PayerCountry>
+      <Type>1</Type>
+      <Value>2.78</Value>
+      <ForeignTax>0.41</ForeignTax>
+      <SourceCountry>US</SourceCountry>
+    </Dividend>
+    <Dividend>
+      <Date>2026-02-12</Date>
+      <PayerIdentificationNumber>US0378331005</PayerIdentificationNumber>
+      <PayerName>Apple Inc.</PayerName>
+      <PayerAddress>One Apple Park Way, Cupertino, CA 95014, United States</PayerAddress>
+      <PayerCountry>US</PayerCountry>
+      <Type>1</Type>
+      <Value>12.04</Value>
+      <ForeignTax>1.80</ForeignTax>
+      <SourceCountry>US</SourceCountry>
+    </Dividend>
+    <Dividend>
+      <Date>2026-02-13</Date>
+      <PayerIdentificationNumber>US7561091049</PayerIdentificationNumber>
+      <PayerName>Realty Income Corp.</PayerName>
+      <PayerAddress>11995 El Camino Real, San Diego, CA 92130, United States</PayerAddress>
+      <PayerCountry>US</PayerCountry>
+      <Type>1</Type>
+      <Value>2.72</Value>
+      <ForeignTax>0.40</ForeignTax>
+      <SourceCountry>US</SourceCountry>
+    </Dividend>
+    <Dividend>
+      <Date>2026-03-13</Date>
+      <PayerIdentificationNumber>US7561091049</PayerIdentificationNumber>
+      <PayerName>Realty Income Corp.</PayerName>
+      <PayerAddress>11995 El Camino Real, San Diego, CA 92130, United States</PayerAddress>
+      <PayerCountry>US</PayerCountry>
+      <Type>1</Type>
+      <Value>2.81</Value>
+      <ForeignTax>0.42</ForeignTax>
+      <SourceCountry>US</SourceCountry>
+    </Dividend>
+    <Dividend>
+      <Date>2026-03-20</Date>
+      <PayerIdentificationNumber>GB00B10RZP78</PayerIdentificationNumber>
+      <PayerName>Unilever PLC</PayerName>
+      <PayerAddress>100 Victoria Embankment, London EC4Y 0DY, United Kingdom</PayerAddress>
+      <PayerCountry>GB</PayerCountry>
+      <Type>1</Type>
+      <Value>20.16</Value>
+      <ForeignTax>0.00</ForeignTax>
+      <SourceCountry>GB</SourceCountry>
+    </Dividend>
+    <Dividend>
+      <Date>2026-05-01</Date>
+      <PayerIdentificationNumber>US00206R1023</PayerIdentificationNumber>
+      <PayerName>AT&amp;T Inc.</PayerName>
+      <PayerAddress>208 S. Akard St., Dallas, TX 75202, United States</PayerAddress>
+      <PayerCountry>US</PayerCountry>
+      <Type>1</Type>
+      <Value>14.23</Value>
+      <ForeignTax>2.13</ForeignTax>
+      <SourceCountry>US</SourceCountry>
+    </Dividend>
+    <Dividend>
+      <Date>2026-05-08</Date>
+      <PayerIdentificationNumber>DE0008404005</PayerIdentificationNumber>
+      <PayerName>Allianz SE</PayerName>
+      <PayerAddress>Königinstraße 28, 80802 München, Germany</PayerAddress>
+      <PayerCountry>DE</PayerCountry>
+      <Type>1</Type>
+      <Value>123.20</Value>
+      <ForeignTax>32.49</ForeignTax>
+      <SourceCountry>DE</SourceCountry>
+    </Dividend>
+    <Dividend>
+      <Date>2026-05-14</Date>
+      <PayerIdentificationNumber>US0378331005</PayerIdentificationNumber>
+      <PayerName>Apple Inc.</PayerName>
+      <PayerAddress>One Apple Park Way, Cupertino, CA 95014, United States</PayerAddress>
+      <PayerCountry>US</PayerCountry>
+      <Type>1</Type>
+      <Value>2.31</Value>
+      <ForeignTax>0.34</ForeignTax>
+      <SourceCountry>US</SourceCountry>
+    </Dividend>
+    <Dividend>
+      <Date>2026-08-13</Date>
+      <PayerIdentificationNumber>US0378331005</PayerIdentificationNumber>
+      <PayerName>Apple Inc.</PayerName>
+      <PayerAddress>One Apple Park Way, Cupertino, CA 95014, United States</PayerAddress>
+      <PayerCountry>US</PayerCountry>
+      <Type>1</Type>
+      <Value>2.34</Value>
+      <ForeignTax>0.35</ForeignTax>
+      <SourceCountry>US</SourceCountry>
+    </Dividend>
+  </body>
+</Envelope>

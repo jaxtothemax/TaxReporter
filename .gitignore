@@ -18,6 +18,7 @@ dist/
 build/
 bin/
 *.egg-info/
+*.tsbuildinfo
 
 # ─── Coverage ─────────────────────────────────────────────────────────────────
 coverage/
@@ -41,7 +42,23 @@ Thumbs.db
 .npm/
 .cache/
 .astro/
+.vite/
+
+# ─── Real broker exports — NEVER commit ───────────────────────────────────────
+# Real, non-anonymized exports from your own broker accounts go under a private/
+# directory (at any depth) to try the tool on them. They carry account numbers,
+# holdings and personal data; committed test fixtures must be synthetic or
+# anonymized instead.
+private/
 
 # scripts/wt per-worktree files (direnv env, ownership marker)
 .envrc
 .wt-owner
+
+# Conflict copies that iCloud Drive and Finder make beside a synced file
+# ("intake 2.ts", "fixtures 2"). Some were committed once; git is the source
+# of truth, so a copy is never wanted. Real names here have no " N" suffix.
+* [0-9]
+* [0-9].*
+* [0-9][0-9]
+* [0-9][0-9].*

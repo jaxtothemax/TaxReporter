@@ -1,0 +1,562 @@
+# ─── Governance gates ─────────────────────────────────────────────────────────
+#
+# The harness layer: every gate that says yes or no about the repository itself
+# (process, wiring, shell hygiene), as opposed to the application. The
+# application's own lint/typecheck/test/build jobs live in .github/workflows/ci.yml
+# — see .github/workflows/CLAUDE.md for what that file must carry. Sibling workflows:
+#   security.yml — osv-scan (dependency advisories) + gitleaks-scan (secrets)
+#   docs.yml     — docs-internal-links, website-build, GitHub Pages deploy
+#   release.yml  — tag pushes: release-pipeline-gate, then publish the release
+#
+# Read .github/workflows/CLAUDE.md (which imports scripts/CLAUDE.md) before
+# touching this file. In short: a gate must be able to fail, must fail closed
+# when it cannot reach its oracle, and must scan the repository rather than the
+# working directory.
+#
+# Every gate runs its OWN --self-test FIRST, in its own job, before the real
+# scan. Not in a shared self-test job: a blind gate reports OK on every tree, so
+# a green from an untested gate is worth nothing — and the half that rots is
+# DISCOVERY, which is environment-dependent. A runner whose grep rejects
+# `--exclude-dir` turns a scan into a permanent clean report, and a self-test
+# that ran in a different job ran on a different runner VM and proved nothing
+# about this one. Same job is the only way to say "same runner".
+#
+# Gate scripts are called DIRECTLY from `run:` steps (`bash scripts/check-x.sh`),
+# never through `make`: check-gate-selftest-parity.sh and check-prepush-parity.sh
+# read these files to find the gates, and a gate hidden behind a make target is
+# invisible to both.
+#
+# ─── Triggers ─────────────────────────────────────────────────────────────────
+#
+#   pull_request  every gate; changelog-check and pr-followups run ONLY here
+#   push to main  every gate except the two PR-only ones — these runs are what
+#                 release.yml's release-pipeline-gate reads as proof that a
+#                 tagged commit passed
+#   schedule      weekly, against main. stale-references is the reason it
+#                 exists: a TODO(#N) goes stale when someone closes #N, which is
+#                 not a diff event at all. Everything else that runs on main
+#                 runs here too, the way a scheduled pipeline on the default
+#                 branch always did.
+#   workflow_dispatch  re-check main (or any branch) by hand
+#
+# Feature-branch pushes with no PR get no run: open a draft PR for CI. The
+# pre-commit gitleaks hook and `make pre-push` are the local catch until then.
+#
+# GitHub Actions has no automatic retry on runner failure; re-run the failed
+# job from the run page. Never re-run to get past a red gate.
+
+name: governance
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Superseded PR runs are canceled. main is keyed by SHA and never canceled:
+# every commit that lands on main needs its own completed run, because
+# release-pipeline-gate refuses to publish a tag whose commit has none.
+concurrency:
+  group: governance-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # ─── Changelog check (PR only) ──────────────────────────────────────────────
+  #
+  # Fails when no changelog fragment was added and the PR contains changes that
+  # warrant a changelog entry. Auto-skips for CI config, docs, tests, and tooling.
+  #
+  # Fragment naming: <issue-or-slug>.<type>.md  (e.g. 42.fixed.md)
+  # Valid types: added, changed, fixed, security
+  # Skip manually with the `no-changelog` label. Labels are read LIVE from the
+  # API at job time (falling back to the event payload), so adding the label and
+  # re-running this job re-checks it — a re-run reuses the original event
+  # payload, whose label list is frozen.
+  changelog-check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require a changelog fragment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          labels=""
+          if labels="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/labels" --jq '.[].name')"; then
+            :
+          else
+            echo "::warning::could not read live PR labels; using the event payload's (frozen at trigger time)."
+            labels="$(jq -r '.pull_request.labels[].name' "$GITHUB_EVENT_PATH")"
+          fi
+          if grep -qx 'no-changelog' <<<"$labels"; then
+            echo "INFO — 'no-changelog' label present; skipping."
+            exit 0
+          fi
+
+          # Auto-skip for chore/ branches (dependency bumps, CI config, tooling)
+          if [[ "$HEAD_REF" == chore/* ]]; then
+            echo "INFO — chore/ branch; skipping changelog check."
+            exit 0
+          fi
+
+          # Three-dot: what the PR changed since it left its base, not what the
+          # base gained meanwhile. Fails the job (not a skip) if either SHA is
+          # missing — a changelog gate that cannot see the diff has not checked.
+          CHANGED="$(git diff --name-only "${BASE_SHA}...${HEAD_SHA}")"
+
+          # Strip files that never need a changelog entry
+          MEANINGFUL="$(grep -Ev '^\.github/' <<<"$CHANGED" || true)"
+          MEANINGFUL="$(grep -Ev '^(docs/|README|CLAUDE\.md|\.gitignore|Makefile|scripts/|mkdocs\.yml)' <<<"$MEANINGFUL" || true)"
+          MEANINGFUL="$(grep -Ev '\.(md|sh)$' <<<"$MEANINGFUL" || true)"
+          # Add your test directories here:
+          # MEANINGFUL="$(grep -Ev '^(tests/|spec/)' <<<"$MEANINGFUL" || true)"
+          if [ -z "$MEANINGFUL" ]; then
+            echo "INFO — only non-product files changed; skipping changelog check."
+            exit 0
+          fi
+
+          HAS_FRAGMENT="$(grep -cE '^changelog\.d/.*\.(added|changed|fixed|security)\.md$' <<<"$CHANGED" || true)"
+          HAS_CHANGELOG="$(grep -c 'CHANGELOG.md' <<<"$CHANGED" || true)"
+          if [ "$HAS_FRAGMENT" -gt 0 ]; then
+            echo "OK — changelog fragment found."
+          elif [ "$HAS_CHANGELOG" -gt 0 ]; then
+            echo "OK — CHANGELOG.md updated directly."
+          else
+            echo "ERROR — No changelog fragment found." >&2
+            echo "" >&2
+            echo "  Add a file to changelog.d/ named: <issue-or-slug>.<type>.md" >&2
+            echo "  Valid types: added, changed, fixed, security" >&2
+            echo "  Example:  echo 'Description of change (#42)' > changelog.d/42.fixed.md" >&2
+            echo "" >&2
+            echo "  Or apply the 'no-changelog' label if this PR genuinely needs no entry," >&2
+            echo "  then re-run this job." >&2
+            exit 1
+          fi
+
+  # ─── Harness gates ──────────────────────────────────────────────────────────
+
+  # Asserts the same-job self-test rule above holds for every gate in every
+  # workflow. Without it the rule is prose, and a gate added without a self-test
+  # is indistinguishable from one that works. Parses the workflows with PyYAML,
+  # pinned here rather than taken from whatever the runner image ships — the
+  # in-job --self-test would catch a parser that reads them differently; the pin
+  # just removes the coin flip.
+  gate-selftest-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --disable-pip-version-check pyyaml==6.0.3
+      - run: bash scripts/check-gate-selftest-parity.sh --self-test
+      - run: bash scripts/check-gate-selftest-parity.sh
+
+  # Every CI gate script must be runnable before a push, or `make pre-push` is
+  # green about a smaller set than CI checks. Derives the CI set from these
+  # workflow files rather than restating it, so a newly added gate cannot fall
+  # behind silently.
+  prepush-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: bash scripts/check-prepush-parity.sh --self-test
+      - run: bash scripts/check-prepush-parity.sh
+
+  # A PR description that admits a follow-up must name an OPEN issue for it.
+  # Upstream, three merged MRs in one audit said "a follow-up would settle it"
+  # with no issue behind the sentence, and the owed work vanished at merge. The
+  # description is fetched from the API at job time, so editing the text and
+  # re-running this job re-checks it. Fails closed on an unresolvable issue
+  # lookup.
+  pr-followups:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Self-test first: a failing description must not hide a broken detector.
+      - run: bash scripts/check-pr-followups.sh --self-test
+      - run: bash scripts/check-pr-followups.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  # STUB/WIP markers never merge; TODO(#N) and SUPPRESSED-UNTIL(#N) must name an
+  # OPEN issue. Runs on PRs (a new marker names a real, open issue) AND on main
+  # on the weekly schedule — the interesting case, a marker that went stale
+  # because someone closed its issue, is not a diff event at all. Its oracle is
+  # the issue tracker, read through `gh`; an unreachable tracker fails closed.
+  stale-references:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ISSUE_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: bash scripts/check-stale-references.sh --self-test
+      - run: bash scripts/check-stale-references.sh
+
+  # No early-exit reader (grep -q / grep -m / head) sits behind a pipe in any
+  # shell script. Under `set -o pipefail` such a reader can SIGPIPE its writer, so
+  # the pipeline returns 141 and a PRESENT match reads as missing. The class has a
+  # clean pass as its failure mode: upstream it reached `release.sh`'s duplicate-tag
+  # guard, where a spurious 141 lets a release proceed against a tag that exists.
+  # Scans every shell file under scripts/, hooks/ and .claude/hooks/ rather than a
+  # hand-listed set — a list only ever covers the files already bitten.
+  sigpipe-readers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: bash scripts/check-sigpipe-readers.sh --self-test
+      - run: bash scripts/check-sigpipe-readers.sh
+
+  # actions/upload-artifact passes a job that uploaded nothing (its default is
+  # `if-no-files-found: warn`). Every tag-triggered job that uploads an artifact
+  # must assert each path with `sh scripts/ci-assert-artifacts.sh <path>` in an
+  # earlier step. This checks that wiring statically, since a tag-only job never
+  # runs before the tag it breaks.
+  artifact-assertions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --disable-pip-version-check pyyaml==6.0.3
+      - run: bash scripts/check-artifact-assertions.sh --self-test
+      - run: bash scripts/check-artifact-assertions.sh
+
+  # Every shell file under scripts/, hooks/ and .claude/hooks/ passes shellcheck
+  # at its default severity. Added after a bashism (`&>` in a #!/bin/sh hook,
+  # SC3020) blocked every commit on dash/busybox systems while looking clean on
+  # macOS — see issue #14. hooks/ and .claude/hooks/ are in on purpose: they run
+  # on every contributor's machine and are the two trees no other gate reads.
+  #
+  # shellcheck is installed from a pinned, checksum-verified release rather than
+  # taken from the runner image: what a given severity reports changes between
+  # versions (SC2015 did, upstream), and check-shellcheck.sh SKIPS when the
+  # binary is absent — which is right on a laptop and a silent pass here. The
+  # version assertion is what makes "CI always has it" true.
+  shellcheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SHELLCHECK_VERSION: v0.11.0
+      SHELLCHECK_SHA256: 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned shellcheck
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -sSfL -o "$RUNNER_TEMP/shellcheck.tar.xz" \
+            "https://github.com/koalaman/shellcheck/releases/download/${SHELLCHECK_VERSION}/shellcheck-${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+          echo "${SHELLCHECK_SHA256}  $RUNNER_TEMP/shellcheck.tar.xz" | sha256sum -c -
+          tar -xJf "$RUNNER_TEMP/shellcheck.tar.xz" -C "$RUNNER_TEMP" "shellcheck-${SHELLCHECK_VERSION}/shellcheck"
+          mv "$RUNNER_TEMP/shellcheck-${SHELLCHECK_VERSION}/shellcheck" "$RUNNER_TEMP/bin/shellcheck"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Assert the pinned shellcheck is the one on PATH
+        run: |
+          command -v shellcheck
+          # Here-string, not a pipe: an early-exiting `grep -q` behind a pipe is
+          # the SIGPIPE class check-sigpipe-readers.sh exists for.
+          grep -qx "version: ${SHELLCHECK_VERSION#v}" <<<"$(shellcheck --version)"
+      - run: bash scripts/check-shellcheck.sh --self-test
+      - run: bash scripts/check-shellcheck.sh
+
+  # No tracked file git resolves to `text: set` may contain a literal 0x00 byte.
+  # A NUL makes git classify the whole file as BINARY no matter what
+  # .gitattributes says: `git diff` shows "Binary files ... differ" instead of a
+  # line, `git grep` finds nothing inside it, and a plain `grep -r` sweep across
+  # the tree returns a false clean rather than an error — silently defeating
+  # every other gate in this file that walks the tree with grep. Enumerates from
+  # the git index, never a filesystem walk, so a gitignored file is never a
+  # candidate. See scripts/check-nul-bytes.sh for the two buckets this
+  # deliberately leaves out of scope (text=unset encoding fixtures, text=auto).
+  nul-bytes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: bash scripts/check-nul-bytes.sh --self-test
+      - run: bash scripts/check-nul-bytes.sh
+
+  # Every call site this repo declared load-bearing is still there. The class: a
+  # guard installed by ONE line — a validator at the top of a shared setup helper,
+  # a hook entry in a config file, an ignore filter inside a tree walk — where
+  # deleting that line leaves the whole suite green and the guard simply stops
+  # guarding. Nothing else in these workflows goes red for that, which is the
+  # entire reason the declaration exists. Declarations live in
+  # load-bearing.declarations; a repo that has declared nothing passes trivially
+  # and says so, which is why the --self-test below is what proves the machinery
+  # works at all. git matters here: a declared path that git IGNORES resolves
+  # locally and is absent from this clean checkout, and the gate refuses such a
+  # declaration rather than letting one side of that pair be the answer.
+  load-bearing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: bash scripts/check-load-bearing.sh --self-test
+      - run: bash scripts/check-load-bearing.sh
+
+  # Every version-bearing manifest declares the same version, and none is behind
+  # the last released CHANGELOG section. Runs on EVERY PR, not at tag time: by
+  # tag time the artifact is already being built from the manifest that drifted.
+  version-lockstep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: python3 scripts/check-version-lockstep.py --self-test
+      - run: python3 scripts/check-version-lockstep.py
+
+  # Scripts that carry a --self-test but are not themselves CI gates (they run at
+  # release time, from a developer's machine). They have no job of their own to
+  # self-test inside, so they get this one.
+  tooling-self-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # PyYAML is for check-tag-only-jobs.sh, which parses the workflows.
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --disable-pip-version-check pyyaml==6.0.3
+      - run: bash scripts/assemble-changelog.sh --self-test
+      # Its real run reads the forge's open-PR list, so it has no gate job of its
+      # own; the self-test replaces that call with a fixture and is hermetic.
+      - run: bash scripts/check-issue-collision.sh --self-test
+      - run: bash scripts/release.sh --self-test
+      - run: bash scripts/release-notes.sh --self-test
+      # Its real run needs a `v*` tag to diff against, which only exists at
+      # release time; the self-test builds its own throwaway git history.
+      - run: bash scripts/check-tag-only-jobs.sh --self-test
+      - run: python3 scripts/adr-accepted-issue-sweep.py --self-test
+      # The real memory check reads a per-user directory outside the repo and never
+      # runs here; its self-test is hermetic (temp dirs only), so it does.
+      - run: bash scripts/check-memory-index.sh --self-test
+      - run: bash scripts/tests/wt-args.test.sh
+      - run: bash scripts/tests/wt-prune.test.sh
+      - run: bash scripts/tests/wt-ports.test.sh
+      - run: bash scripts/tests/wt-lock.test.sh
+      # The pre-PR security gate hook is not itself a CI gate (it's a Claude Code
+      # PreToolUse hook), so it has no job of its own — same bucket as the wt-*
+      # tests above. jq (preinstalled on the runner) is what the hook reads its
+      # event JSON and writes its permissionDecision through.
+      - run: bash scripts/tests/pre-mr-security-gate.test.sh
+      # setup-hooks.sh is an installer, not a CI gate — it has no job of its own
+      # either. Needs `git worktree add`.
+      - run: bash scripts/tests/setup-hooks.test.sh
+
+  # ─── Application-aware gate against a real application tree (#52) ──────────
+  #
+  # The gate that reads application code — added-file coverage — runs for real
+  # in ci.yml, but it skips cleanly on a PR that adds no application source, so
+  # most runs never exercise its rejection path. This job
+  # runs it against an app fixture the runner generates into a temp dir (a small
+  # Python-and-TypeScript-shaped app with the Cobertura reports coverage.py and
+  # vitest actually emit; never committed, so it cannot ship into the product
+  # tree): it must pass the fixture and reject each seeded violation.
+  #
+  # On a PR it runs only when a file it reads changed (the GitLab `changes:`
+  # rule, as a step: a skipped job still reports success to branch protection);
+  # on main it always runs.
+  app-fixture-gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Decide whether this PR can affect the job
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # The files this job reads, one glob per line. Kept in env: rather than
+          # in the script so check-gate-selftest-parity.sh reads them as names,
+          # not invocations.
+          WATCH: |
+            scripts/check-added-files-covered.mjs
+            scripts/tests/app-fixture-gates.test.sh
+            scripts/tests/hook-env.test.sh
+            scripts/tests/lib/app-fixture.sh
+            hooks/pre-push
+            .github/workflows/governance.yml
+        run: |
+          if [ "$EVENT" != "pull_request" ]; then echo "run=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          # Three-dot: the PR's own changes. A failed diff fails the step — a
+          # scope check that cannot see the diff must not decide "skip".
+          changed="$(git diff --name-only "${BASE_SHA}...${HEAD_SHA}")"
+          run=false
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            while IFS= read -r pat; do
+              [ -n "$pat" ] || continue
+              # shellcheck disable=SC2254 # $pat is a glob on purpose
+              case "$f" in $pat) run=true ;; esac
+            done <<<"$WATCH"
+          done <<<"$changed"
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          [ "$run" = true ] || echo "No watched file changed in this PR — skipping (it always runs on main)."
+      - if: steps.scope.outputs.run == 'true'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "20"
+      - if: steps.scope.outputs.run == 'true'
+        run: bash scripts/tests/app-fixture-gates.test.sh
+      # The gate must stay away from the repository of a hook that runs it.
+      - if: steps.scope.outputs.run == 'true'
+        run: bash scripts/tests/hook-env.test.sh
+
+  # `make setup`, `scripts/customize.sh`, `scripts/doctor.sh`, and `/kickoff` are
+  # the entire first-run experience for a brand-new clone of this template, and
+  # nothing else here ever ran any of them (issue #53) — the same "green CI
+  # proves nothing" shape the duplicate-tag guard hit under `pipefail` (#7), just
+  # on the one path every adopter takes on day one.
+  #
+  # `/kickoff` itself is an interactive Claude Code skill (`disable-model-
+  # invocation: true` — there is no deterministic input surface to drive from a
+  # CI job). `scripts/customize.sh` is what CAN run deterministically here: it
+  # never prompts, it only scans the tree and reports. This job proves the other
+  # side of that contract — scripts/tests/customize-e2e.test.sh builds a scratch
+  # clone from `git archive HEAD`, asserts it starts un-customized, simulates a
+  # completed /kickoff, asserts customize.sh then reports clean with no leftover
+  # placeholder token, and smoke-runs doctor.sh against that same tree — plus
+  # automated negative controls proving customize.sh still fails if a
+  # placeholder survives.
+  #
+  # Not in tooling-self-tests above: that job runs unconditionally by design
+  # (cheap, hermetic self-tests). This one is scoped to the onboarding surface
+  # specifically, per issue #53. Same PR-scoping step as app-fixture-gates.
+  onboarding-customize-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Decide whether this PR can affect the job
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          WATCH: |
+            scripts/customize.sh
+            scripts/doctor.sh
+            scripts/setup-hooks.sh
+            scripts/lib/git-hooks-dir.sh
+            scripts/tests/customize-e2e.test.sh
+            CLAUDE.md
+            .claude/personas.md
+            .claude/hooks/post-edit-checks.sh
+            CONTRIBUTING.md
+            Makefile
+            scripts/release.sh
+            .env.example
+            .github/*
+        run: |
+          if [ "$EVENT" != "pull_request" ]; then echo "run=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          # Three-dot: the PR's own changes. A failed diff fails the step — a
+          # scope check that cannot see the diff must not decide "skip".
+          changed="$(git diff --name-only "${BASE_SHA}...${HEAD_SHA}")"
+          run=false
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            while IFS= read -r pat; do
+              [ -n "$pat" ] || continue
+              # shellcheck disable=SC2254 # $pat is a glob on purpose
+              case "$f" in $pat) run=true ;; esac
+            done <<<"$WATCH"
+          done <<<"$changed"
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          [ "$run" = true ] || echo "No watched file changed in this PR — skipping (it always runs on main)."
+      - if: steps.scope.outputs.run == 'true'
+        run: bash scripts/tests/customize-e2e.test.sh
+
+  # ─── Cognitive-complexity tier (issue #41) — OFF BY DEFAULT ─────────────────
+  #
+  # A LOCAL, OFFLINE approximation of SonarSource's Cognitive Complexity metric
+  # (rule S3776) over module-level functions in scripts/*.py. It is a proxy
+  # metric that false-positives on legitimately branchy dispatch code, so it is
+  # opt-in: uncomment the job below to enable it, which is a change a reviewer
+  # sees in the diff. Never enable it with `continue-on-error` instead — a
+  # failing job that cannot fail the run renders green, and the green is
+  # believed. Read .github/workflows/CLAUDE.md, "Cognitive complexity", first,
+  # and re-derive the threshold against your own scripts
+  # (`python3 scripts/check-cognitive-complexity.py --list`) rather than keeping
+  # the shipped 15. A project that enables it should also add
+  # `pre-push-checks: check-complexity` to the Makefile.
+  #
+  # cognitive-complexity:
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 10
+  #   env:
+  #     COMPLEXITY_PATTERN: "scripts/*.py"
+  #     COMPLEXITY_THRESHOLD: "15"
+  #   steps:
+  #     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+  #       with:
+  #         persist-credentials: false
+  #     - run: python3 scripts/check-cognitive-complexity.py --self-test
+  #     - run: python3 scripts/check-cognitive-complexity.py --pattern "$COMPLEXITY_PATTERN" --threshold "$COMPLEXITY_THRESHOLD"

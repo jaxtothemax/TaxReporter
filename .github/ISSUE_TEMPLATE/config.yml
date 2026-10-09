@@ -1,0 +1,16 @@
+# Issue chooser configuration.
+#
+# Blank issues are off: every issue starts from a form, so it arrives with the
+# fields triage and the agents rely on (acceptance criteria, environment) and
+# with its type label already applied.
+#
+# The security link points at GitHub's private vulnerability reporting, which
+# must be enabled in Settings -> Security. Issue-form config cannot read the
+# repository name at runtime, so OWNER/REPO below is a placeholder:
+# scripts/customize.sh reports it as a TODO, with the exact value derived from
+# the origin remote, until it is replaced.
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/OWNER/REPO/security/advisories/new
+    about: Report vulnerabilities privately through GitHub's private vulnerability reporting. Never open a public issue for them.

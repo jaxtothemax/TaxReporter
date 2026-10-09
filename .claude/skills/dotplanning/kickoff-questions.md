@@ -16,7 +16,7 @@ invocation already answered.
    delivery risk, and a co-headliner added mid-cycle rarely displaces anything.
    Recommend single unless both share one seam that cannot ship half-built.
 3. **Date or scope.** When the committed set does not fit, which gives — the date slips,
-   or committed issues get demoted? `release::committed` is defined as "ships or the
+   or committed issues get demoted? `release:committed` is defined as "ships or the
    release slips"; confirm the user means that literally for this release.
 4. **Promised maturity.** What does reaching this milestone mean — alpha, beta, rc,
    stable? This is not cosmetic. If the project's docs carry "ships in `$VERSION`"
@@ -30,7 +30,7 @@ invocation already answered.
 6. **Inbound reserve.** How many slots stay unallocated for reports from real users?
    Derive a candidate from the rate of inbound since `$SHIPPED`. The reserve is a
    **number written on the milestone**, not a sentiment.
-7. **Feature freeze.** On what date do `release::stretch` issues bulk-move out? Recommend
+7. **Feature freeze.** On what date do `release:stretch` issues bulk-move out? Recommend
    the date of the first `/pre-release full` run.
 8. **Hardening share.** What fraction of committed capacity goes to debt, hardening, and
    CI, versus charter features?
@@ -39,7 +39,7 @@ invocation already answered.
 
 9. **Carry-over.** The issues still open in the previous milestone (1g): do they move
    into `$VERSION`, and are they groomed like everything else? Recommend: move, then
-   groom — never inherit a `release::committed`, because that promise was sized against
+   groom — never inherit a `release:committed`, because that promise was sized against
    a different capacity.
 10. **Credibility prerequisites.** Which open issues undercut a claim the product already
     makes in public — a published limit, a doc page, a demo? Offer the ones you found,

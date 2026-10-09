@@ -1,18 +1,24 @@
 ---
 name: kaizen
-description: Audit the development harness (CI, agent gates, pre-push, MR flow, the CLAUDE.md rules) for friction and propose a small, ranked list of speed wins. Distinct from /pre-release, which audits the codebase — kaizen audits the *process*. Reports and optionally files tooling issues; it never changes the harness itself.
+description: Audit the development harness (CI, agent gates, pre-push, PR flow, the CLAUDE.md rules) for friction and propose a small, ranked list of speed wins. Distinct from /pre-release, which audits the codebase — kaizen audits the *process*. Reports and optionally files tooling issues; it never changes the harness itself.
 argument-hint: "[--silent | --no-file]"
 ---
 
 # Kaizen — Continuous Harness Improvement
 
-Audit the *development process itself* — the CI pipeline, the agent gate chain, the
-pre-push hook, the MR flow, and the `CLAUDE.md` rules that govern how change ships — for
-friction, and propose a small, ranked list of speed wins.
+Audit the *development process itself* — the CI workflows (GitHub Actions), the agent
+gate chain, the pre-push hook, the pull request (PR) flow, and the `CLAUDE.md` rules that
+govern how change ships — for friction, and propose a small, ranked list of speed wins.
+
+The tracker and CI are GitHub. Every `gh` command below resolves the repository from the
+origin remote; with no origin (or no GitHub repo yet) they fail with a "no git remotes"
+error. Then 1a, 1b and 1g have no data: record each as "n/a — no GitHub repo" in the
+report and audit what is local (1c's commit scan, 1d, 1e, 1f). Never point them at a
+guessed repository.
 
 **Scope discipline.** `/pre-release` audits the **code**. `/kaizen` audits the
 **harness**. It proposes; it does not apply. Any change it recommends lands through a
-normal branch + MR, reviewed like any other.
+normal branch + PR, reviewed like any other.
 
 ---
 
@@ -38,19 +44,23 @@ normal branch + MR, reviewed like any other.
 Launch these as parallel sub-agents (`model: "sonnet"`) and wait for all. Each returns
 a compact finding list, not raw logs.
 
-### 1a. MR cycle-time signals
-> From the tracker, pull the last ~30 merged MRs and compute time from first push to
-> merge. Flag MRs that sat > 48h and cluster the reasons (pipeline failures, review
-> latency, rework). `glab mr list --state merged --per-page 30` (or the project's
-> tracker). Return the slow outliers and the dominant cause.
+### 1a. PR cycle-time signals
+> From the tracker, pull the last ~30 merged PRs and compute time from opening to
+> merge. Flag PRs that sat > 48h and cluster the reasons (CI failures, review
+> latency, rework).
+> `gh pr list --state merged --limit 30 --json number,title,createdAt,mergedAt,commits,statusCheckRollup`
+> (`commits` gives the first push; `statusCheckRollup` shows the checks that failed along
+> the way). Return the slow outliers and the dominant cause.
 
 ### 1b. CI job duration leaders
-> From the last ~5 pipelines on the default branch, list the slowest jobs by wall-clock.
-> Flag any single job over 5 minutes and any stage that dominates total pipeline time.
-> Return the top time sinks with durations.
+> From the last ~5 workflow runs per workflow on the default branch
+> (`gh run list --branch main --limit 20 --json databaseId,workflowName,conclusion`),
+> list the slowest jobs by wall-clock (`gh run view <id> --json jobs` — each job carries
+> `startedAt` / `completedAt`). Flag any single job over 5 minutes and any workflow that
+> dominates total CI time. Return the top time sinks with durations.
 
 ### 1c. Override and skip signals
-> Scan the last ~50 commits and recent MR descriptions for gate escapes: `--no-verify`,
+> Scan the last ~50 commits and recent PR descriptions for gate escapes: `--no-verify`,
 > "skip the review", "skip security gate", `[skip ci]`, disabled checks, `# type: ignore`
 > / `eslint-disable` clusters. A gate that is skipped > 20% of the time is either
 > misplaced or ceremonial. Return each skip pattern with its frequency.
@@ -77,23 +87,23 @@ a compact finding list, not raw logs.
 anything when it does run — the signal that decides whether a gate keeps its slot.
 
 The `/mr` skill emits a machine-readable `## Gates` section (one
-`gate: <name> — <outcome>` line per gate). Parse it across recent MRs:
+`gate: <name> — <outcome>` line per gate). Parse it across recent PRs:
 
-> Pull the descriptions of the last ~40 merged MRs and extract every line matching
+> Pull the descriptions of the last ~40 merged PRs and extract every line matching
 > `gate: <name> — <outcome>`. For each gate name, count: runs with `<N> findings`
 > where N > 0, runs with `0 findings`, runs marked `n/a`, and runs marked `skipped`.
 > Report a table of gate · ran · found>0 · yield% · n/a · skipped, sorted by yield.
 
 ```bash
-glab mr list --state merged --per-page 40 -F json | python3 -c '
+gh pr list --state merged --limit 40 --json number,body | python3 -c '
 import json, re, sys, collections
 
 HDR = "%-28s%5s%7s%8s%6s%6s"
 ROW = "%-28s%5d%7d%8s%6d%6d"
 tally = collections.defaultdict(collections.Counter)
 
-for mr in json.load(sys.stdin):
-    body = mr.get("description") or ""
+for pr in json.load(sys.stdin):
+    body = pr.get("body") or ""
     for name, outcome in re.findall(r"^\s*[-*]\s*gate:\s*([a-z][a-z/-]*)\s+[\u2014-]\s*(.+)$", body, re.M):
         if name == "completeness-check" and "round 2" in outcome:
             name = "completeness-check:r2"
@@ -129,7 +139,7 @@ How to read it:
 Two honesty constraints, or the table lies:
 
 - **Yield is only meaningful inside a gate's applicable scope.** A gate correctly
-  marked `n/a` on most MRs is not low-yield; those runs are excluded above by design.
+  marked `n/a` on most PRs is not low-yield; those runs are excluded above by design.
 - **A 0%-yield gate may be working as a deterrent** — the code was written
   correctly *because* the author knew the gate would run. Weigh that before
   proposing removal, and prefer demotion to deletion when in doubt.
@@ -152,7 +162,7 @@ is silently dropped — that is a ledger defect to report, not a zero. Three
   come from reading the code, and no up-front question would have prevented them.
 
 If the table is empty or sparse, the finding is about the **ledger**, not the
-gates: MRs are not recording outcomes, and no yield question can be answered until
+gates: PRs are not recording outcomes, and no yield question can be answered until
 they do. Fix that first.
 
 ---
@@ -172,7 +182,9 @@ entry in `declined` has:
 ```
 
 `id` is `<category>:<subject>:<claim>`:
-- `category` — the signal step that produced the finding: `mr-cycle-time` (1a),
+- `category` — the signal step that produced the finding: `mr-cycle-time` (1a — the id
+  keeps the upstream `mr-` spelling so it matches the ledger's schema and upstream
+  ledgers; it means PR cycle time here),
   `ci-duration` (1b), `gate-skip` (1c), `prepush-runtime` (1d), `mandate-reality` (1e),
   `doc-drift` (1f), or `gate-yield` (1g).
 - `subject` — the concrete thing the finding is about: a gate name, a CI job name, a
@@ -197,8 +209,8 @@ path, which works even when the claim hasn't changed and a human just wants to r
 
 ## Step 3 — Rank by cycle-time impact
 
-Rank findings by **estimated minutes saved per MR**, not by severity. A 30-second win
-that hits every MR beats a 10-minute win that hits one MR a month. **Cap the report at
+Rank findings by **estimated minutes saved per PR**, not by severity. A 30-second win
+that hits every PR beats a 10-minute win that hits one PR a month. **Cap the report at
 the top 5** — kaizen is about the highest-leverage handful, not an exhaustive list.
 
 For each: state the friction, the estimated time saved, and the concrete change
@@ -212,12 +224,12 @@ ceremonial check).
 ```
 # Kaizen — Harness Audit (<date>)
 
-## Top speed wins (ranked by minutes saved per MR)
-1. <finding> — saves ~<N> min/MR — fix: <concrete change>
+## Top speed wins (ranked by minutes saved per PR)
+1. <finding> — saves ~<N> min/PR — fix: <concrete change>
    ...
 
 ## Signals reviewed
-- MR cycle time: <summary>
+- PR cycle time: <summary>
 - CI duration leaders: <summary>
 - Gate skips/overrides: <summary>
 - Pre-push runtime: <summary>
@@ -245,8 +257,8 @@ Offer to file the top findings as tooling/chore issues — **with confirmation, 
 time**:
 
 ```bash
-glab issue create --title "chore(harness): <win>" \
-  --description "$(cat <<'EOF'
+gh issue create --title "chore(harness): <win>" \
+  --body "$(cat <<'EOF'
 ## Friction
 <what's slow and the evidence>
 
@@ -254,10 +266,16 @@ glab issue create --title "chore(harness): <win>" \
 <the concrete harness change>
 
 ## Estimated impact
-~<N> min saved per MR
+~<N> min saved per PR
 EOF
-)" --label "chore,tooling"
+)" --label "task"
 ```
+
+`--label` must name a label the repository already has (`/kickoff` creates `task`) —
+GitHub does not create one on first use, and an unknown label fails the create. Search
+open and closed issues for the same win first (`gh issue list --state all --search
+"chore(harness) <key terms>"`). Filing into a dated milestone means asking the user which
+`release:*` label applies, per `CLAUDE.md`'s milestone-commitment rule.
 
 Never file without showing the list first.
 
@@ -298,7 +316,7 @@ decline, so they don't assume the ledger is append-only.
 ## What kaizen does **not** do
 
 - It does not change the harness — no edits to CI, hooks, or `CLAUDE.md`. It proposes;
-  the user lands changes through a normal MR.
+  the user lands changes through a normal PR.
 - It does not audit product code — that is `/pre-release` and the review gates.
 - It does not loop. One pass, top 5, done.
 - It does not write to `.claude/kaizen-declined.json` on its own initiative — every
@@ -309,7 +327,7 @@ decline, so they don't assume the ledger is append-only.
 ## Anti-patterns to refuse
 
 - A 20-item report. If everything is a priority, nothing is — cap at 5.
-- Ranking by severity instead of time-saved-per-MR.
+- Ranking by severity instead of time-saved-per-PR.
 - Proposing a *new* gate as a speed win. Kaizen removes friction; new gates are the
   architect's / security's call, not a cycle-time optimization.
 - Weakening a gate purely to make a number go down — never trade correctness for speed.

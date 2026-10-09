@@ -20,13 +20,34 @@
 # image and nothing else.
 #
 # So the requirement is SAME JOB, not same repo — because same job is the only
-# way to say "same image" in a CI config, and the image is what differed.
+# way to say "same runner" in a CI config, and the runner is what differed. On
+# GitHub Actions every job gets a fresh runner VM; two jobs in one workflow share
+# nothing but the checkout recipe.
+#
+# ## How it reads the workflows
+#
+# It parses `.github/workflows/*.yml` with PyYAML and reads ONLY the `run:` text
+# of each job's steps. A script path in a step `name:`, an `on.push.paths:`
+# filter, an `env:` value or a shell comment inside `run:` names a file; it does
+# not invoke it. Reading the parsed document rather than indentation is what lets
+# a job be attributed correctly whatever indentation or flow style the workflow
+# uses — the GitLab-era version of this gate attributed lines to jobs with awk,
+# and pinned gawk in CI because a different awk could split the blocks
+# differently.
+#
+# A workflow that does not parse is exit 2, never a pass: a gate that cannot read
+# its input has not checked anything.
 #
 # ## What this cannot do
 #
 # An opt-out is a rubber stamp, and a `--self-test` that asserts only the happy
 # path passes this check while proving nothing. This removes the silence, not the
 # possibility of a wrong answer.
+#
+# It sees only gates invoked DIRECTLY from a `run:` step (`bash scripts/check-x.sh`).
+# A gate reached through `make <target>`, a local composite action
+# (`uses: ./.github/actions/...`) or a reusable workflow is invisible to it — so
+# CI jobs in this repo call gate scripts directly. See .github/workflows/CLAUDE.md.
 #
 # ## Usage
 #
@@ -36,9 +57,11 @@
 #
 #   0  every CI gate self-tests in its own job, or is opted out with a reason
 #   1  at least one is neither
-#   2  no CI configuration found
+#   2  no CI configuration found, a workflow does not parse, or PyYAML is missing
 
 set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # ─── Opt-outs ────────────────────────────────────────────────────────────────
 #
@@ -73,8 +96,7 @@ opt_out_reason() {
 
 discover_ci_files() {
     local f
-    for f in .gitlab-ci.yml .gitlab-ci.yaml; do [ -f "$f" ] && echo "$f"; done
-    for f in ci/*.yml ci/*.yaml .github/workflows/*.yml .github/workflows/*.yaml; do
+    for f in .github/workflows/*.yml .github/workflows/*.yaml; do
         [ -f "$f" ] && echo "$f"
     done
     return 0
@@ -82,55 +104,77 @@ discover_ci_files() {
 
 # ─── Attribute each gate invocation to the job that runs it ──────────────────
 #
-# Emits "job<TAB>script-basename<TAB>yes|no", where the third field says whether
-# THAT SAME JOB also invokes the script with --self-test.
+# Emits "workflow:job<TAB>script-basename<TAB>yes|no", where the third field says
+# whether THAT SAME JOB also invokes the script with --self-test. Exits 2 when a
+# file does not parse or PyYAML is unavailable.
 gate_invocations() {
-    awk '
-      # A job block starts either at column 0 (GitLab CI) or at two spaces under
-      # a top-level `jobs:` key (GitHub Actions).
-      /^jobs:[ \t]*$/                                  { in_jobs = 1; job = "jobs"; skip = 0; next }
-      /^[A-Za-z_.][A-Za-z0-9_:.-]*:[ \t]*$/            { in_jobs = 0; job = $0; sub(/:[ \t]*$/, "", job); skip = 0; next }
-      in_jobs && /^  [A-Za-z_][A-Za-z0-9_.-]*:[ \t]*$/ { job = $0; sub(/^  /, "", job); sub(/:[ \t]*$/, "", job); skip = 0; next }
+    python3 - "$@" <<'PY'
+import re, sys
 
-      # A path under changes:/paths:/files:/exists: NAMES a file that triggers the
-      # job; it is not an invocation of it. A workflow-level changes list can name
-      # every gate script in the repo, and reading those as invocations attributes
-      # them to a job that does not exist.
-      /^[ \t]*-?[ \t]*(changes|paths|paths-ignore|files|exists):[ \t]*$/ { skip = 1; next }
-      /^[ \t]*-?[ \t]*[A-Za-z_][A-Za-z0-9_-]*:/                          { skip = 0 }
-      skip { next }
+try:
+    import yaml
+except ImportError:
+    sys.stderr.write("check-gate-selftest-parity: ERROR — PyYAML is not installed "
+                     "(pip install pyyaml); cannot read the workflows.\n")
+    sys.exit(2)
 
-      # A path named in a comment is prose, not an invocation.
-      /^[ \t]*#/ { next }
+SCRIPT = re.compile(r"scripts/[A-Za-z0-9_./-]+\.(?:sh|py|mjs)")
+GATE = re.compile(r"^check[-_]|-check\.(?:sh|py|mjs)$")
+TEST = re.compile(r"\.test\.(?:sh|py|mjs)$")
 
-      {
-        line = $0
-        sub(/[ \t]#.*$/, "", line)
-        while (match(line, /scripts\/[A-Za-z0-9_.\/-]+\.(sh|py|mjs)/)) {
-          s    = substr(line, RSTART, RLENGTH)
-          rest = substr(line, RSTART + RLENGTH)
-          n = split(s, parts, "/"); base = parts[n]
-          # scripts/tests/*.test.sh are test files, not gates.
-          if (base ~ /\.test\.(sh|py|mjs)$/)                          { line = rest; continue }
-          if (base !~ /^check[-_]/ && base !~ /-check\.(sh|py|mjs)$/)  { line = rest; continue }
-          if (rest ~ /^[ \t]*--self-test/) selftest[job SUBSEP base] = 1
-          else                             invoked[job SUBSEP base]  = 1
-          line = rest
-        }
-      }
-      END {
-        for (k in invoked) {
-          split(k, a, SUBSEP)
-          print a[1] "\t" a[2] "\t" ((k in selftest) ? "yes" : "no")
-        }
-      }
-    ' "$@" | sort
+invoked, selftest = set(), set()
+for path in sys.argv[1:]:
+    try:
+        with open(path, encoding="utf-8") as fh:
+            doc = yaml.safe_load(fh)
+    except (OSError, yaml.YAMLError) as exc:
+        sys.stderr.write("check-gate-selftest-parity: ERROR — cannot parse %s: %s\n" % (path, exc))
+        sys.exit(2)
+    if not isinstance(doc, dict):
+        sys.stderr.write("check-gate-selftest-parity: ERROR — %s is not a workflow mapping\n" % path)
+        sys.exit(2)
+    jobs = doc.get("jobs") or {}
+    if not isinstance(jobs, dict):
+        sys.stderr.write("check-gate-selftest-parity: ERROR — %s: `jobs` is not a mapping\n" % path)
+        sys.exit(2)
+    wf = path.rsplit("/", 1)[-1]
+    for job_id, job in jobs.items():
+        if not isinstance(job, dict):
+            continue
+        key = "%s:%s" % (wf, job_id)
+        for step in job.get("steps") or []:
+            if not isinstance(step, dict) or not isinstance(step.get("run"), str):
+                continue
+            for line in step["run"].splitlines():
+                # A path named in a shell comment is prose, not an invocation.
+                if line.lstrip().startswith("#"):
+                    continue
+                line = re.sub(r"\s#.*$", "", line)
+                for m in SCRIPT.finditer(line):
+                    base = m.group(0).rsplit("/", 1)[-1]
+                    # scripts/tests/*.test.sh are test files, not gates.
+                    if TEST.search(base) or not GATE.search(base):
+                        continue
+                    rest = line[m.end():]
+                    if re.match(r"\s*--self-test", rest):
+                        selftest.add((key, base))
+                    else:
+                        invoked.add((key, base))
+
+for key, base in sorted(invoked):
+    print("%s\t%s\t%s" % (key, base, "yes" if (key, base) in selftest else "no"))
+PY
 }
 
 # ─── Scan ────────────────────────────────────────────────────────────────────
 
 run_scan() {
-    local proven=0 opted=0 missing=0 job script has reason
+    local proven=0 opted=0 missing=0 job script has reason inv inv_rc=0
+    inv="$(gate_invocations "$@")" || inv_rc=$?
+    if [ "$inv_rc" -ne 0 ]; then
+        echo "check-gate-selftest-parity: could not read the CI configuration (exit ${inv_rc}) — nothing was checked." >&2
+        return 2
+    fi
     while IFS=$'\t' read -r job script has; do
         [ -n "$script" ] || continue
         if [ "$has" = "yes" ]; then proven=$((proven + 1)); continue; fi
@@ -138,7 +182,7 @@ run_scan() {
         if [ -n "$reason" ]; then opted=$((opted + 1)); continue; fi
         missing=$((missing + 1))
         echo "check-gate-selftest-parity: FAIL  job '$job' runs scripts/$script but never runs it with --self-test"
-    done <<< "$(gate_invocations "$@")"
+    done <<< "$inv"
 
     echo "check-gate-selftest-parity: ${proven} self-tested in-job, ${opted} opted out, ${missing} unproven."
 
@@ -149,7 +193,7 @@ A gate that cannot be shown to fail is indistinguishable from one that works.
 Fix by either:
 
   * adding a --self-test to the script and invoking it in the SAME job, before
-    the real scan (the default — the job's own image is the only environment
+    the real scan (the default — the job's own runner is the only environment
     that counts); or
   * adding the script to OPT_OUT in this file WITH the reason a fixture cannot
     represent a violation.
@@ -169,46 +213,143 @@ self_test() {
     # shellcheck disable=SC2064
     trap "rm -rf '$tmp'" EXIT
 
-    _case() { # <name> <expect-pass|expect-fail> <ci-fixture>
-        if run_scan "$3" >/dev/null 2>&1; then
-            if [ "$2" = "expect-pass" ]; then echo "SELF-TEST OK: $1 accepted."
-            else echo "SELF-TEST FAILED: $1 was accepted and must not be." >&2; rc=1; fi
-        else
-            if [ "$2" = "expect-fail" ]; then echo "SELF-TEST OK: $1 correctly rejected."
-            else echo "SELF-TEST FAILED: $1 was rejected and must not be." >&2; rc=1; fi
+    # Demands the EXACT exit code (scripts/CLAUDE.md, "A self-test must tell a
+    # crash from a rejection"): 1 is a rejection, 2 is "could not read the
+    # input", and anything else is the gate itself breaking. A probe that read
+    # any non-zero as "rejected" would pass on a runner with no PyYAML at all.
+    _case() { # <name> <expected-exit> <ci-fixture...>
+        local name="$1" want="$2" got=0 out; shift 2
+        out="$(run_scan "$@" 2>&1)" || got=$?
+        if [ "$got" -ne "$want" ]; then
+            echo "SELF-TEST FAILED: $name — expected exit $want, got $got." >&2
+            printf '%s\n' "$out" | sed 's/^/    /' >&2
+            rc=1; return
         fi
+        if [ "$want" -ne 2 ] && ! grep -q 'self-tested in-job' <<<"$out"; then
+            echo "SELF-TEST FAILED: $name — exit $got but no verdict line; the scan never finished." >&2
+            rc=1; return
+        fi
+        echo "SELF-TEST OK: $name (exit $got)."
     }
 
-    printf 'lint:zz:\n  script:\n    - bash scripts/check-zz-probe.sh --self-test\n    - bash scripts/check-zz-probe.sh\n' > "$tmp/ok.yml"
-    _case "gate self-tested in its own job" expect-pass "$tmp/ok.yml"
+    cat >"$tmp/ok.yml" <<'Y'
+name: ci
+on: [pull_request]
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - run: bash scripts/check-zz-probe.sh --self-test
+      - run: bash scripts/check-zz-probe.sh
+Y
+    _case "gate self-tested in its own job" 0 "$tmp/ok.yml"
 
-    printf 'lint:zz:\n  script:\n    - bash scripts/check-zz-probe.sh\n' > "$tmp/bare.yml"
-    _case "gate with no self-test anywhere" expect-fail "$tmp/bare.yml"
+    cat >"$tmp/block.yml" <<'Y'
+name: ci
+on: [pull_request]
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe
+        run: |
+          bash scripts/check-zz-probe.sh --self-test
+          bash scripts/check-zz-probe.sh
+Y
+    _case "self-test and scan in one multi-line run block" 0 "$tmp/block.yml"
+
+    cat >"$tmp/bare.yml" <<'Y'
+name: ci
+on: [pull_request]
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - run: bash scripts/check-zz-probe.sh
+Y
+    _case "gate with no self-test anywhere" 1 "$tmp/bare.yml"
 
     # The shape this gate exists for: the proof is real, but it lives in another
-    # job — therefore in another image, which is what differed upstream.
-    printf 'other:job:\n  script:\n    - bash scripts/check-zz-probe.sh --self-test\nlint:zz:\n  script:\n    - bash scripts/check-zz-probe.sh\n' > "$tmp/elsewhere.yml"
-    _case "self-test in a DIFFERENT job" expect-fail "$tmp/elsewhere.yml"
+    # job — therefore on another runner, which is what differed upstream.
+    cat >"$tmp/elsewhere.yml" <<'Y'
+name: ci
+on: [pull_request]
+jobs:
+  other:
+    runs-on: ubuntu-latest
+    steps:
+      - run: bash scripts/check-zz-probe.sh --self-test
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - run: bash scripts/check-zz-probe.sh
+Y
+    _case "self-test in a DIFFERENT job" 1 "$tmp/elsewhere.yml"
 
-    # GitHub Actions job blocks are two spaces under `jobs:`, not at column 0.
-    printf 'name: ci\njobs:\n  lint:\n    steps:\n      - run: bash scripts/check-zz-probe.sh\n' > "$tmp/gha-bare.yml"
-    _case "GitHub Actions job with no self-test" expect-fail "$tmp/gha-bare.yml"
+    # Same job id, different workflow file: a different job, and a different runner.
+    cat >"$tmp/other-wf.yml" <<'Y'
+name: other
+on: [pull_request]
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - run: bash scripts/check-zz-probe.sh --self-test
+Y
+    _case "self-test in a same-named job of ANOTHER workflow" 1 "$tmp/other-wf.yml" "$tmp/bare.yml"
 
-    printf 'name: ci\njobs:\n  lint:\n    steps:\n      - run: bash scripts/check-zz-probe.sh --self-test\n      - run: bash scripts/check-zz-probe.sh\n' > "$tmp/gha-ok.yml"
-    _case "GitHub Actions job self-tested in-job" expect-pass "$tmp/gha-ok.yml"
+    # Flow style and odd indentation: attribution follows the parsed document,
+    # not the column a line happens to start at.
+    printf 'name: ci\non: {pull_request: {}}\njobs: {lint: {runs-on: ubuntu-latest, steps: [{run: "bash scripts/check-zz-probe.sh"}]}}\n' >"$tmp/flow.yml"
+    _case "flow-style workflow with no self-test" 1 "$tmp/flow.yml"
 
     # A non-gate script in CI must not be demanded to self-test.
-    printf 'lint:zz:\n  script:\n    - bash scripts/assemble-changelog.sh\n' > "$tmp/nongate.yml"
-    _case "non-gate script ignored" expect-pass "$tmp/nongate.yml"
+    cat >"$tmp/nongate.yml" <<'Y'
+name: ci
+on: [pull_request]
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - run: bash scripts/assemble-changelog.sh
+Y
+    _case "non-gate script ignored" 0 "$tmp/nongate.yml"
 
-    printf 'scripts:test:\n  script:\n    - bash scripts/tests/check-zz-probe.test.sh\n' > "$tmp/testfile.yml"
-    _case "scripts/tests/*.test.sh ignored" expect-pass "$tmp/testfile.yml"
+    cat >"$tmp/testfile.yml" <<'Y'
+name: ci
+on: [pull_request]
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - run: bash scripts/tests/check-zz-probe.test.sh
+Y
+    _case "scripts/tests/*.test.sh ignored" 0 "$tmp/testfile.yml"
 
-    printf 'pages:\n  script:\n    # enforced by scripts/check-zz-probe.sh, see above\n    - echo deploy\n' > "$tmp/comment.yml"
-    _case "gate named only in a comment" expect-pass "$tmp/comment.yml"
+    # Named, but not invoked: a shell comment, a step name, an env value, and an
+    # on.push.paths filter.
+    cat >"$tmp/named.yml" <<'Y'
+name: ci
+on:
+  push:
+    paths:
+      - scripts/check-zz-probe.sh
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      GATE: scripts/check-zz-probe.sh
+    steps:
+      - name: Enforced by scripts/check-zz-probe.sh
+        run: |
+          # enforced by scripts/check-zz-probe.sh, see above
+          echo deploy
+Y
+    _case "gate only named (comment, step name, env, paths filter)" 0 "$tmp/named.yml"
 
-    printf 'workflow:\n  rules:\n    - changes:\n        - scripts/check-zz-probe.sh\n' > "$tmp/changes.yml"
-    _case "gate named in a changes: list" expect-pass "$tmp/changes.yml"
+    # A workflow that does not parse is "could not check" (2), never a pass.
+    printf 'name: ci\njobs:\n  lint: [unclosed\n' >"$tmp/broken.yml"
+    _case "unparseable workflow" 2 "$tmp/broken.yml"
 
     # An OPT_OUT entry excuses a gate that cannot be given a fixture.
     if ( OPT_OUT=$'\ncheck-zz-probe.sh\tEXTERNAL: oracle is the issue tracker\n'; run_scan "$tmp/bare.yml" >/dev/null 2>&1 ); then
@@ -245,6 +386,8 @@ if [ "${1:-}" = "--self-test" ]; then
     exit $?
 fi
 
+cd "$REPO_ROOT"
+
 # Portable to bash 3.2 (macOS ships it); `mapfile` is bash 4+.
 CI_FILES=()
 while IFS= read -r _f; do
@@ -252,7 +395,7 @@ while IFS= read -r _f; do
 done <<< "$(discover_ci_files)"
 
 if [ "${#CI_FILES[@]}" -eq 0 ]; then
-    echo "ERROR: no CI configuration found (.gitlab-ci.yml, ci/*.yml, .github/workflows/*)." >&2
+    echo "ERROR: no CI configuration found (.github/workflows/*.yml)." >&2
     exit 2
 fi
 

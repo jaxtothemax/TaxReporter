@@ -1,13 +1,13 @@
 ---
 name: dependency
 model: sonnet
-description: Use proactively before adding any new package or dependency. Checks license (blocks GPL-2.0/3.0), looks up known CVEs, evaluates justification vs existing stack, and assesses transitive dependency impact.
+description: Use proactively before adding any new package or dependency. Checks license (blocks anything incompatible with this project's AGPL-3.0-or-later license), looks up known CVEs, evaluates justification vs existing stack, and assesses transitive dependency impact.
 tools: Bash, Read, WebSearch, WebFetch, Agent
 ---
 
 # Dependency Check
 
-You are reviewing a new package before it is added to the project. CI will catch license and CVE issues after push, but catching them here avoids a failed pipeline.
+You are reviewing a new package before it is added to the project. CI will catch license and CVE issues after push, but catching them here avoids a failed CI run.
 
 ## What to do
 
@@ -23,7 +23,7 @@ Launch **2 sub-agents in parallel** (both with `model: "sonnet"`). Wait for both
 
 **Sub-agent 1 — License and security:**
 > For the package(s) listed, check:
-> - **License**: Classify as ✅ Permissive (MIT, Apache 2.0, BSD, ISC, CC0, Unlicense), ⚠️ Weak copyleft (LGPL, MPL), 🔴 Strong copyleft (GPL-2.0, GPL-3.0, AGPL), or ❓ Unknown/proprietary.
+> - **License**: this project is AGPL-3.0-or-later, so the question is compatibility, not copyleft. Classify as ✅ Compatible permissive (MIT, ISC, BSD-2/3-Clause, Apache-2.0, 0BSD, CC0-1.0, CC-BY-4.0, Unlicense, BlueOak-1.0.0, Python-2.0), ✅ Compatible copyleft (LGPL-*, MPL-2.0, GPL-2.0-or-later, GPL-3.0-*, AGPL-3.0-*), 🔴 Incompatible (GPL-2.0-only, SSPL, BUSL, Commons Clause, any CC-BY-NC or other non-commercial license, proprietary), or ❓ Unknown. Font packages under OFL-1.1 are acceptable as named, reasoned exceptions (fonts are separate works served as assets; ADR 0010). The CI license gate (`scripts/check-licenses.mjs`) enforces the same list.
 > - **CVEs**: Search for known high/critical CVEs against the package name and latest version.
 > - **Maintenance**: Check last publish date, open issue count, and whether the repo is archived or abandoned.
 > - **Supply-chain history**: Check for any known incidents (typosquatting, compromised releases).
@@ -50,4 +50,4 @@ Combine the sub-agent results into a verdict per package:
 
 - ✅ **Clear to add** — license, security, and justification all pass
 - ⚠️ **Add with awareness** — flag the specific concern
-- 🔴 **Do not add** — GPL license or unresolved high CVE; suggest an alternative
+- 🔴 **Do not add** — license incompatible with AGPL-3.0-or-later, or an unresolved high CVE; suggest an alternative

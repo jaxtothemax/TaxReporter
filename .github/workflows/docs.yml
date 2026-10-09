@@ -1,0 +1,200 @@
+# ─── Documentation site (Astro Starlight → GitHub Pages) ─────────────────────
+#
+# Three jobs after a detection step:
+#
+#   docs-internal-links  scripts/check-docs-internal-links.py — a broken
+#                        internal link, cross-page/same-page anchor, relative
+#                        asset, or cross-repository "source of record" link
+#                        under DOCS_ROOT fails the run. See that script's module
+#                        docstring for what is configurable here versus
+#                        hard-coded to the Astro Starlight shape.
+#   website-build        compiles and VERIFIES the site, then uploads it as the
+#                        Pages artifact (on PRs too, so the artifact a PR would
+#                        publish is inspectable)
+#   pages                publishes that already-verified artifact from main,
+#                        without rebuilding
+#
+# A green `astro build` is not proof the docs rendered — Starlight's content
+# loader catches a per-page render error, drops that page's whole body, and
+# still exits 0. The verification step in website-build is what actually proves
+# something: every source page must have produced an output file, and that file
+# must be larger than a bare-chrome shell.
+#
+# No docs site, no docs jobs. `detect` decides: a clone with no DOCS_CONFIG
+# skips docs-internal-links, and one with no website/package.json skips the
+# build and the deploy — skipped, not failed, and not a green no-op that claims
+# to have checked something. Checked against DOCS_CONFIG specifically (not
+# DOCS_ROOT) because a content directory can exist mid-migration with no working
+# config; the config file is what says "this docs site is wired up." The
+# Makefile's check-docs-links target mirrors the same test locally.
+#
+# Customize (only needed if your docs site does not use the recommended shape —
+# website/src/content/docs, built with Astro Starlight):
+#   - DOCS_ROOT:   content root, repo-relative
+#   - DOCS_CONFIG: framework config read for `redirects:` + the site's own base
+#                  URL; also the detection marker — see the script's
+#                  --docs-root/--config flags for a framework with a different
+#                  config file name entirely.
+#
+# One-time repository setting: Settings → Pages → Source = "GitHub Actions".
+# A project site is served at https://<owner>.github.io/<repo>/ unless a custom
+# domain is set. website-build reads the real origin and base path from
+# actions/configure-pages and passes them to the build as SITE_URL and
+# BASE_PATH (see website/astro.config.mjs), so no file hardcodes the repository
+# name. configure-pages runs only on pushes to main (the only builds that
+# deploy), because it fails until the setting above is made; pull-request
+# builds use the default project-site origin and /<repo> base instead, which is
+# all a build check needs.
+
+name: docs
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  DOCS_ROOT: "website/src/content/docs"
+  DOCS_CONFIG: "website/astro.config.mjs"
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      config: ${{ steps.detect.outputs.config }}
+      site: ${{ steps.detect.outputs.site }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: detect
+        run: |
+          if [ -f "$DOCS_CONFIG" ]; then echo "config=true" >> "$GITHUB_OUTPUT"; else
+            echo "config=false" >> "$GITHUB_OUTPUT"
+            echo "No docs config ($DOCS_CONFIG) — docs-internal-links will be skipped."
+          fi
+          if [ -f website/package.json ]; then echo "site=true" >> "$GITHUB_OUTPUT"; else
+            echo "site=false" >> "$GITHUB_OUTPUT"
+            echo "No website/package.json — website-build and pages will be skipped."
+          fi
+
+  docs-internal-links:
+    needs: detect
+    if: needs.detect.outputs.config == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Self-test FIRST, in this same job — check-gate-selftest-parity.sh
+      # requires it, and scripts/CLAUDE.md explains why "ran in a different
+      # job" is worth nothing: it proves the check works on a different runner.
+      - run: python3 scripts/check-docs-internal-links.py --self-test
+      - run: python3 scripts/check-docs-internal-links.py --docs-root "$DOCS_ROOT" --config "$DOCS_CONFIG"
+
+  website-build:
+    needs: detect
+    if: needs.detect.outputs.site == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # configure-pages reads the Pages site through GET /repos/{owner}/{repo}/pages,
+    # which needs `pages: read`. A job-level block replaces the workflow default,
+    # so `contents: read` is listed again.
+    permissions:
+      contents: read
+      pages: read
+    defaults:
+      run:
+        working-directory: website
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+      - run: npm ci
+      # origin: "https://<owner>.github.io" (or the custom domain);
+      # base_path: "/<repo>", or "" when the site is served at the root.
+      - id: pages
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      # Expressions are resolved into env vars, never into the script itself.
+      # A skipped step has empty outputs, so pull requests fall back to the
+      # default project-site URL.
+      - run: npm run build
+        env:
+          SITE_URL: ${{ steps.pages.outputs.origin || format('https://{0}.github.io', github.repository_owner) }}
+          BASE_PATH: ${{ steps.pages.outputs.base_path || format('/{0}', github.event.repository.name) }}
+      - name: Verify every source page rendered
+        run: |
+          MIN_BYTES=2000
+          failures="$(mktemp)"
+          find src/content/docs -type f \( -name '*.md' -o -name '*.mdx' \) | while IFS= read -r src; do
+            rel="${src#src/content/docs/}"
+            rel="${rel%.mdx}"
+            rel="${rel%.md}"
+            if [ "$rel" = "index" ]; then
+              out="dist/index.html"
+            else
+              out="dist/${rel}/index.html"
+            fi
+            if [ ! -f "$out" ]; then
+              echo "MISSING build output for $src -> $out"
+              echo x >> "$failures"
+              continue
+            fi
+            bytes=$(wc -c < "$out")
+            if [ "$bytes" -lt "$MIN_BYTES" ]; then
+              echo "SUSPICIOUSLY SMALL ($bytes bytes, expected >= $MIN_BYTES) — $out (from $src)"
+              echo x >> "$failures"
+            fi
+          done
+          if [ -s "$failures" ]; then
+            echo "Docs build verification FAILED — see missing/undersized pages above."
+            exit 1
+          fi
+          echo "Docs build verification passed: every source page rendered a non-trivial output file."
+      # The web app (apps/web, ADR 0009) will later be built into website/dist/app/
+      # before this upload, so one Pages artifact serves the docs at the site root
+      # and the app under /app/.
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: website/dist
+          retention-days: 7
+
+  pages:
+    needs: website-build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    # One deploy at a time, and never cancel one mid-flight: a half-finished
+    # Pages deployment is worse than a late one.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

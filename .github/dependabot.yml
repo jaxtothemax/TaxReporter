@@ -1,52 +1,81 @@
-# Dependabot configuration for GitHub-hosted projects.
-# Delete this file if using GitLab (use renovate.json instead).
+# Dependabot configuration. This project is hosted on GitHub, so Dependabot
+# replaces the blueprint's Renovate config (removed — it only served GitLab).
 #
-# CUSTOMIZE: Uncomment the ecosystems that match your stack.
+# github-actions is always on: every third-party action in .github/workflows/
+# is pinned to a full commit SHA with a trailing "# vX.Y.Z" comment, and a pin
+# nobody bumps is a pin that quietly misses security fixes. Dependabot rewrites
+# both the SHA and the comment. All action bumps arrive as ONE grouped weekly PR
+# rather than one PR per action, so the review cost does not scale with the
+# number of actions.
+#
+# Labels: `no-changelog` on the github-actions group, because an action bump
+# changes CI only and ships nothing to users (the changelog-check job would skip
+# a .github/-only diff anyway; the label makes the intent explicit). The docs
+# site's toolchain (website/) gets it for the same reason: a bump there changes
+# how the documentation is built, not the product. Application dependency bumps
+# do NOT get it — CLAUDE.md's fast path for a dependency bump runs the
+# `dependency` agent and adds a changelog fragment.
+#
+# Two npm-ecosystem entries, because there are two independent JavaScript
+# projects: the application's pnpm workspace at the root (packages/*, apps/*,
+# one pnpm-lock.yaml) and the docs site's own npm project (website/,
+# package-lock.json). Dependabot documents pnpm lockfile support for v7–v10
+# only, which is why the root package.json pins pnpm to 10.x — see
+# pnpm-workspace.yaml.
 
 version: 2
 updates:
-  # # Python (pip)
-  # - package-ecosystem: "pip"
-  #   directory: "/"
-  #   schedule:
-  #     interval: "weekly"
-  #     day: "monday"
-  #   labels:
-  #     - "dependencies"
-  #   open-pull-requests-limit: 10
-
-  # # Node.js (npm)
-  # - package-ecosystem: "npm"
-  #   directory: "/"
-  #   schedule:
-  #     interval: "weekly"
-  #     day: "monday"
-  #   labels:
-  #     - "dependencies"
-  #   open-pull-requests-limit: 10
-
-  # # Go modules
-  # - package-ecosystem: "gomod"
-  #   directory: "/"
-  #   schedule:
-  #     interval: "weekly"
-  #     day: "monday"
-  #   labels:
-  #     - "dependencies"
-
-  # # Docker
-  # - package-ecosystem: "docker"
-  #   directory: "/"
-  #   schedule:
-  #     interval: "weekly"
-  #   labels:
-  #     - "dependencies"
-
-  # GitHub Actions (always enabled — keeps CI actions up to date)
+  # GitHub Actions — always enabled.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+      day: "monday"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "chore(ci)"
     labels:
       - "dependencies"
-      - "ci"
+      - "no-changelog"
+    open-pull-requests-limit: 5
+
+  # Application dependencies — the pnpm workspace (root package.json, every
+  # packages/* and apps/* manifest, pnpm-lock.yaml).
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      # Minor and patch bumps together; a major bump gets its own PR, because
+      # it is the one that can change parser or XML-writer behavior.
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - "dependencies"
+    open-pull-requests-limit: 10
+
+  # Docs-site toolchain — website/, its own npm project (Astro Starlight).
+  - package-ecosystem: "npm"
+    directory: "/website"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      website-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    commit-message:
+      prefix: "chore(website)"
+    labels:
+      - "dependencies"
+      - "no-changelog"
+    open-pull-requests-limit: 5

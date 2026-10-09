@@ -74,7 +74,7 @@ Launch **2 sub-agents in parallel** (both with `model: "sonnet"`). Wait for both
 **For any test whose purpose is to prevent a specific defect from recurring, run it against
 the pre-fix code and confirm it fails.** Copy the source file aside, restore its pre-fix
 version (`git show origin/main:<path> > <path>`), run, copy it back, and confirm with
-`git diff` — then record the before/after in the MR. **Do not use `git stash` for this:**
+`git diff` — then record the before/after in the PR. **Do not use `git stash` for this:**
 `refs/stash` is shared by every worktree, so another session's pop can take your change and
 leave you theirs (use `scripts/wt stash` if you must stash). If reverting is impractical,
 construct the failing input directly and assert the test catches it.

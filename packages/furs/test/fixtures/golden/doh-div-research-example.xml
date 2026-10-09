@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Envelope xmlns="http://edavki.durs.si/Documents/Schemas/Doh_Div_3.xsd" xmlns:edp="http://edavki.durs.si/Documents/Schemas/EDP-Common-1.xsd">
+  <edp:Header>
+    <edp:taxpayer>
+      <edp:taxNumber>12345678</edp:taxNumber>
+      <edp:taxpayerType>FO</edp:taxpayerType>
+      <edp:name>Janez Novak</edp:name>
+      <edp:address1>Slovenska cesta 1</edp:address1>
+      <edp:city>Ljubljana</edp:city>
+      <edp:postNumber>1000</edp:postNumber>
+      <edp:postName>Ljubljana</edp:postName>
+    </edp:taxpayer>
+    <edp:Workflow>
+      <edp:DocumentWorkflowID>O</edp:DocumentWorkflowID>
+    </edp:Workflow>
+    <edp:domain>edavki.durs.si</edp:domain>
+  </edp:Header>
+  <edp:AttachmentList/>
+  <edp:Signatures/>
+  <body>
+    <Doh_Div>
+      <Period>2026</Period>
+      <EmailAddress>janez.novak@example.com</EmailAddress>
+      <PhoneNumber>041123456</PhoneNumber>
+      <ResidentCountry>SI</ResidentCountry>
+      <IsResident>true</IsResident>
+      <SelfReport>false</SelfReport>
+      <WfTypeU>false</WfTypeU>
+    </Doh_Div>
+    <Dividend>
+      <Date>2026-05-14</Date>
+      <PayerIdentificationNumber>94-2404110</PayerIdentificationNumber>
+      <PayerName>Apple Inc.</PayerName>
+      <PayerAddress>One Apple Park Way, Cupertino, CA 95014, United States</PayerAddress>
+      <PayerCountry>US</PayerCountry>
+      <Type>1</Type>
+      <Value>22.22</Value>
+      <ForeignTax>3.33</ForeignTax>
+      <SourceCountry>US</SourceCountry>
+      <ReliefStatement>10/01, 2b odstavek 10. člena</ReliefStatement>
+    </Dividend>
+    <Dividend>
+      <Date>2026-06-24</Date>
+      <PayerIdentificationNumber>499158</PayerIdentificationNumber>
+      <PayerName>Vanguard Funds plc (Vanguard FTSE All-World UCITS ETF Dist)</PayerName>
+      <PayerAddress>70 Sir John Rogerson's Quay, Dublin 2, Ireland</PayerAddress>
+      <PayerCountry>IE</PayerCountry>
+      <Type>4</Type>
+      <Value>13.23</Value>
+      <ForeignTax>0.00</ForeignTax>
+      <SourceCountry>IE</SourceCountry>
+    </Dividend>
+  </body>
+</Envelope>

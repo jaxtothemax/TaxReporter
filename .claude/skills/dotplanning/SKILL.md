@@ -1,6 +1,6 @@
 ---
 name: dotplanning
-description: Plan a release milestone BEFORE any development starts. Resolves the milestone scope, asks the kickoff questions that decide the release's shape (charter, date-vs-scope, capacity, reserve, maturity, freeze), builds a feature→asset map, flags every missing screen/flow/endpoint/model/doc that has no issue or design, surfaces the decisions that must be answered before coding, sequences the work into gated workstreams, runs a first grooming pass proposing a release::committed / reserve / stretch value for every milestone issue against stated capacity, and drops a self-contained HTML report. The begin-gate bookend to /pre-release (the end-gate). Run once at milestone kickoff — not per feature.
+description: Plan a release milestone BEFORE any development starts. Resolves the milestone scope, asks the kickoff questions that decide the release's shape (charter, date-vs-scope, capacity, reserve, maturity, freeze), builds a feature→asset map, flags every missing screen/flow/endpoint/model/doc that has no issue or design, surfaces the decisions that must be answered before coding, sequences the work into gated workstreams, runs a first grooming pass proposing a release:committed / reserve / stretch label for every milestone issue against stated capacity, and drops a self-contained HTML report. The begin-gate bookend to /pre-release (the end-gate). Run once at milestone kickoff — not per feature.
 disable-model-invocation: true
 argument-hint: "[version] [--no-file]"
 ---
@@ -28,6 +28,59 @@ decision. Re-run only on a deliberate, material change of scope.
 
 ---
 
+## Tracker access (GitHub)
+
+The tracker is GitHub Issues, reached through `gh`. Every `gh api` path below uses the
+`{owner}/{repo}` placeholders, which `gh` fills in from the **origin** remote at run time
+(`gh repo view --json nameWithOwner -q .nameWithOwner` shows what it resolved to) — never
+hardcode the repository. With no origin remote, or an origin that is not a GitHub repo,
+`gh` exits non-zero with `unable to expand placeholder in path`. That is the **no-tracker**
+case: follow each step's no-tracker path and say so in the report. Never guess a repo.
+
+Three helpers, used by Steps 0, 1b and 6d. Sub-agents run in their own shell, so paste
+these into any sub-agent brief that queries the tracker.
+
+```bash
+# `gh api --paginate` prints one JSON array PER PAGE, concatenated (`[...][...]`), which a
+# bare json.load rejects as soon as there is a second page. This reader merges them.
+read_pages() { python3 -c "
+import json,sys
+raw=sys.stdin.read(); dec=json.JSONDecoder(); i=0; out=[]
+while i<len(raw):
+    while i<len(raw) and raw[i].isspace(): i+=1
+    if i>=len(raw): break
+    o,i=dec.raw_decode(raw,i); out+=o
+json.dump(out,sys.stdout)"; }
+
+# GitHub's issues endpoint filters by milestone NUMBER, not title: a title there is
+# rejected or matches nothing, never the milestone you meant. Prints nothing if absent.
+milestone_number() {  # milestone_number <title>
+  gh api --paginate "repos/{owner}/{repo}/milestones?state=all&per_page=100" | read_pages \
+    | python3 -c "import json,sys; t=sys.argv[1]; print(next((str(m['number']) for m in json.load(sys.stdin) if m['title']==t), ''))" "$1"
+}
+
+# milestone_issues <number> [open|closed|all] — one flat JSON array. The issues endpoint
+# also returns pull requests; they are dropped here. Labels are flattened to names.
+milestone_issues() {
+  gh api --paginate "repos/{owner}/{repo}/issues?milestone=$1&state=${2:-open}&per_page=100" \
+    | read_pages | python3 -c "
+import json,sys
+json.dump([{'number': i['number'], 'title': i['title'],
+            'labels': [l['name'] for l in i['labels']],
+            'updated_at': i['updated_at'], 'closed_at': i.get('closed_at')}
+           for i in json.load(sys.stdin) if 'pull_request' not in i], sys.stdout)"
+}
+```
+
+**GitHub labels are not exclusive.** GitLab's scoped labels (`key::value`) make the
+tracker drop the old value when a new one is applied; GitHub has no equivalent. This
+project emulates it with plain labels — `release:committed`, `release:reserve`,
+`release:stretch` — and one rule: **whenever one `release:*` label is applied, the other two
+are removed in the same `gh issue edit` call** (Step 6d's `apply_release`). Nothing else
+enforces exclusivity, so every write is read back.
+
+---
+
 ## Step 0 — Resolve the target milestone
 
 The target is the milestone **about to be built** — the next unstarted release, not
@@ -40,19 +93,25 @@ the one that just shipped. Never hardcode a version.
    - List open milestones from the tracker and pick the smallest one strictly greater
      than the shipped version:
      ```bash
-     glab api "projects/:fullpath/milestones?state=active" 2>/dev/null
+     gh api --paginate "repos/{owner}/{repo}/milestones?state=open&per_page=100" | read_pages \
+       | python3 -c "import json,sys; [print(m['number'], m['title'], m.get('due_on') or 'undated') for m in json.load(sys.stdin)]"
      ```
-     (Use `gh` or the project's tracker if not GitLab. If there is no tracker, ask the
-     user which version they are planning.)
+     (If there is no tracker — see *Tracker access* — ask the user which version they
+     are planning.)
 3. Confirm before proceeding:
    > "Planning the **<VERSION>** milestone (last shipped: <SHIPPED>). Proceed?"
 4. Every issue this plan places in `$VERSION` carries exactly one
-   `release::committed` / `release::reserve` / `release::stretch` label (see
-   *Milestone commitment* in `CLAUDE.md`). Step 6 **proposes** a value per issue and
+   `release:committed` / `release:reserve` / `release:stretch` label (see
+   *Milestone commitment* in `CLAUDE.md`; on GitHub these are plain labels whose
+   exclusivity this skill maintains — see *Tracker access*). Step 6 **proposes** a value per issue and
    the **user confirms** before any label is applied. Only the committed set becomes
    roadmap bullets, and the reserve is stated as a number in the report.
 
-Export `$VERSION` and `$SHIPPED`. Every query, the report, and any filed issue must
+Export `$VERSION` and `$SHIPPED`, and resolve `MS="$(milestone_number "$VERSION")"` — the
+GitHub milestone number every issues query needs. An empty `$MS` means no milestone has
+that title yet: say so, and offer to create it with the user's due date before Step 1
+(`gh api -X POST "repos/{owner}/{repo}/milestones" -f title="$VERSION" -f due_on="<YYYY-MM-DD>T00:00:00Z"`).
+Every query, the report, and any filed issue must
 reference `$VERSION` — never a hardcoded string. If the project is pre-1.0, note it:
 between minor releases the public API, schema, and settings can still change, so an
 open question that crosses a **trust boundary** (auth, tenancy, data integrity) or a
@@ -73,28 +132,18 @@ a structured summary, not raw dumps.
 > reference — `$VERSION` has not shipped.
 
 ### 1b. Tracked issues — what's already captured
-> List the issues assigned to `$VERSION`, **with their current `release::` value**.
-> A milestone can hold more than one page of issues, and `--per-page 100` alone
-> truncates at the first page silently — which on the milestone you are planning is
-> the worst possible place to lose rows. `glab api --paginate` emits one JSON array
-> **per page, concatenated**, which a bare `json.load` rejects, so read it with the
-> `read_pages` helper:
+> List the issues assigned to `$VERSION`, **with their current `release:*` label(s)**.
+> A milestone can hold more than one page of issues, and `per_page=100` without
+> `--paginate` truncates at the first page silently — which on the milestone you are
+> planning is the worst possible place to lose rows. `gh issue list --limit` truncates the
+> same way. Use the `milestone_issues` helper from *Tracker access*: it paginates, merges
+> the pages with `read_pages`, and drops pull requests.
 >
 > ```bash
-> read_pages() { python3 -c "
-> import json,sys
-> raw=sys.stdin.read(); dec=json.JSONDecoder(); i=0; out=[]
-> while i<len(raw):
->     while i<len(raw) and raw[i].isspace(): i+=1
->     if i>=len(raw): break
->     o,i=dec.raw_decode(raw,i); out+=o
-> json.dump(out,sys.stdout)"; }
->
-> glab api --paginate "projects/:id/issues?milestone=$VERSION&state=opened&per_page=100" \
->   | read_pages > "$ISSUES"
+> milestone_issues "$MS" > "$ISSUES"
 > ```
 >
-> Return title, id, labels, and one-line intent for each. If there is no tracker,
+> Return title, number, labels, and one-line intent for each. If there is no tracker,
 > return "no tracked issues — plan from the spec."
 
 ### 1c. Deferred findings inherited from the last cycle
@@ -122,7 +171,7 @@ a structured summary, not raw dumps.
 ### 1g. Carry-over — what is still open in the previous milestone
 > List the issues still open in `$SHIPPED`'s milestone. They do not silently become
 > this milestone's problem: Step 2 asks the user whether they move, and anything that
-> moves is groomed with everything else. A `release::committed` inherited from the
+> moves is groomed with everything else. A `release:committed` inherited from the
 > previous milestone is a promise sized against a different capacity.
 
 ---
@@ -197,9 +246,11 @@ Turn the asset map into an **ordered** plan. Sequence by:
 For each workstream, name the **gate chain it will trigger** — quote the matching row
 from `CLAUDE.md`'s *Fast paths by change class* table so the user sees the real cost up
 front. Examples:
-- New full-stack feature → `/voc` → `architect` → `ux-design` → implement → pre-MR gate batch → `ux-review` + `accessibility` → `test-scaffold` → `changelog` → `/mr`
-- Backend-only endpoint → `architect` → pre-MR gate batch → `test-scaffold` → `changelog` → `/mr`
-- Trust-boundary subsystem → `threat-model` → `architect` → implement → pre-MR gate batch → `test-scaffold` → `changelog` → `/mr`
+- New full-stack feature → `/voc` → `architect` → `ux-design` → implement → pre-MR gate batch → `ux-review` + `accessibility` → `test-scaffold` → `completeness-check` → `changelog` → `/mr`
+- Core-logic-only change → `architect` → pre-MR gate batch → `test-scaffold` → `completeness-check` → `changelog` → `/mr`
+- Trust-boundary subsystem → `threat-model` → `architect` → implement → pre-MR gate batch (incl. `security-review`) → `test-scaffold` → `completeness-check` → `changelog` → `/mr`
+
+(In this repository `/mr` opens a GitHub pull request.)
 
 Do **not** run any of those gates here — `dotplanning` only *names* the chain each
 workstream will need. Running them is the development that follows this plan.
@@ -216,7 +267,7 @@ expensive ones to get wrong.
 
 ---
 
-## Step 6 — First grooming pass: propose a `release::` value for every issue
+## Step 6 — First grooming pass: propose a `release:*` label for every issue
 
 Build the **commitment ledger**: one row per issue that will sit in `$VERSION` — the open
 issues from 1b, the carry-over the user chose to move in (Q9), and the gap issues Step 9
@@ -230,18 +281,19 @@ Apply the first rule that matches:
 | Rule | Proposed |
 |---|---|
 | Out of charter, not a prerequisite, and the user chose to defer it | **No label** — it moves to the next milestone |
-| Implements a charter theme (Q1), or is a credibility prerequisite (Q10) | `release::committed` |
-| Hardening inside the share the user set (Q8) | `release::committed` |
-| A known bug a real user is likely to hit | `release::reserve` |
-| Blocked by an unanswered Step 5 question with no answer date before its workstream starts | `release::stretch` — flagged "committed once #N is decided" |
-| Its workstream ends after feature freeze (Q7) | `release::stretch` |
-| Builds on an unvalidated foundation (Q11) | `release::stretch` unless the user says otherwise |
-| Polish, hygiene, design exploration, unclaimed feature | `release::stretch` |
+| Implements a charter theme (Q1), or is a credibility prerequisite (Q10) | `release:committed` |
+| Hardening inside the share the user set (Q8) | `release:committed` |
+| A known bug a real user is likely to hit | `release:reserve` |
+| Blocked by an unanswered Step 5 question with no answer date before its workstream starts | `release:stretch` — flagged "committed once #N is decided" |
+| Its workstream ends after feature freeze (Q7) | `release:stretch` |
+| Builds on an unvalidated foundation (Q11) | `release:stretch` unless the user says otherwise |
+| Polish, hygiene, design exploration, unclaimed feature | `release:stretch` |
 
 An issue that **already** carries a value keeps it unless a rule above contradicts it.
 Show those as `current → proposed` and list the changes separately from the
 confirmations: a kickoff pass that silently reshuffles a prior triage throws away a
-decision the user already made. Any issue holding two values is proposed down to one.
+decision the user already made. Any issue holding two values is proposed down to one —
+on GitHub that state is common, not exotic, because nothing in the tracker prevents it.
 
 ### 6b. Fit the ledger to the answers
 
@@ -278,26 +330,40 @@ not one question per issue:
 ### 6d. Apply (skip if `--no-apply`)
 
 Only after 6c. Apply each confirmed value **and drop the other two in the same command**.
-`glab issue update --label` *adds* a scoped label without removing the current value, so
-an issue can silently end up holding both `committed` and `stretch`:
+GitHub labels are not scoped: `gh issue edit --add-label` *adds* a label and leaves every
+other one in place, so an issue can silently end up holding both `committed` and
+`stretch`.
+
+`gh issue edit` rejects a label name the repository does not have — in `--remove-label`
+as well as `--add-label` — so first confirm all three exist (`/kickoff` creates them):
 
 ```bash
-apply_release() {  # apply_release <iid> <committed|reserve|stretch>
-  local keep="release::$2" drop=()
-  for v in committed reserve stretch; do [ "$v" != "$2" ] && drop+=("release::$v"); done
-  glab issue update "$1" --label "$keep" --unlabel "$(IFS=,; echo "${drop[*]}")"
+gh label list --limit 500 --json name -q '.[].name' \
+  | grep -cxE 'release:(committed|reserve|stretch)'     # must print 3
+```
+
+If it prints less than 3, stop and ask before creating the missing ones
+(`gh label create "release:<value>" --description "<meaning from CLAUDE.md>"`) — a label
+is outward-facing, like every other tracker write here.
+
+```bash
+apply_release() {  # apply_release <issue-number> <committed|reserve|stretch>
+  local keep="release:$2" drop="" v
+  for v in committed reserve stretch; do
+    [ "$v" != "$2" ] && drop="${drop:+$drop,}release:$v"
+  done
+  gh issue edit "$1" --add-label "$keep" --remove-label "$drop"
 }
 ```
 
-Then read every touched issue back and assert **exactly one** `release::` value. The exit
+Then read every touched issue back and assert **exactly one** `release:*` value. The exit
 code is not evidence that the old value dropped:
 
 ```bash
-glab api --paginate "projects/:id/issues?milestone=$VERSION&state=opened&per_page=100" \
-  | read_pages | python3 -c "
+milestone_issues "$MS" | python3 -c "
 import json,sys
-bad=[i['iid'] for i in json.load(sys.stdin) if sum(l.startswith('release::') for l in i['labels'])!=1]
-print('rows not holding exactly one release:: value:', bad or 'none')"
+bad=[i['number'] for i in json.load(sys.stdin) if sum(l.startswith('release:') for l in i['labels'])!=1]
+print('rows not holding exactly one release:* label:', bad or 'none')"
 ```
 
 The issues the user left undecided will appear in that list — compare it against the 6c
@@ -310,6 +376,21 @@ the milestone description, one fact per line so a script can read it later:
 Reserve: <N>
 Feature freeze: <YYYY-MM-DD>
 Maturity: <alpha|beta|rc|stable>
+```
+
+GitHub's milestone `PATCH` **replaces** the description, so read it first
+(`gh api "repos/{owner}/{repo}/milestones/$MS" -q .description`), keep what is there, and
+write the combined text back:
+
+```bash
+gh api -X PATCH "repos/{owner}/{repo}/milestones/$MS" -f description="$(cat <<'EOF'
+<existing description, unchanged>
+
+Reserve: <N>
+Feature freeze: <YYYY-MM-DD>
+Maturity: <alpha|beta|rc|stable>
+EOF
+)"
 ```
 
 Do not move carry-over or deferred issues between milestones here unless the user asked
@@ -351,23 +432,32 @@ For each 🔴 missing asset and each unresolved open question that has no tracke
 offer to file one — **with confirmation, one at a time**, using the project's tracker:
 
 ```bash
-glab issue create --title "<title>" --milestone "$VERSION" \
-  --description "$(cat <<'EOF'
+gh issue create --title "<title>" --milestone "$VERSION" \
+  --body "$(cat <<'EOF'
 ## Gap identified by /dotplanning
 <what's missing and why it blocks the milestone>
 
 ## Acceptance criteria
 - [ ] <criterion>
 EOF
-)" --label "planning-gap"
+)" --label "task"
 ```
+
+`gh issue create --milestone` takes the milestone **title**. `--label` must name a label
+that already exists — GitHub does not create labels on the fly, and an unknown one fails
+the whole create. Use `feature` instead of `task` when the gap is a missing user-facing
+capability. The `## Gap identified by /dotplanning` heading is what finds these issues
+later: `gh issue list --state all --search '"Gap identified by /dotplanning" in:body'`.
+Before filing each one, search open and closed issues for a duplicate
+(`gh issue list --state all --search "<key terms>"`).
 
 Never file without showing the list and getting a yes. This closes the loop: the plan's
 gaps become tracked work before development starts.
 
 **Filing into a dated milestone also sets a commitment.** Show the proposed
-`release::` value beside each issue in the same confirmation, and apply the label
-in the same call. If the user confirms the issue but not the label, file it
+`release:*` label beside each issue in the same confirmation, and apply the label
+in the same call (`--label "task,release:<value>"` — a new issue holds no other
+`release:*` value, so there is nothing to remove). If the user confirms the issue but not the label, file it
 **unlabeled** and list it in the report as an open commitment decision — an
 unlabeled issue in a dated milestone is a visible gap; a guessed label is an
 invisible one.
@@ -401,5 +491,5 @@ invisible one.
 - Proceeding to the asset map before the Step 2 answers exist. Every later step consumes
   them, and inventing a capacity to get moving is how the milestone acquires a number
   nobody agreed to.
-- Applying a `release::` label from 6a's proposal without the 6c confirmation, or
+- Applying a `release:*` label from 6a's proposal without the 6c confirmation, or
   trimming the committed set quietly so the 6b fit numbers come out right.

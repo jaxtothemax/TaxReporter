@@ -36,7 +36,7 @@
 # ── When the gate fires ──────────────────────────────────────────────────────
 #
 # Restore the call, or move the declaration to the guard's new home, or delete
-# the stanza and say in the MR what covers this now. All three are reviewable
+# the stanza and say in the PR what covers this now. All three are reviewable
 # one-line diffs. That is the whole mechanism: it cannot stop the removal, it
 # makes the removal visible.
 #
@@ -60,6 +60,10 @@ path: .claude/settings.json
 call: .claude/hooks/pre-tool-safety.sh
 why:  The only wiring of the Edit/Write safety hook. Removing this entry disarms it while the script itself stays present and passing.
 
+path: .claude/settings.json
+call: "Bash(gh pr merge:*)"
+why:  The only rule stopping an agent from merging a PR, `--auto` included. Delete it and nothing else in the suite fails: the hooks and skills only tell agents not to merge.
+
 path: scripts/check-sigpipe-readers.sh
 call: is_ignored "$f" && continue
 why:  The only thing keeping the shell walk out of gitignored files. Removing it makes the gate red locally on files CI can never see, and green in CI, with nothing pointing at the difference.
@@ -71,3 +75,39 @@ why:  Same guard, same walk, same failure mode — a local-only RED naming a rea
 path: scripts/check-stale-references.sh
 call: drop_ignored_lines
 why:  The only filter between this gate's tree-wide grep and gitignored scratch output. Removing it makes downloaded fixtures and local reports look like tracked debt.
+
+path: .gitattributes
+call: packages/furs/schemas/*.xsd -text
+why:  The only thing stopping `* text=auto` from normalizing the vendored FURS schemas' CRLF line endings on commit. Delete it and the furs SHA-256 test stays green (the working tree keeps its bytes); the next re-vendored schema is then committed normalized, CI's checkout no longer matches its pin, and the easy "fix" pins bytes FURS never published.
+
+path: website/astro.config.mjs
+call: markdownLinks(),
+why:  The only wiring of the Markdown link rewrite. Delete it and the build, page-size check and link check stay green while every in-content link on the deployed Pages site 404s and repository links ignore GITHUB_REPOSITORY.
+
+path: apps/web/vite.config.ts
+call: plugins: [react(), contentSecurityPolicy()],
+why:  The only wiring of the web app's Content Security Policy. Drop contentSecurityPolicy() and every test, lint and build stays green while the shipped page loses its script-src 'self' and connect-src 'self' protection.
+
+path: apps/web/src/App.tsx
+call: target?.focus({ preventScroll: true });
+why:  The only focus move after a screen change. Without it keyboard and screen-reader users stay on a button that no longer exists; the tests render without a DOM, so nothing notices.
+
+path: apps/web/src/screens/FilesStep.tsx
+call: listHeading.current?.focus();
+why:  Keeps focus in the file list after a removal deletes the focused button. Delete it and focus falls to the page body with every test still green.
+
+path: apps/web/src/App.tsx
+call: if (!listed.has(id)) bytes.current.delete(id);
+why:  The only place a file's bytes leave memory once the user removes it, swaps it for the demo or starts over (ADR 0013 §6). Delete it and they stay in the tab until it closes; the screen tests render without effects and cannot see it.
+
+path: apps/web/src/App.tsx
+call: window.addEventListener("beforeunload", ask);
+why:  The only warning before a reload or a closed tab loses the user's files (ADR 0013 §6). Delete it and they vanish without a word; the screen tests render without effects and cannot see it.
+
+path: apps/web/src/App.tsx
+call: <ErrorBoundary
+why:  The only boundary around the screens: without it a render error blanks the whole app, and the user's files and answers go with it. The screen tests render on the server, where a boundary never catches, so deleting it leaves every test green.
+
+path: apps/web/vite.config.ts
+call: "worker-src 'self' blob:",
+why:  The only grant for the engine's blob: bootstrap, which makes the worker inherit the page's policy (ADR 0013 §3). Drop blob: and every test and build stays green while the deployed app can no longer start its engine, so no file of the user's is read.
