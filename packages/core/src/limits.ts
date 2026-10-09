@@ -39,6 +39,23 @@ export const LIMITS = Object.freeze({
   diagnosticsPerFile: 1000,
   /** Nesting depth of an XML export. */
   xmlDepth: 16,
+  /**
+   * Entries in a ZIP archive (an XLSX workbook): a workbook has a few dozen
+   * parts; counted before its directory is read (ADR 0014).
+   */
+  zipEntries: 256,
+  /**
+   * Bytes a file's ZIP entries may inflate to altogether, checked against
+   * their declared sizes before any is inflated: no longer bounded by the
+   * file's own size, so bounded here (ADR 0014 §3).
+   */
+  inflatedBytes: 64 * 1024 * 1024,
+  /** Sheets in one workbook; a broker writes five at most. */
+  sheetsPerFile: 32,
+  /** Cells in one workbook, every sheet together. */
+  cellsPerFile: 2_000_000,
+  /** Entries of a workbook's shared-string table. */
+  sharedStrings: 1_000_000,
   /** Attributes on one XML element. */
   xmlAttributes: 256,
   /** Whole digits and decimals of a number a broker writes. */
