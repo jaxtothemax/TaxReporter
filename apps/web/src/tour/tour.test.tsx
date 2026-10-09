@@ -3,7 +3,7 @@
  * element a stop points at exists where the stop shows it, every explanation
  * names what the screen shows, and every equation it states holds.
  */
-import { Decimal } from "@taxreporter/core";
+import { bucketFor, completedYears, Decimal } from "@taxreporter/core";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
@@ -14,7 +14,16 @@ import type { Locale } from "../i18n/format";
 import { en, sl, type Messages } from "../i18n/messages";
 import { HOLDING_BUCKETS } from "../model/preview";
 import { FLOW_STEPS, initialWizardState, wizardReducer } from "../state/wizard";
-import { DEMO_AAPL, NOTE_COUNTS, TOUR } from "./script";
+import {
+  DEMO_AAPL,
+  DEMO_ASML,
+  DEMO_HOLIDAY,
+  DEMO_NVDA,
+  DEMO_TREATY,
+  DEMO_VWCE,
+  NOTE_COUNTS,
+  TOUR,
+} from "./script";
 
 const LOCALES: readonly [Locale, Messages][] = [
   ["en", en],
@@ -184,6 +193,134 @@ describe("the equations the explanations state", () => {
     expect(
       d(sale.price.amount).dividedBy(d(sale.rate.rate)).toPlain(8, "halfUp"),
     ).toBe(sale.priceEur);
+  });
+});
+
+describe("what the later stops say of the demo", () => {
+  const d = (value: string) => Decimal.parse(value);
+  const sec = (isin: string) => {
+    const found = demoPreview.securities.find((s) => s.isin === isin);
+    if (found === undefined) throw new Error(`the demo lacks ${isin}`);
+    return found;
+  };
+  const sum = (values: readonly string[]) => Decimal.sum(values.map(d));
+  const bought = (isin: string, date: string) =>
+    sec(isin).rows.find((row) => row.kind === "purchase" && row.date === date);
+
+  it("gives each Apple lot the rate of its completed years, the oldest sold first", () => {
+    const apple = sec(DEMO_AAPL);
+    const sale = apple.rows.find((row) => row.kind === "sale");
+    for (const lot of apple.lots) {
+      expect(lot.yearsHeld).toBe(
+        completedYears(lot.purchaseDate, lot.saleDate),
+      );
+      expect(lot.bucket).toBe(bucketFor(lot.yearsHeld));
+    }
+    const [first, second] = apple.lots;
+    expect(first?.quantity).toBe(
+      bought(DEMO_AAPL, first?.purchaseDate ?? "")?.quantity,
+    );
+    expect(
+      sum(apple.lots.map((lot) => lot.quantity)).equals(
+        d(sale?.quantity ?? "0"),
+      ),
+    ).toBe(true);
+    expect(first?.purchaseDate.localeCompare(second?.purchaseDate ?? "")).toBe(
+      -1,
+    );
+  });
+
+  it("matches NVIDIA's sale with the Trading 212 purchase first, then IBKR's", () => {
+    const nvidia = sec(DEMO_NVDA);
+    const sale = nvidia.rows.find((row) => row.kind === "sale");
+    const [first, second] = nvidia.lots;
+    expect(bought(DEMO_NVDA, first?.purchaseDate ?? "")?.broker).toBe(
+      "trading212",
+    );
+    expect(bought(DEMO_NVDA, second?.purchaseDate ?? "")?.broker).toBe("ibkr");
+    expect(sale?.broker).toBe("ibkr");
+    expect(
+      sum(nvidia.lots.map((lot) => lot.quantity)).equals(
+        d(sale?.quantity ?? "0"),
+      ),
+    ).toBe(true);
+  });
+
+  it("sells VWCE's oldest buys first, the last of them only in part", () => {
+    const etf = sec(DEMO_VWCE);
+    const buys = etf.rows.filter((row) => row.kind === "purchase");
+    expect(etf.lots.map((lot) => lot.purchaseDate)).toEqual(
+      buys.slice(0, etf.lots.length).map((row) => row.date),
+    );
+    expect(
+      sum(etf.lots.map((lot) => lot.quantity)).equals(d(etf.quantitySold)),
+    ).toBe(true);
+    const partial = etf.lots.filter(
+      (lot) => bought(DEMO_VWCE, lot.purchaseDate)?.quantity !== lot.quantity,
+    );
+    expect(partial).toHaveLength(1);
+    expect(partial[0]).toBe(etf.lots.at(-1));
+    expect(etf.rows.every((row) => row.rate === null)).toBe(true);
+  });
+
+  it("counts ASML's whole loss: no purchase within 30 days of the sale", () => {
+    const asml = sec(DEMO_ASML);
+    const sale = asml.rows.find((row) => row.kind === "sale");
+    expect(d(asml.gainEur).isNegative()).toBe(true);
+    expect(
+      d(asml.proceedsEur).minus(d(asml.costEur)).equals(d(asml.gainEur)),
+    ).toBe(true);
+    const day = 86_400_000;
+    for (const row of asml.rows.filter((r) => r.kind === "purchase")) {
+      const apart =
+        Math.abs(
+          Date.parse(`${row.date}T00:00:00Z`) -
+            Date.parse(`${sale?.date ?? ""}T00:00:00Z`),
+        ) / day;
+      expect(apart).toBeGreaterThan(30);
+    }
+    expect(
+      demoPreview.findings.some(
+        (f) => f.code === "lossCounts" && f.params["isin"] === DEMO_ASML,
+      ),
+    ).toBe(true);
+  });
+
+  it("converts AT&T's holiday dividend at the list before it, to the cent", () => {
+    const paid = demoPreview.dividends.find(
+      (x) => x.isin === DEMO_HOLIDAY.isin && x.date === DEMO_HOLIDAY.date,
+    );
+    expect(paid?.rate).not.toBeNull();
+    if (paid === undefined || paid.rate === null) return;
+    // 1 May 2026 is a Friday: a weekday with no list is a TARGET holiday.
+    expect(new Date(`${paid.date}T00:00:00Z`).getUTCDay()).toBe(5);
+    expect(paid.rate.listDate).toBe("2026-04-30");
+    expect(
+      d(paid.gross.amount).dividedBy(d(paid.rate.rate)).toPlain(2, "halfUp"),
+    ).toBe(paid.grossEur);
+  });
+
+  it("credits Allianz's withholding at the treaty rate, the rest not credited", () => {
+    const paid = demoPreview.dividends.find(
+      (x) => x.isin === DEMO_TREATY.isin && x.date === DEMO_TREATY.date,
+    );
+    const finding = demoPreview.findings.find(
+      (f) =>
+        f.code === "excessWithholding" && f.params["isin"] === DEMO_TREATY.isin,
+    );
+    if (
+      paid === undefined ||
+      paid.treatyRate === null ||
+      finding === undefined
+    ) {
+      throw new Error("the demo lacks the treaty case");
+    }
+    expect(
+      d(paid.grossEur).times(d(paid.treatyRate)).toPlain(2, "halfUp"),
+    ).toBe(paid.creditEur);
+    expect(
+      d(paid.foreignTaxEur).minus(d(paid.creditEur)).toPlain(2, "halfUp"),
+    ).toBe(finding.params["excessEur"]);
   });
 });
 

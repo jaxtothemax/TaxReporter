@@ -2902,6 +2902,13 @@ button.step-item:hover {
   font-variant-numeric: tabular-nums;
 }
 
+/* While the tour runs the page gets room below its end, so a card near the
+   end of a short screen can still be scrolled clear of the dock with its
+   explanations. It goes when the tour does, before the scroll is given back. */
+.app.is-touring {
+  padding-bottom: 100dvh;
+}
+
 /* Boxes measured at a width before they are placed: out of sight and out of
    the accessibility tree. */
 .tour-measure {

@@ -92,6 +92,9 @@ export function focusTarget(target: TourRestore["focus"]): HTMLElement | null {
   return button ?? document.querySelector<HTMLElement>("#main h1");
 }
 
+/** The largest corner radius in the design system (--r-lg). */
+const MAX_RADIUS = 16;
+
 /** How long a stop waits for its elements before it goes on without them. */
 const WAIT_MS = 3000;
 /** How long it waits for a screen's entrance animation to finish. */
@@ -209,6 +212,8 @@ async function settle(elements: readonly Element[]): Promise<void> {
 }
 
 interface Geometry {
+  /** The stop and first explanation it was laid out for. */
+  readonly key: string;
   readonly frame: Frame;
   /** The lit area, or null when the stop's card never appeared. */
   readonly cutout: Box | null;
@@ -240,7 +245,15 @@ export function TourLayer({
   const dock = useRef<HTMLDivElement>(null);
   const measuring = useRef<HTMLOListElement>(null);
   const stop: TourStop | undefined = TOUR[run.stop];
-  const [presentation, setPresentation] = useState<Presentation | null>(null);
+  // Each layout is tagged with the stop (and, below, the explanations) it was
+  // made for, and used only for those: a new stop never shows, even for a
+  // frame, the boxes of the one before.
+  const [chosen, setChosen] = useState<{
+    readonly stop: number;
+    readonly value: Presentation;
+  } | null>(null);
+  const presentation =
+    chosen !== null && chosen.stop === run.stop ? chosen.value : null;
   const [heights, setHeights] = useState<{
     readonly gutter: readonly number[];
     readonly row: readonly number[];
@@ -313,6 +326,7 @@ export function TourLayer({
     );
     if (lit === null) {
       setGeometry({
+        key: `${String(run.stop)}:${String(shown.from)}`,
         frame,
         cutout: null,
         radius: 0,
@@ -327,7 +341,13 @@ export function TourLayer({
       firstElement === undefined || firstElement.tagName === "TR"
         ? 0
         : parseFloat(getComputedStyle(firstElement).borderTopLeftRadius) || 0;
-    const radius = firstElement?.tagName === "TR" ? 8 : cornered + stop.pad;
+    // The lit element's own corner, grown with the padding; never rounder
+    // than the largest radius of the design (--r-lg), so a pill among the lit
+    // elements cannot turn the cutout into an ellipse.
+    const radius =
+      firstElement?.tagName === "TR"
+        ? 8
+        : Math.min(cornered, MAX_RADIUS) + stop.pad;
     const targets = stop.notes.map((note, i) =>
       i >= shown.from && i < shown.to ? visibleBox(note.target, frame) : null,
     );
@@ -361,18 +381,20 @@ export function TourLayer({
       }
     }
     setGeometry({
+      key: `${String(run.stop)}:${String(shown.from)}`,
       frame,
       cutout: cutoutOf(lit, stop.pad, frame),
       radius,
       placed,
       sheetRing,
     });
-  }, [stop, presentation, heights, shown.from, shown.to]);
+  }, [stop, presentation, heights, shown.from, shown.to, run.stop]);
 
   /** Waits for the stop, scrolls its tables, measures, and picks a presentation. */
   const prepare = useCallback(
     async (isCancelled: () => boolean) => {
       if (stop === undefined) return;
+      const forStop = run.stop;
       const noticeTimer = setTimeout(() => {
         if (!isCancelled()) setWaiting(true);
       }, NOTICE_MS);
@@ -386,7 +408,7 @@ export function TourLayer({
       if (isCancelled()) return;
       setWaiting(false);
       if (focus === null) {
-        setPresentation({ mode: "sheet" });
+        setChosen({ stop: forStop, value: { mode: "sheet" } });
         setPrepared((n) => n + 1);
         return;
       }
@@ -415,10 +437,13 @@ export function TourLayer({
         row: heightsAt(rowWidth(frame, stop.notes.length) ?? BOX_WIDTH.rowMin),
       };
       setHeights(measured);
-      setPresentation(choose(frame, grown, targets, measured, stop.prefer));
+      setChosen({
+        stop: forStop,
+        value: choose(frame, grown, targets, measured, stop.prefer),
+      });
       setPrepared((n) => n + 1);
     },
-    [stop, restore],
+    [stop, restore, run.stop],
   );
 
   // Each stop, and each change of the window's size, is prepared afresh.
@@ -426,7 +451,6 @@ export function TourLayer({
   useEffect(() => {
     let cancelled = false;
     setGeometry(null);
-    setPresentation(null);
     void prepare(() => cancelled);
     return () => {
       cancelled = true;
@@ -567,8 +591,14 @@ export function TourLayer({
   // likely get, so the room measured for the explanations is the real room.
   const sheet =
     presentation === null ? narrowWindow() : presentation.mode === "sheet";
-  const placed = geometry?.placed ?? null;
-  const frame = geometry?.frame;
+  // Only the layout made for what is in view now.
+  const laid =
+    geometry !== null &&
+    geometry.key === `${String(run.stop)}:${String(shown.from)}`
+      ? geometry
+      : null;
+  const placed = laid?.placed ?? null;
+  const frame = laid?.frame;
   const close = () => {
     dialog.current?.close();
   };
@@ -607,6 +637,8 @@ export function TourLayer({
       className="tour"
       aria-labelledby="tour-title"
       aria-describedby="tour-intro"
+      // For tests: the stop in view is laid out.
+      data-ready={laid === null ? undefined : "true"}
       onClose={onClosed}
     >
       {frame === undefined ? null : (
@@ -620,12 +652,12 @@ export function TourLayer({
           <path
             className="tour-dim"
             fillRule="evenodd"
-            d={dimPath(frame, geometry?.cutout ?? null, geometry?.radius ?? 0)}
+            d={dimPath(frame, laid?.cutout ?? null, laid?.radius ?? 0)}
           />
-          {geometry?.cutout == null ? null : (
+          {laid?.cutout == null ? null : (
             <path
               className="tour-frame"
-              d={roundedRect(geometry.cutout, geometry.radius)}
+              d={roundedRect(laid.cutout, laid.radius)}
             />
           )}
           {placed?.map((p, k) =>
@@ -636,32 +668,30 @@ export function TourLayer({
               </g>
             ),
           )}
-          {[
-            ...(placed?.map((p) => p.ring) ?? []),
-            geometry?.sheetRing ?? null,
-          ].map((ring, k) =>
-            ring === null ? null : (
-              <g key={`ring-${String(k)}`} className="tour-ring">
-                <circle
-                  className="tour-ring-halo"
-                  cx={ring[0]}
-                  cy={ring[1]}
-                  r={8}
-                />
-                <circle
-                  className="tour-ring-mark"
-                  cx={ring[0]}
-                  cy={ring[1]}
-                  r={5.5}
-                />
-                <circle
-                  className="tour-ring-pulse"
-                  cx={ring[0]}
-                  cy={ring[1]}
-                  r={5.5}
-                />
-              </g>
-            ),
+          {[...(placed?.map((p) => p.ring) ?? []), laid?.sheetRing ?? null].map(
+            (ring, k) =>
+              ring === null ? null : (
+                <g key={`ring-${String(k)}`} className="tour-ring">
+                  <circle
+                    className="tour-ring-halo"
+                    cx={ring[0]}
+                    cy={ring[1]}
+                    r={8}
+                  />
+                  <circle
+                    className="tour-ring-mark"
+                    cx={ring[0]}
+                    cy={ring[1]}
+                    r={5.5}
+                  />
+                  <circle
+                    className="tour-ring-pulse"
+                    cx={ring[0]}
+                    cy={ring[1]}
+                    r={5.5}
+                  />
+                </g>
+              ),
           )}
         </svg>
       )}

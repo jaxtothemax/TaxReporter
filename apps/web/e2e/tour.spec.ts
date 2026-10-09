@@ -36,20 +36,9 @@ async function enterDemo(page: Page): Promise<Locator> {
   return dialog;
 }
 
-/** Waits until the stop has laid out: its explanations are on screen. */
+/** Waits until the stop in view has been laid out by the tour. */
 async function settled(dialog: Locator): Promise<void> {
-  await expect(dialog.locator(".tour-notes .tour-note").first()).toBeVisible();
-  // Two frames for the layout pass after scrolling.
-  await dialog.page().evaluate(
-    () =>
-      new Promise<void>((done) => {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            done();
-          });
-        });
-      }),
-  );
+  await expect(dialog).toHaveAttribute("data-ready", "true");
 }
 
 const stopCount = (dialog: Locator) =>
@@ -152,12 +141,20 @@ for (const exit of ["Escape", "Skip", "Finish"] as const) {
     await page.locator("#demo-tour").click();
     await expect(dialog).toBeVisible();
     // Go to the stop that opens Apple's row on the gains tab.
-    await dialog.locator(".tour-next").click();
-    await dialog.locator(".tour-next").click();
+    const apple = page.locator('details[data-explain-key="US0378331005"]');
+    const appleOpen = () =>
+      page.evaluate(
+        () =>
+          document.querySelector(
+            'details[data-explain-key="US0378331005"][open]',
+          ) !== null,
+      );
+    for (let k = 0; k < 12 && !(await appleOpen()); k += 1) {
+      await settled(dialog);
+      await dialog.locator(".tour-next").click();
+    }
     await settled(dialog);
-    await expect(
-      page.locator('details[data-explain-key="US0378331005"]'),
-    ).toHaveAttribute("open", "");
+    await expect(apple).toHaveAttribute("open", "");
     if (exit === "Escape") {
       await page.keyboard.press("Escape");
     } else if (exit === "Skip") {

@@ -58,7 +58,7 @@ import {
 } from "./ui/AppChrome";
 import { DemoBanner } from "./ui/bits";
 import { ErrorBoundary } from "./ui/ErrorBoundary";
-import { Button, Note } from "./ui/kit";
+import { Button, cx, Note } from "./ui/kit";
 import { Stepper } from "./ui/Stepper";
 
 /** The guided tour's reducer, over the script's stops (tour/script.ts). */
@@ -336,7 +336,10 @@ function Frame({
   );
 
   return (
-    <div className="app" data-theme={theme}>
+    <div
+      className={cx("app", tourRun !== null && "is-touring")}
+      data-theme={theme}
+    >
       <SkipLink />
       <AppHeader
         onHome={() => {
