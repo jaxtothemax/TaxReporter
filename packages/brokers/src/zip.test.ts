@@ -298,6 +298,13 @@ describe("openZip: one refusal per rule", () => {
     expect(() => archive.read([claim(b)])).toThrow(
       expect.objectContaining({ code: "zipBudget" }),
     );
+    // At the budget exactly, a read is charged and goes on to decode.
+    const fresh = openZip(makeZip([{ name: "a.xml", content: sheet }]));
+    const [only] = fresh.entries;
+    if (only === undefined) throw new Error("one entry");
+    expect(() => fresh.read([{ ...only, size: LIMITS.inflatedBytes }])).toThrow(
+      expect.objectContaining({ code: "zipInflate" }),
+    );
   });
 
   it("refuses a record signature in the archive comment", () => {

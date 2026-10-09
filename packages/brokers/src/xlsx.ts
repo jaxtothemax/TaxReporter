@@ -919,6 +919,9 @@ function readSheet(
       close(depth) {
         if (depth === alternate) alternate = 0;
         if (depth === 2) section = null;
+        // Rows and cells close only inside sheetData: an mc:Choice after
+        // it closes at the depth a row does.
+        if (section !== "sheetData") return;
         if (depth === 5) inValue = false;
         else if (depth > 5) inline?.close(depth);
         if (depth === 4) {

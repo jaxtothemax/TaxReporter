@@ -4,7 +4,7 @@
 >
 > Research for building TaxReporter. It is not tax advice. It settles how a number or a date
 > stored in an XLSX cell is read, for the brokers that export only XLSX (eToro, XTB, Saxo:
-> [07](07-brokers-eu-and-others.md)). The rule it leads to is ADR 0014 §7–8.
+> [07](07-brokers-eu-and-others.md)). The rule it leads to is ADR 0014 §8–9.
 
 ## 1. A number in a cell is a binary double
 

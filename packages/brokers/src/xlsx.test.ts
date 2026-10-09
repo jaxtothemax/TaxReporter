@@ -404,6 +404,48 @@ describe("openWorkbook: one refusal per rule, with its place", () => {
         }),
       ],
       [
+        "a sheet relationship of another type",
+        one("", {
+          edit: editing("xl/_rels/workbook.xml.rels", (text) =>
+            text.replace(`${RELS}/worksheet`, `${RELS}/pivotTable`),
+          ),
+        }),
+      ],
+      [
+        "two shared-string tables",
+        one("", {
+          strings: ["<t>a</t>"],
+          edit: editing("xl/_rels/workbook.xml.rels", (text) =>
+            text.replace(
+              "</Relationships>",
+              `<Relationship Id="rId8" Type="${RELS}/sharedStrings" Target="sharedStrings.xml"/></Relationships>`,
+            ),
+          ),
+        }),
+      ],
+      [
+        "a content type given twice by extension",
+        one("", {
+          edit: editing("[Content_Types].xml", (text) =>
+            text.replace(
+              '<Default Extension="xml"',
+              '<Default Extension="XML" ContentType="application/xml"/><Default Extension="xml"',
+            ),
+          ),
+        }),
+      ],
+      [
+        "a content type given twice by part",
+        one("", {
+          edit: editing("[Content_Types].xml", (text) =>
+            text.replace(
+              "</Types>",
+              `<Override PartName="/xl/workbook.xml" ContentType="${CONTENT_TYPE.workbook}"/></Types>`,
+            ),
+          ),
+        }),
+      ],
+      [
         "two relationships with one ID",
         one("", {
           edit: editing("xl/_rels/workbook.xml.rels", (text) =>
@@ -447,6 +489,25 @@ describe("openWorkbook: one refusal per rule, with its place", () => {
     expect(code(one("", { properties: 'date1904="yes"' }))).toBe(
       "xlsxWorkbook",
     );
+    // A second date system or sheet list: first and last would disagree.
+    expect(
+      code(
+        one("", {
+          edit: editing("xl/workbook.xml", (t) =>
+            t.replace("<bookViews>", '<workbookPr date1904="1"/><bookViews>'),
+          ),
+        }),
+      ),
+    ).toBe("xlsxWorkbook");
+    expect(
+      code(
+        one("", {
+          edit: editing("xl/workbook.xml", (t) =>
+            t.replace("<calcPr", "<sheets/><calcPr"),
+          ),
+        }),
+      ),
+    ).toBe("xlsxWorkbook");
     const sheetList = (change: (text: string) => string) =>
       code(one("", { edit: editing("xl/workbook.xml", change) }));
     expect(sheetList((t) => t.replace(' name="Trades"', ""))).toBe(
@@ -729,6 +790,7 @@ describe("openWorkbook: what Excel and TaxReporter could read differently", () =
       "<t>a</t><t>b</t>",
       "<t>a</t><r><t>b</t></r>",
       "<r><t>a</t><t>b</t></r>",
+      "<r><t>a</t></r><t>b</t>",
     ]) {
       expect(code(one("", { strings: [si] })), si).toBe("xlsxStructure");
     }
@@ -736,6 +798,17 @@ describe("openWorkbook: what Excel and TaxReporter could read differently", () =
       code(one('<row><c t="inlineStr"><is><t>a</t></is><v>1</v></c></row>')),
     ).toBe("xlsxCellType");
     expect(code(one("<row><c><v>1<x/></v></c></row>"))).toBe("xlsxStructure");
+  });
+
+  it("holds a value to Excel's limit on a cell at its value, however split", () => {
+    const value = (n: number) => {
+      const half = Math.floor(n / 2);
+      return one(
+        `<row><c t="str"><v>${"x".repeat(half)}<!-- -->${"x".repeat(n - half)}</v></c></row>`,
+      );
+    };
+    expect(code(value(LIMITS.xlsxCellLength))).toBe("none");
+    expect(code(value(LIMITS.xlsxCellLength + 1))).toBe("xlsxText");
   });
 
   it("holds an inline string and a value to Excel's limit on a cell", () => {
@@ -793,6 +866,19 @@ describe("openWorkbook: what Excel and TaxReporter could read differently", () =
         }),
       ),
     ).toBe("none");
+  });
+
+  it("reads the rows once, whatever Markup Compatibility follows sheetData", () => {
+    const book = open({
+      sheets: [
+        {
+          name: "A",
+          data: "<row><c><v>1</v></c></row><row><c><v>2</v></c></row>",
+          after: `<mc:AlternateContent xmlns:mc="${MC_NS}"><mc:Choice Requires="y" xmlns:y="urn:y"><y:z/></mc:Choice><mc:Fallback/></mc:AlternateContent>`,
+        },
+      ],
+    });
+    expect(book.rows(1).rows.map((r) => r.row)).toEqual([1, 2]);
   });
 
   it("reads exactly one sheetData", () => {

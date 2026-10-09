@@ -163,8 +163,8 @@ identity by `(broker, key)` in the contract.
 - **The clock rule stays a risk.** It is open until FURS answers, and blocks the first
   release that files a real return. The design keeps the change small.
 - **Deferred:**
-  - XLSX number cells (an ADR 0006 exception) and CSVs with preamble lines, both before the
-    eToro and Schwab adapters;
+  - XLSX number cells (an ADR 0006 exception), now proposed by ADR 0014, and CSVs with
+    preamble lines, both before the eToro and Schwab adapters;
   - a cross-check of the account holder;
   - the fund flag from an ISIN source instead of the name;
   - calibrating the worker's watchdog.
