@@ -71,7 +71,8 @@ export type NumberColumn =
   | "amount"
   | "ibCommission"
   | "shares"
-  | "price";
+  | "price"
+  | "fee";
 
 /** Why a CSV export could not be read (packages/brokers/src/csv.ts). */
 export type CsvReason =

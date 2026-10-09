@@ -34,9 +34,12 @@ monthly purchases, one sale.
    a sale's negative. Fees and the cash `amount` are not used: costs are covered by the normed
    costs, as for every broker (research 04 §4.2), and no FX rate of Trade Republic's is used.
    `asset_class` `FUND` marks a fund, which the export states rather than leaving it to a name.
-4. **One account, named by the export.** Every row names its account by `account_type`, and
-   only `DEFAULT` is known. Every file is that one account: overlapping exports are read once,
-   and the question about other brokers' unnamed accounts does not apply to it.
+4. **One account.** `account_type` names the kind of account, not the account, and only
+   `DEFAULT` is known. Every file is taken for the one taxpayer's account (one client per
+   session, ADR 0011 §11): overlapping exports are read once, and the question about other
+   brokers' unnamed accounts does not apply to it. The trade-off: a second person's export
+   added by mistake would be pooled with the first; keying files apart instead would make
+   every overlapping export read as two accounts.
 5. **Cash rows.** Deposits, withdrawals and card spending are ignored rows with their reasons.
    Interest is ignored with a warning, as it belongs on Doh-Obr.
 6. **Refused, not guessed:**
@@ -53,7 +56,23 @@ monthly purchases, one sale.
    - bonds, private funds, crypto and any other asset class;
    - any type, category or account type the adapter does not know (`unknownAction`, the text
      wrapped as untrusted).
-7. **Keys** are built from `transaction_id` and the row's content.
+7. **Keys** are built from `transaction_id` and the row's content without an ordinal
+   (ADR 0011 §5), as Trade Republic never reuses an ID: a row repeated inside one file blocks
+   as a repeat instead of counting twice.
+8. **A trade's figures are checked.** Its cash `amount` must be its quantity times its price,
+   give or take its fee and a cent; a price in another unit, or another row's amount, shows
+   there. A trade with a foreign leg (`original_amount`, `original_currency` or `fx_rate`
+   filled) is refused (`unconfirmedAction`) until a real export shows which currency its price
+   is in.
+
+## Open questions
+
+- **Is `datetime` when the trade was executed, or when it was booked?** The tax date must be
+  the trade (contract) date, never settlement. Research 07 does not say, and the agreement
+  between `datetime` and `date` cannot tell, as both describe one event. A trade executed on
+  30 December and booked on 2 January would land in the wrong tax year. A real export, or
+  Trade Republic's own confirmation PDF beside it, settles this before the adapter ships.
+- **What a dividend row's columns hold** (decision 6).
 
 ## Consequences
 

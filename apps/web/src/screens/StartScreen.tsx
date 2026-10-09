@@ -128,6 +128,18 @@ function HeroVisual() {
   );
 }
 
+/**
+ * A broker's tile: the first letters of its first two words, "T2" for
+ * Trading 212 and "TR" for Trade Republic, so no two tiles read alike.
+ */
+function initials(name: string): string {
+  return name
+    .split(" ")
+    .slice(0, 2)
+    .map((word) => word.charAt(0))
+    .join("");
+}
+
 export function StartScreen({
   onStartDemo,
   onStartOwn,
@@ -213,7 +225,7 @@ export function StartScreen({
             <ul className="broker-list" role="list">
               {BROKERS.map((broker) => (
                 <li key={broker}>
-                  <Ticker symbol={t.brokers[broker].charAt(0)} />
+                  <Ticker symbol={initials(t.brokers[broker])} />
                   {t.brokers[broker]}
                 </li>
               ))}

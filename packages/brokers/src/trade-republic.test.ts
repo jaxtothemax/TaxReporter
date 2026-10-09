@@ -229,6 +229,81 @@ describe("tradeRepublic: what it refuses", () => {
   });
 });
 
+describe("tradeRepublic: what it checks", () => {
+  it("blocks a row repeated inside one file, rather than count it twice", () => {
+    const result = rows(row(), row());
+    expect(result.events.filter((e) => e.kind === "trade")).toHaveLength(2);
+    expect(
+      validateLedger(result.events).diagnostics.map((d) => [
+        d.severity,
+        d.code,
+      ]),
+    ).toContainEqual(["blocking", "duplicateKeyInFile"]);
+  });
+
+  it("takes a cash type only as cash, never on a row that names a security", () => {
+    for (const cells of [
+      { type: "CUSTOMER_INBOUND" },
+      { type: "INTEREST_PAYMENT" },
+      { category: "CASH", type: "CARD_TRANSACTION" },
+    ]) {
+      expect(codes(rows(row(cells))), JSON.stringify(cells)).toEqual([
+        "unknownAction",
+      ]);
+    }
+  });
+
+  it("refuses a trade with a foreign leg until a real export shows its price's currency", () => {
+    for (const cells of [
+      { original_amount: "400.00" },
+      { original_currency: "USD" },
+      { fx_rate: "1.108" },
+    ]) {
+      const [d] = rows(row(cells)).diagnostics;
+      expect([d?.code, d?.params]).toEqual([
+        "unconfirmedAction",
+        { broker: "traderepublic", action: "foreign-currency trade" },
+      ]);
+    }
+  });
+
+  it("refuses a trade whose cash amount is not its quantity at its price", () => {
+    // 2 at 180.50 is 361.00, with a fee of 1.00 either way.
+    expect(codes(rows(row({ amount: "-362.00" })))).toEqual([]);
+    expect(codes(rows(row({ amount: "-362.02" })))).toEqual([
+      "tradeInconsistent",
+    ]);
+    expect(codes(rows(row({ price: "18050.000000" })))).toEqual([
+      "tradeInconsistent",
+    ]);
+    expect(codes(rows(row({ amount: "" })))).toEqual(["invalidNumber"]);
+  });
+
+  it("reads its columns in any order, after a byte-order mark", () => {
+    const shuffled = [...TRADE_REPUBLIC_COLUMNS].reverse();
+    const line = (values: Record<string, string>) =>
+      shuffled.map((c) => `"${values[c] ?? ""}"`).join(",");
+    const values: Record<string, string> = {
+      datetime: "2026-03-10T14:05:12.000Z",
+      date: "2026-03-10",
+      account_type: "DEFAULT",
+      category: "TRADING",
+      type: "BUY",
+      asset_class: "STOCK",
+      symbol: "US0378331005",
+      shares: "2.0000000000",
+      price: "180.500000",
+      amount: "-361.00",
+      currency: "EUR",
+      transaction_id: "00000000-0000-4000-8000-000000000098",
+    };
+    const text = `${String.fromCharCode(0xfeff)}${shuffled.map((c) => `"${c}"`).join(",")}\n${line(values)}`;
+    const result = read(text);
+    expect(result.format).toBe("traderepublic-csv-2026");
+    expect(result.events.map((e) => e.kind)).toEqual(["trade"]);
+  });
+});
+
 describe("tradeRepublic: overlapping exports", () => {
   it("are one account, so the second copy of each trade is dropped", () => {
     const first = read(fixture);

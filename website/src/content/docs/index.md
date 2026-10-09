@@ -84,7 +84,7 @@ version.
 
 - **Pre-alpha.** There is nothing to install yet.
 - **First version, v0.1, underway.** It will prepare Doh-KDVP and Doh-Div for tax year 2026
-  from Trading 212 and IBKR exports. Returns for 2026 are due at the end of February 2027.
+  from Trading 212, IBKR and Trade Republic exports. Returns for 2026 are due at the end of February 2027.
 - **After that:** more brokers, the interest and derivatives returns, a Slovenian-language
   interface, and the optional AI check.
 

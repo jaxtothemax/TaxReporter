@@ -25,12 +25,19 @@
  *   whose cost basis is a tax question; corporate actions, deliveries and
  *   migrations; bonds, private markets and crypto; and any row this adapter
  *   does not know.
- * - **Duplicates** across overlapping exports: every row has its own
- *   `transaction_id`, so a row's key is built from it and its content.
- * - **One account, named by the export:** every row names its account by
- *   `account_type`, and only `DEFAULT` is known. So every file is that one
- *   account, and overlapping exports are read once, whatever the user
- *   answers about other brokers' unnamed accounts (ADR 0011 §4).
+ * - **Keys** by `transaction_id`, which Trade Republic never reuses, and
+ *   without an ordinal (ADR 0011 §5): the same row in an overlapping
+ *   export is read once, and a row repeated inside one file blocks as a
+ *   repeat instead of counting twice.
+ * - **A trade's figures are checked:** its cash `amount` must be its
+ *   quantity times its price, give or take its fee and a cent, and a trade
+ *   with a foreign leg (`original_amount`, `original_currency`, `fx_rate`)
+ *   is refused until a real export shows which currency its price is in.
+ * - **One account:** `account_type` names the kind of account, and only
+ *   `DEFAULT` is known. Every file is taken for the one taxpayer's account,
+ *   so overlapping exports are read once, whatever the user answers about
+ *   other brokers' unnamed accounts; a second person's export added by
+ *   mistake would be read as the same account (ADR 0011 §4, ADR 0015).
  */
 import {
   accountScope,
@@ -38,7 +45,7 @@ import {
   diagnostic,
   isIsin,
   isIsoDate,
-  keyBuilder,
+  keyOf,
   LIMITS,
   taxDate,
   untrusted,
@@ -136,10 +143,10 @@ const NUMBER = new RegExp(
   `^-?\\d{1,${String(LIMITS.numberWholeDigits)}}(?:\\.\\d{1,${String(LIMITS.numberDecimals)}})?$`,
 );
 const CURRENCY = /^[A-Z]{3}$/;
+const CENT = Decimal.parse("0.01");
 
 function read(table: CsvTable, context: ReadContext): ImportResult {
   const account = accountScope(TRADE_REPUBLIC, ACCOUNT_TYPE);
-  const keys = keyBuilder();
   const events: LedgerEvent[] = [];
   const diagnostics: Diagnostic[] = [];
   // Every column is there: the header matched them all.
@@ -197,14 +204,27 @@ function read(table: CsvTable, context: ReadContext): ImportResult {
       });
       continue;
     }
+    // Cash only as cash: a cash type on a row that names a security, or in
+    // another category, is no row this adapter knows.
+    const isCash =
+      category === "CASH" &&
+      text(row, "symbol") === "" &&
+      text(row, "shares") === "";
     const cash = CASH.get(type);
-    if (cash !== undefined) {
-      ignore(cash);
-      continue;
-    }
-    if (INTEREST.has(type)) {
-      ignore("interest");
-      interestRows += 1;
+    if (cash !== undefined || INTEREST.has(type)) {
+      if (!isCash) {
+        block("unknownAction", {
+          broker: TRADE_REPUBLIC,
+          action: untrusted(type),
+        });
+        continue;
+      }
+      if (cash !== undefined) {
+        ignore(cash);
+      } else {
+        ignore("interest");
+        interestRows += 1;
+      }
       continue;
     }
     if (UNSETTLED.has(type)) {
@@ -272,7 +292,41 @@ function read(table: CsvTable, context: ReadContext): ImportResult {
       block("invalidCurrency", {});
       continue;
     }
+    // A foreign leg: the price may then be in another currency than
+    // `currency` says, which no source settles yet (07 §4.2).
+    if (
+      text(row, "original_amount") !== "" ||
+      text(row, "original_currency") !== "" ||
+      text(row, "fx_rate") !== ""
+    ) {
+      block("unconfirmedAction", {
+        broker: TRADE_REPUBLIC,
+        action: "foreign-currency trade",
+      });
+      continue;
+    }
+    const amountText = text(row, "amount");
+    const feeText = text(row, "fee");
+    if (!NUMBER.test(amountText)) {
+      block("invalidNumber", { column: "amount" });
+      continue;
+    }
+    if (feeText !== "" && !NUMBER.test(feeText)) {
+      block("invalidNumber", { column: "fee" });
+      continue;
+    }
     const quantity = shares.abs();
+    // The cash moved is the quantity at the price, with or without the
+    // fee: a price in another unit, or another trade's amount, shows here.
+    const fee = feeText === "" ? Decimal.ZERO : Decimal.parse(feeText).abs();
+    const off = quantity
+      .times(price)
+      .minus(Decimal.parse(amountText).abs())
+      .abs();
+    if (off.greaterThan(fee.plus(CENT))) {
+      block("tradeInconsistent", { isin, date, check: "amount" });
+      continue;
+    }
     const name = text(row, "name");
     const security: SecurityRef = {
       isin,
@@ -281,7 +335,7 @@ function read(table: CsvTable, context: ReadContext): ImportResult {
     };
     events.push({
       kind: "trade",
-      key: keys.key("trade", [
+      key: keyOf("trade", [
         text(row, "transaction_id"),
         type,
         at.instant,

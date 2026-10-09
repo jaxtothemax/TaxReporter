@@ -112,6 +112,6 @@ expected to be Monday 1 March 2027. Check the date FURS announces before relying
 - **File or sign anything for you.** Only you can submit your return in eDavki.
 - **Cover every return at first.** The first version will handle Doh-KDVP and Doh-Div only.
   Interest (Doh-Obr) and derivatives such as options and CFDs (D-IFI) are planned for later.
-- **Cover every broker at first.** The first version will support Trading 212 and IBKR. The
-  [roadmap](/roadmap/#planned) lists the brokers planned next.
+- **Cover every broker at first.** The first version will support Trading 212, IBKR and Trade
+  Republic. The [roadmap](/roadmap/#planned) lists the brokers planned next.
 - **Guess.** When TaxReporter does not understand something in your export, it will tell you.
