@@ -4,8 +4,9 @@
 **Status:** Proposed
 
 > **Implementation status (2026-10-09):** being built on branch `feat/xlsx-reader`, not yet on
-> `main`. The DEFLATE decoder and CRC-32 (`packages/brokers/src/{inflate,crc32}.ts`) are in;
-> the ZIP reader, the OOXML profile and the workbook reader are not yet.
+> `main`. The DEFLATE decoder and CRC-32 (`packages/brokers/src/{inflate,crc32}.ts`), the ZIP
+> reader (`zip.ts`) and the OOXML profile of the XML scanner (`xml.ts`) are in; the workbook
+> reader and the dispatch are not yet.
 
 ## Context
 
@@ -52,13 +53,18 @@ follow it, with the number and date rules sourced in research 09.
 4. **An OOXML profile of the strict XML scanner**, namespace-aware:
    - prefixes are resolved to namespace URIs (within a bound), and elements are matched by URI
      and local name, never by local name alone;
+   - declarations are checked as Namespaces in XML 1.0 requires, and an undeclared prefix is
+     refused (reason `namespace`);
    - duplicate attributes are checked after resolution;
+   - text and attribute values are normalized as a conforming XML processor normalizes them
+     (line ends, and white space in a value), so the profile reads what Excel's parser reads;
    - an element of a foreign namespace inside `sheetData` or `sst`, including
      `mc:AlternateContent`, is refused; outside them (`extLst` and the like) it is skipped
      whole;
-   - text is allowed only in `v`, `t` and `f`; still no DOCTYPE, entity, CDATA or processing
-     instruction; character references are allowed and checked, as XML needs `&#13;` to carry
-     a CR;
+   - text is allowed only in `v`, `t` and `f`, at most `LIMITS.xlsxCellLength` (32,767,
+     Excel's limit on a cell: research 09 §3) characters in a piece, and `]]>` in it is refused
+     (reason `cdataEnd`); still no DOCTYPE, entity, CDATA or processing instruction; character
+     references are allowed and checked, as XML needs `&#13;` to carry a CR;
    - one budget of elements and cells across all the parts of a file replaces the per-scan
      element cap, which counts the wrong unit for a sheet.
 5. **The workbook, read through one choke point** (`readWorkbook`):
@@ -69,11 +75,11 @@ follow it, with the number and date rules sourced in research 09.
      embeddings, VBA projects. An archive carrying a VBA project, or declaring a macro-enabled
      content type, is refused.
    - **Rows** are stored sparsely, never allocated from `r`, `dimension`, `spans` or `count`.
-     A column past `LIMITS.columns`, a row past 1,048,576, a cell outside its row, a reference
-     out of order or repeated, and an A1 reference of more than 3 letters or 7 digits, or with
-     a leading zero, are refused.
+     A column past `LIMITS.columns`, a row past 1,048,576 (research 09 §3), a cell outside its
+     row, a reference out of order or repeated, and an A1 reference of more than 3 letters or 7
+     digits, or with a leading zero, are refused.
    - **Shared strings.** Indices must be canonical and in range. A string's text is its runs
-     joined, without phonetic (`rPh`) text, within `LIMITS.cellLength`. The text the cells make
+     joined, without phonetic (`rPh`) text, within `LIMITS.xlsxCellLength`. The text the cells make
      altogether, each shared-string use counted in full, is held to `LIMITS.fileBytes`
      characters, the bound a CSV already has.
    - **Cells.** Each is typed: string, number, boolean or error, with its stored text. A cell
@@ -82,8 +88,8 @@ follow it, with the number and date rules sourced in research 09.
      reads its column.
    - **What is never read.** Merged cells are never expanded; styles, comments and data
      validation are never read.
-   - **Sheets.** Names that repeat case-insensitively or exceed 31 characters are refused. A
-     hidden sheet an adapter reads blocks.
+   - **Sheets.** Names that are blank, repeat case-insensitively or exceed 31 characters
+     (research 09 §3) are refused. A hidden sheet an adapter reads blocks.
    - **Sheets left unread.** A sheet no adapter reads is recorded as an ignored row with its
      own reason.
    - **Lookups.** Every lookup keyed by file text uses `Map` or `Object.hasOwn`.
@@ -109,8 +115,8 @@ follow it, with the number and date rules sourced in research 09.
      arithmetic;
    - which clock a serial is in is each adapter's statement for its broker (ADR 0011 §7).
 9. **New limits**, each tested at its value and one past it: `zipEntries` 256,
-   `inflatedBytes` 64 MiB, `sheetsPerFile` 32, `cellsPerFile` 2,000,000 and `sharedStrings`
-   1,000,000.
+   `inflatedBytes` 64 MiB, `sheetsPerFile` 32, `cellsPerFile` 2,000,000, `sharedStrings`
+   1,000,000 and `xlsxCellLength` 32,767.
 10. **Dispatch.** Intake recognizes a ZIP whose relationships name an SpreadsheetML workbook
     as the XLSX family, hands the workbook to the one XLSX adapter whose `matches` accepts it,
     and refuses any other ZIP as before. The dispatch line and the budget check are declared

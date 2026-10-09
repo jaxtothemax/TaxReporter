@@ -29,6 +29,11 @@ export const LIMITS = Object.freeze({
   columns: 128,
   /** Characters in one CSV cell or XML attribute value. */
   cellLength: 4096,
+  /**
+   * Characters in one piece of an XLSX workbook's text: Excel's own limit
+   * on a cell, which a writer stays within (research 09 §3).
+   */
+  xlsxCellLength: 32_767,
   /** Whole-number terms of a split ratio: real splits run to 1 for 1,000. */
   splitTerm: 10_000,
   /** Splits on one security over its whole history. */

@@ -77,6 +77,26 @@ from 31 December 1899, and serials from 61 count from 30 December 1899.
 - Which clock a serial is in (the exchange's, the broker's, UTC) is no property of the file:
   each adapter states it for its broker, as ADR 0011 §7 requires.
 
+## 3. What Excel holds a workbook to
+
+**A cell holds at most 32,767 characters; a worksheet, 1,048,576 rows by 16,384 columns** [H].
+Microsoft's *Worksheet and workbook specifications and limits*, the page §1 cites, lists
+"Total number of characters that a cell can contain: 32,767 characters" and "Total number of
+rows and columns on a worksheet: 1,048,576 rows by 16,384 columns". Column 16,384 is `XFD`,
+three letters; row 1,048,576 has seven digits.
+
+**A sheet's name has at most 31 characters** [H]. Microsoft's *Rename a worksheet* says that
+worksheet names cannot "Be blank", "Contain more than 31 characters", "Contain any of the
+following characters: / \ ? * : [ ]", or begin or end with an apostrophe.
+
+**The rule that follows (inference).** A workbook Excel wrote stays within these bounds, and so
+does a program that writes workbooks for Excel to open. The reader therefore refuses anything
+past them rather than read it:
+
+- a piece of text longer than 32,767 characters (`LIMITS.xlsxCellLength`);
+- a cell reference past `XFD1048576`;
+- a sheet name that is blank or longer than 31 characters.
+
 ## Sources
 
 - Microsoft, *Worksheet and workbook specifications and limits* (Excel for Microsoft 365, 2024,
@@ -87,6 +107,8 @@ from 31 December 1899, and serials from 61 count from 30 December 1899.
   https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-xls/4a5e900a-0eb0-4355-8fc1-81aab8f46e8b
 - Microsoft, *Excel incorrectly assumes that the year 1900 is a leap year*:
   https://learn.microsoft.com/office/troubleshoot/excel/wrongly-assumes-1900-is-leap-year
+- Microsoft, *Rename a worksheet*:
+  https://support.microsoft.com/office/rename-a-worksheet-3f1f7148-ee83-404d-8ef0-9ff99fbad1f9
 - ECMA-376 / ISO/IEC 29500-1, Office Open XML, Part 1 (SpreadsheetML; `workbookPr`
   §18.2.28 in the 2008 edition). Clause numbers vary by edition: check the edition cited.
 - ISO/IEC 9899:2011 (C11), §5.2.4.2.2, `DBL_DIG`; committee draft N1570, p. 28:
@@ -96,5 +118,5 @@ from 31 December 1899, and serials from 61 count from 30 December 1899.
 
 - Every statement marked [H] is quoted or paraphrased from the primary source listed. Clause
   numbers in ISO/IEC 29500-1 differ between editions; the text cited is the 2008 edition's.
-- The two rules are inferences from those facts, made here, and are what ADR 0014 adopts.
+- The rules are inferences from those facts, made here, and are what ADR 0014 adopts.
   They are to be checked against real eToro and XTB exports before either adapter ships.

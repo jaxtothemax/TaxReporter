@@ -1,7 +1,9 @@
 /**
  * A strict scanner for the XML broker exports are written in. Every imported
  * file is hostile (CLAUDE.md, "Secure code"), so this reads only what an
- * export needs and refuses the rest of XML rather than resolve it:
+ * export needs and refuses the rest of XML rather than resolve it.
+ *
+ * Two profiles. The plain one, for exports like Interactive Brokers':
  *
  * - elements with attributes, nested within LIMITS.xmlDepth, and nothing
  *   else: no text content, no CDATA, no namespaces or prefixes;
@@ -11,6 +13,23 @@
  *   other processing instruction; comments are skipped;
  * - every character, written or from a reference, one XML allows: `&#0;`
  *   cannot smuggle in the NUL the intake refuses as a byte.
+ *
+ * The OOXML profile, for the parts of an XLSX workbook (ADR 0014 §4), takes
+ * what Office Open XML needs on top, read as a conforming XML processor
+ * reads it:
+ *
+ * - namespace declarations, checked as Namespaces in XML 1.0 requires and
+ *   resolved within LIMITS.xmlDepth frames: an element is named by its
+ *   namespace URI and local name, a prefixed attribute by `{uri}local`, and
+ *   duplicates are found after resolution;
+ * - text content, passed to the visitor whole, leading spaces and all, with
+ *   line ends normalized (XML 1.0 §2.11), at most LIMITS.xlsxCellLength
+ *   characters in a piece; `]]>` in it is refused, as XML refuses it;
+ * - attribute values normalized as XML 1.0 §3.3.3 normalizes them;
+ * - one budget of elements for every part of the file, not each scan alone.
+ *
+ * DOCTYPE, CDATA, processing instructions and entities beyond XML's five
+ * stay refused in both.
  *
  * One pass over the text by index, without regular expressions over the rest
  * of it and without recursion, so any input costs time linear in its length.
@@ -34,7 +53,16 @@ export class XmlError extends Error {
 
 /** One element as it opens: its name, its attributes, how deep it sits. */
 export interface XmlElement {
+  /** As written: `c`, or with its prefix, `x:c`. */
   readonly name: string;
+  /** The namespace URI it is in, "" for none (always "" in the plain profile). */
+  readonly namespace: string;
+  /** Its name without a prefix. */
+  readonly local: string;
+  /**
+   * By name; in the OOXML profile, a prefixed attribute by `{uri}local`, and
+   * namespace declarations are not among them.
+   */
   readonly attributes: ReadonlyMap<string, string>;
   /** 1 for the root. */
   readonly depth: number;
@@ -46,7 +74,32 @@ export interface XmlVisitor {
   open(element: XmlElement): void;
   /** After an element's children; at once for `<Empty/>`. */
   close(name: string, depth: number): void;
+  /**
+   * Text inside an element, references decoded, in one or more pieces (a
+   * comment splits it). Only the OOXML profile has text; without this, any
+   * but white space is refused.
+   */
+  text?(value: string, depth: number): void;
 }
+
+/** What a scan may take besides the plain profile. */
+export interface ScanOptions {
+  /** Namespaces and text, as an XLSX workbook's parts are written. */
+  readonly ooxml?: boolean;
+  /**
+   * Elements the scan may still read, shared by every scan of one file and
+   * counted down as it reads; MAX_XML_ELEMENTS for a scan of its own.
+   */
+  readonly budget?: { elements: number };
+}
+
+/** The `xml` prefix's namespace, bound without a declaration. */
+const XML_NAMESPACE = "http://www.w3.org/XML/1998/namespace";
+/** The `xmlns` prefix's, which no declaration may name. */
+const XMLNS_NAMESPACE = "http://www.w3.org/2000/xmlns/";
+
+/** The frame of an element that declares nothing, shared by them all. */
+const NO_DECLARATIONS: ReadonlyMap<string, string> = new Map();
 
 /** Elements one file may hold: every record and the containers around them. */
 export const MAX_XML_ELEMENTS = LIMITS.recordsPerFile + 10_000;
@@ -67,7 +120,10 @@ const BANG = 0x21;
 const QUESTION = 0x3f;
 const HASH = 0x23;
 const SEMICOLON = 0x3b;
+const COLON = 0x3a;
+const TAB = 0x09;
 const NEWLINE = 0x0a;
+const RETURN = 0x0d;
 
 const PREDEFINED: ReadonlyMap<string, string> = new Map([
   ["lt", "<"],
@@ -78,7 +134,15 @@ const PREDEFINED: ReadonlyMap<string, string> = new Map([
 ]);
 
 const isSpace = (c: number) =>
-  c === 0x20 || c === 0x09 || c === 0x0a || c === 0x0d;
+  c === 0x20 || c === TAB || c === NEWLINE || c === RETURN;
+
+/** Whether text is XML white space alone (no-break spaces are text). */
+function isBlank(value: string): boolean {
+  for (let k = 0; k < value.length; k += 1) {
+    if (!isSpace(value.charCodeAt(k))) return false;
+  }
+  return true;
+}
 
 const isNameStart = (c: number) =>
   (c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a) || c === 0x5f;
@@ -127,12 +191,19 @@ export function peekRoot(text: string): XmlElement {
  * as its tag is read. Throws XmlError at the first thing it refuses; a
  * caller keeps nothing it was given before the scan returns.
  */
-export function scanXml(text: string, visitor: XmlVisitor): void {
+export function scanXml(
+  text: string,
+  visitor: XmlVisitor,
+  options: ScanOptions = {},
+): void {
   const length = text.length;
+  const ooxml = options.ooxml === true;
+  const budget = options.budget ?? { elements: MAX_XML_ELEMENTS };
   let i = 0;
   let line = 1;
-  let elements = 0;
   const open: string[] = [];
+  /** Namespace declarations, one frame per open element (OOXML only). */
+  const scopes: ReadonlyMap<string, string>[] = [];
   // One object, as the nested readers set these: a plain `let` would be
   // narrowed to its first value where the loop reads it.
   const root = { seen: false, closed: false };
@@ -158,16 +229,91 @@ export function scanXml(text: string, visitor: XmlVisitor): void {
     }
   };
 
-  const readName = (): string => {
-    const start = i;
+  /** A plain name: a letter or `_`, then letters, digits, `_`, `-`, `.`. */
+  const readPlainName = (): void => {
     if (i >= length) fail("truncated");
     if (!isNameStart(text.charCodeAt(i))) fail("name");
     i += 1;
     while (i < length && isNameChar(text.charCodeAt(i))) i += 1;
+  };
+
+  /** A name; in the OOXML profile, with at most one `prefix:`. */
+  const readName = (): string => {
+    const start = i;
+    readPlainName();
+    if (i < length && text.charCodeAt(i) === COLON) {
+      // A namespace prefix, which only the OOXML profile has.
+      if (!ooxml) fail("name");
+      i += 1;
+      readPlainName();
+      if (i < length && text.charCodeAt(i) === COLON) fail("name");
+    }
     if (i - start > MAX_NAME_LENGTH) fail("name");
-    // A colon here would be a namespace prefix, which no export needs.
-    if (i < length && text.charCodeAt(i) === 0x3a) fail("name");
     return text.slice(start, i);
+  };
+
+  /**
+   * The namespace a prefix is bound to, innermost declaration first; for
+   * "", an element's default namespace, "" where none is declared. An
+   * undeclared prefix is an error, never a guess.
+   */
+  const resolve = (prefix: string): string => {
+    if (prefix === "xml") return XML_NAMESPACE;
+    for (let k = scopes.length - 1; k >= 0; k -= 1) {
+      const uri = (scopes[k] as ReadonlyMap<string, string>).get(prefix);
+      if (uri !== undefined) return uri;
+    }
+    return prefix === "" ? "" : fail("namespace");
+  };
+
+  /**
+   * The namespaces a tag declares, as Namespaces in XML 1.0 §3 allows them:
+   * `xmlns` is never declared, `xml` only as itself, no other prefix bound
+   * to either's namespace, and a prefix never to "" (only the default
+   * namespace is undeclared that way).
+   */
+  const declarations = (
+    written: ReadonlyMap<string, string>,
+  ): ReadonlyMap<string, string> => {
+    let frame: Map<string, string> | undefined;
+    for (const [key, uri] of written) {
+      let prefix: string;
+      if (key === "xmlns") prefix = "";
+      else if (key.startsWith("xmlns:")) prefix = key.slice(6);
+      else continue;
+      if (prefix === "xml") {
+        if (uri !== XML_NAMESPACE) fail("namespace");
+        continue;
+      }
+      if (prefix === "xmlns") fail("namespace");
+      if (uri === XML_NAMESPACE || uri === XMLNS_NAMESPACE) fail("namespace");
+      if (prefix !== "" && uri === "") fail("namespace");
+      frame ??= new Map();
+      frame.set(prefix, uri);
+    }
+    return frame ?? NO_DECLARATIONS;
+  };
+
+  /**
+   * A tag's attributes, a prefixed one as `{uri}local`, without the
+   * declarations. Two prefixes bound to one namespace name one attribute
+   * twice: a duplicate (Namespaces in XML 1.0 §6.3).
+   */
+  const qualified = (
+    written: ReadonlyMap<string, string>,
+  ): ReadonlyMap<string, string> => {
+    const attributes = new Map<string, string>();
+    for (const [key, value] of written) {
+      if (key === "xmlns" || key.startsWith("xmlns:")) continue;
+      const colon = key.indexOf(":");
+      const name =
+        colon === -1
+          ? key
+          : `{${resolve(key.slice(0, colon))}}${key.slice(colon + 1)}`;
+      if (attributes.has(name)) fail("duplicateAttribute");
+      attributes.set(name, value);
+    }
+    return attributes;
   };
 
   /** A `&…;` reference at `i` (just past the `&`), decoded. */
@@ -222,12 +368,19 @@ export function scanXml(text: string, visitor: XmlVisitor): void {
         parts.push(text.slice(start, i));
         i += 1;
         parts.push(readReference());
-        size += 1;
+        start = i;
+      } else if (ooxml && (c === TAB || c === NEWLINE || c === RETURN)) {
+        // XML 1.0 §3.3.3: white space written in a value is read as a
+        // space, a CR LF pair as one; a reference such as `&#9;` is kept.
+        parts.push(text.slice(start, i), " ");
+        const pair = c === RETURN && text.charCodeAt(i + 1) === NEWLINE;
+        if (c === NEWLINE || pair) line += 1;
+        i += pair ? 2 : 1;
         start = i;
       } else {
         nextChar();
-        size += 1;
       }
+      size += 1;
       if (size > LIMITS.cellLength) fail("valueTooLong");
     }
     parts.push(text.slice(start, i));
@@ -284,7 +437,10 @@ export function scanXml(text: string, visitor: XmlVisitor): void {
     if (root.closed) fail("afterRoot");
     const tagLine = line;
     const name = readName();
-    const attributes = new Map<string, string>();
+    const written = new Map<string, string>();
+    // Whether the tag names a prefix or declares one, so that its
+    // attributes need resolving (OOXML only).
+    let prefixed = false;
     for (;;) {
       const before = i;
       skipSpace();
@@ -294,14 +450,18 @@ export function scanXml(text: string, visitor: XmlVisitor): void {
       // Attributes are separated by whitespace.
       if (i === before) fail("attributeSyntax");
       const key = readName();
-      if (attributes.has(key)) fail("duplicateAttribute");
-      if (attributes.size >= LIMITS.xmlAttributes) fail("tooManyAttributes");
-      if (key === "xmlns" || key.startsWith("xmlns")) fail("name");
+      if (written.has(key)) fail("duplicateAttribute");
+      if (written.size >= LIMITS.xmlAttributes) fail("tooManyAttributes");
+      if (key.startsWith("xmlns") || key.includes(":")) {
+        // A declaration, which only the OOXML profile has.
+        if (!ooxml) fail("name");
+        prefixed = true;
+      }
       skipSpace();
       if (text.charCodeAt(i) !== EQUALS) fail("attributeSyntax");
       i += 1;
       skipSpace();
-      attributes.set(key, readValue());
+      written.set(key, readValue());
     }
     const empty = text.charCodeAt(i) === SLASH;
     if (empty) {
@@ -310,18 +470,69 @@ export function scanXml(text: string, visitor: XmlVisitor): void {
       if (text.charCodeAt(i) !== GT) fail("attributeSyntax");
     }
     i += 1; // >
-    elements += 1;
-    if (elements > MAX_XML_ELEMENTS) fail("tooManyElements");
+    budget.elements -= 1;
+    if (budget.elements < 0) fail("tooManyElements");
     if (open.length >= LIMITS.xmlDepth) fail("tooDeep");
     root.seen = true;
     const depth = open.length + 1;
-    visitor.open({ name, attributes, depth, line: tagLine });
+
+    let namespace = "";
+    let local = name;
+    let attributes: ReadonlyMap<string, string> = written;
+    if (ooxml) {
+      // Declarations first, wherever they stand in the tag: they bind the
+      // element's own prefix and its attributes' too.
+      scopes.push(prefixed ? declarations(written) : NO_DECLARATIONS);
+      const colon = name.indexOf(":");
+      namespace = resolve(colon === -1 ? "" : name.slice(0, colon));
+      local = colon === -1 ? name : name.slice(colon + 1);
+      if (prefixed) attributes = qualified(written);
+    }
+    visitor.open({ name, namespace, local, attributes, depth, line: tagLine });
     if (empty) {
       visitor.close(name, depth);
+      if (ooxml) scopes.pop();
       if (depth === 1) root.closed = true;
     } else {
       open.push(name);
     }
+  };
+
+  /**
+   * Text at `i` up to the next tag, inside an element: the OOXML profile's.
+   * References are decoded and white space is kept, line ends normalized.
+   */
+  const readText = () => {
+    const parts: string[] = [];
+    let start = i;
+    let size = 0;
+    while (i < length && text.charCodeAt(i) !== LT) {
+      const c = text.charCodeAt(i);
+      if (c === AMPERSAND) {
+        parts.push(text.slice(start, i));
+        i += 1;
+        parts.push(readReference());
+        start = i;
+      } else if (c === RETURN) {
+        // XML 1.0 §2.11: a CR LF pair, or a CR alone, is read as one LF;
+        // `&#13;` is how a CR is written to be kept.
+        parts.push(text.slice(start, i), "\n");
+        const pair = text.charCodeAt(i + 1) === NEWLINE;
+        if (pair) line += 1;
+        i += pair ? 2 : 1;
+        start = i;
+      } else {
+        // `]]>` may end only a CDATA section, which the profile refuses.
+        if (c === GT && text.startsWith("]]", i - 2)) fail("cdataEnd");
+        nextChar();
+      }
+      size += 1;
+      if (size > LIMITS.xlsxCellLength) fail("valueTooLong");
+    }
+    parts.push(text.slice(start, i));
+    const value = parts.join("");
+    if (visitor.text !== undefined) visitor.text(value, open.length);
+    else if (!isBlank(value)) fail("text");
   };
 
   const readEndTag = () => {
@@ -333,6 +544,7 @@ export function scanXml(text: string, visitor: XmlVisitor): void {
     const expected = open.pop();
     if (expected !== name) fail("mismatchedEnd");
     visitor.close(name, open.length + 1);
+    if (ooxml) scopes.pop();
     if (open.length === 0) root.closed = true;
   };
 
@@ -342,6 +554,12 @@ export function scanXml(text: string, visitor: XmlVisitor): void {
 
   while (i < length) {
     const c = text.charCodeAt(i);
+    // Inside an element, the OOXML profile's text is read whole, white
+    // space first: `<t xml:space="preserve">  a</t>` keeps its spaces.
+    if (ooxml && open.length > 0 && c !== LT) {
+      readText();
+      continue;
+    }
     if (isSpace(c)) {
       skipSpace();
       continue;
