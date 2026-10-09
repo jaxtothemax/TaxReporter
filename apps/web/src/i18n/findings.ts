@@ -35,6 +35,12 @@ export interface FindingWords {
   readonly unreadable: Readonly<Record<UnreadableReason, string>>;
   readonly rateErrors: Readonly<Record<RateError, string>>;
   readonly brokers: Readonly<Record<string, string>>;
+  /**
+   * Actions an adapter names in its own words rather than the export's, as
+   * "FOREIGN_CURRENCY_TRADE"; an export's own token, as BENEFITS_SAVEBACK,
+   * is shown as the export writes it.
+   */
+  readonly actions: Readonly<Record<string, string>>;
   /** A Flex Query section, as Interactive Brokers' own screens name it. */
   readonly sections: Readonly<
     Record<DiagnosticParams["summaryOnly"]["section"], string>
@@ -452,6 +458,7 @@ export const wordsEn: FindingWords = {
     ibkr: "Interactive Brokers",
     traderepublic: "Trade Republic",
   },
+  actions: { FOREIGN_CURRENCY_TRADE: "trades in a foreign currency" },
   sections: {
     Trades: "Trades",
     CashTransactions: "Cash Transactions",
@@ -843,6 +850,7 @@ export const wordsSl: FindingWords = {
     ibkr: "Interactive Brokers",
     traderepublic: "Trade Republic",
   },
+  actions: { FOREIGN_CURRENCY_TRADE: "posli v tuji valuti" },
   // Interactive Brokers' screens are not in Slovenian: their own names.
   sections: {
     Trades: "Trades",

@@ -138,6 +138,21 @@ describe("findingText", () => {
     ).toContain("Banka Slovenije published none for that day");
   });
 
+  it("words an adapter's own action, and shows an export's token as written", () => {
+    const sl = (action: string) =>
+      findingText(
+        {
+          severity: "blocking",
+          code: "unconfirmedAction",
+          params: { broker: "traderepublic", action },
+        },
+        context("sl"),
+      );
+    expect(sl("FOREIGN_CURRENCY_TRADE")).toContain("»posli v tuji valuti«");
+    expect(sl("FOREIGN_CURRENCY_TRADE")).toContain("Trade Republic");
+    expect(sl("DIVIDEND")).toContain("»DIVIDEND«");
+  });
+
   it("names no ticker that could pass for something else", () => {
     const spoofed = findingText(
       {

@@ -11,13 +11,14 @@ the Banka Slovenije rate for its own day. TaxReporter does that conversion and t
 from the files your broker already gives you.
 
 > **Status: pre-alpha.** Nothing is usable yet. The first milestone (v0.1) targets
-> Doh-KDVP and Doh-Div for **Trading 212** and **Interactive Brokers**, for tax year 2026
+> Doh-KDVP and Doh-Div for **Trading 212**, **Interactive Brokers** and **Trade Republic**, for tax year 2026
 > (returns due by the end of February 2027). See the [roadmap](website/src/content/docs/roadmap.md).
 
 ## What it will do
 
-- **Read the exports you already have.** Starting with the Trading 212 CSV and the IBKR
-  Flex Query XML, then eToro, Robinhood, Revolut, DEGIRO and others. Parsing is deterministic;
+- **Read the exports you already have.** Starting with the Trading 212 CSV, the IBKR Flex
+  Query XML and the Trade Republic transaction export, then eToro, XTB, DEGIRO, Revolut and
+  others. Parsing is deterministic;
   no AI guesses at your numbers.
 - **Use the rate the law names.** Every amount is converted at the Banka Slovenije reference
   rate valid on the transaction date (ZDoh-2 Art. 16, 98 and 99). TaxReporter shows the rate

@@ -16,7 +16,9 @@ Since April 2026 it offers a transaction export in CSV (research 07 §4.2): 23 n
 every field quoted, one file for the securities account, the cash account and crypto. The
 format is known from parser fixtures, at medium confidence, and Trade Republic publishes no
 definition of its columns. A search on 2026-10-09 found none either; the one public sample
-outside the research, in a Portfolio Performance issue, has no dividend row.
+outside the research, in
+[Portfolio Performance issue #6114](https://github.com/portfolio-performance/portfolio/issues/6114),
+has no dividend row.
 
 Its savings plans of funds are what many first-time filers hold, the beginner persona's case:
 monthly purchases, one sale.
@@ -31,8 +33,9 @@ monthly purchases, one sale.
    (`invalidTime`).
 3. **Trades.** `BUY`, `SELL` and `SAVINGS_PLAN_EXECUTED` of a `STOCK` or a `FUND`, at `price`
    in `currency`, the quantity the absolute `shares`. A purchase's `shares` must be positive and
-   a sale's negative. Fees and the cash `amount` are not used: costs are covered by the normed
-   costs, as for every broker (research 04 §4.2), and no FX rate of Trade Republic's is used.
+   a sale's negative. Fees and the cash `amount` are not used as values: costs are covered by
+   the normed costs, as for every broker (research 04 §4.2), and no FX rate of Trade
+   Republic's is used; `amount` is only checked (decision 8).
    `asset_class` `FUND` marks a fund, which the export states rather than leaving it to a name.
 4. **One account.** `account_type` names the kind of account, not the account, and only
    `DEFAULT` is known. Every file is taken for the one taxpayer's account (one client per
@@ -57,8 +60,9 @@ monthly purchases, one sale.
    - any type, category or account type the adapter does not know (`unknownAction`, the text
      wrapped as untrusted).
 7. **Keys** are built from `transaction_id` and the row's content without an ordinal
-   (ADR 0011 §5), as Trade Republic never reuses an ID: a row repeated inside one file blocks
-   as a repeat instead of counting twice.
+   (ADR 0011 §5): a row repeated inside one file blocks as a repeat instead of counting twice.
+   That Trade Republic never reuses an ID is an assumption from the format (a UUID per row),
+   not a documented rule; if it ever did, two rows would block as a repeat, never be merged.
 8. **A trade's figures are checked.** Its cash `amount` must be its quantity times its price,
    give or take its fee and a cent; a price in another unit, or another row's amount, shows
    there. A trade with a foreign leg (`original_amount`, `original_currency` or `fx_rate`

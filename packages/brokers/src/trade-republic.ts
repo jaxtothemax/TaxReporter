@@ -14,8 +14,8 @@
  * - **Trades** (`BUY`, `SELL`, a savings plan's `SAVINGS_PLAN_EXECUTED`) of
  *   shares and funds, at `price` in `currency`; a sale's `shares` are
  *   negative, a purchase's positive. Fees and the cash `amount` are never
- *   used: costs are covered by the normed costs, as for every broker
- *   (04 §4.2). `asset_class` says which security is a fund.
+ *   used as values, only checked: costs are covered by the normed costs, as
+ *   for every broker (04 §4.2). `asset_class` says which security is a fund.
  * - **Cash rows** that are part of neither return (deposits, withdrawals,
  *   card spending) are ignored by reason; interest is ignored with a
  *   warning, as it belongs on Doh-Obr.
@@ -253,11 +253,17 @@ function read(table: CsvTable, context: ReadContext): ImportResult {
     }
     const assetClass = text(row, "asset_class");
     if (!ASSET_CLASSES.has(assetClass)) {
-      // Bonds, private markets, crypto: not shares or fund units.
-      block("unsupportedAction", {
-        broker: TRADE_REPUBLIC,
-        action: ASSET_CLASS_NAMES.get(assetClass) ?? "other asset",
-      });
+      // Bonds, private markets, crypto: not shares or fund units. Any
+      // other class is unknown, its text wrapped.
+      const known = ASSET_CLASS_NAMES.get(assetClass);
+      if (known === undefined) {
+        block("unknownAction", {
+          broker: TRADE_REPUBLIC,
+          action: untrusted(assetClass),
+        });
+      } else {
+        block("unsupportedAction", { broker: TRADE_REPUBLIC, action: known });
+      }
       continue;
     }
 
@@ -301,7 +307,7 @@ function read(table: CsvTable, context: ReadContext): ImportResult {
     ) {
       block("unconfirmedAction", {
         broker: TRADE_REPUBLIC,
-        action: "foreign-currency trade",
+        action: "FOREIGN_CURRENCY_TRADE",
       });
       continue;
     }

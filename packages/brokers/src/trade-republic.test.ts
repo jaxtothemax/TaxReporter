@@ -70,9 +70,12 @@ describe("tradeRepublic: the export", () => {
       "traderepublic",
       "traderepublic-csv-2026",
     ]);
-    // One column more is another revision, not read on a guess.
+    // One column more, or one renamed, is another revision, not read on
+    // a guess.
     const wider = `${HEADER},"extra"\n${row()},""`;
     expect(codes(read(wider))).toEqual(["unknownFormat"]);
+    const renamed = HEADER.replace('"fx_rate"', '"fx"');
+    expect(codes(read(`${renamed}\n${row()}`))).toEqual(["unknownFormat"]);
   });
 
   it("reads purchases, savings plans and sales at their price, on their Ljubljana date", () => {
@@ -140,6 +143,15 @@ describe("tradeRepublic: the export", () => {
     expect(ledger.diagnostics).toEqual([]);
     const fifo = matchFifo(ledger);
     expect(fifo.diagnostics).toEqual([]);
+    // The one Apple sold on 15 July comes out of the two bought on 10 March.
+    const apple = fifo.securities.get("US0378331005");
+    expect(
+      apple?.disposals.map((d) => [
+        d.sale.date,
+        d.matches.map((m) => [m.purchase.date, m.quantity.toString()]),
+        d.unmatched.toString(),
+      ]),
+    ).toEqual([["2026-07-15", [["2026-03-10", "1"]], "0"]]);
   });
 });
 
@@ -178,7 +190,7 @@ describe("tradeRepublic: what it refuses", () => {
       [{ category: "DELIVERY", type: "BUY" }, "DELIVERY"],
       [{ asset_class: "BOND" }, "BOND"],
       [{ asset_class: "CRYPTO" }, "CRYPTO"],
-      [{ asset_class: "SOMETHING" }, "other asset"],
+      [{ asset_class: "PRIVATE_FUND" }, "PRIVATE_FUND"],
     ] as const) {
       const [d] = rows(row(cells)).diagnostics;
       expect([d?.severity, d?.code, d?.params], action).toEqual([
@@ -194,6 +206,7 @@ describe("tradeRepublic: what it refuses", () => {
       { type: "SECRET_TYPE" },
       { account_type: "SECRET_ACCOUNT" },
       { category: "CASH", type: "BUY" },
+      { asset_class: "SECRET_ASSET" },
     ]) {
       const [d] = rows(row(cells)).diagnostics;
       expect(d?.code).toBe("unknownAction");
@@ -229,7 +242,62 @@ describe("tradeRepublic: what it refuses", () => {
   });
 });
 
+describe("tradeRepublic: every type the research lists", () => {
+  it("makes each an event, an ignored row or a named finding", () => {
+    const cash = { category: "CASH", symbol: "", shares: "", price: "" };
+    const cases: [Cells, string][] = [
+      [{ type: "BUY" }, "trade"],
+      [{ type: "SAVINGS_PLAN_EXECUTED", asset_class: "FUND" }, "trade"],
+      [{ type: "SELL", shares: "-2.0000000000", amount: "361.00" }, "trade"],
+      [{ ...cash, type: "CUSTOMER_INBOUND" }, "ignored:deposit"],
+      [{ ...cash, type: "CUSTOMER_INPAYMENT" }, "ignored:deposit"],
+      [{ ...cash, type: "TRANSFER_INSTANT_INBOUND" }, "ignored:deposit"],
+      [{ ...cash, type: "CUSTOMER_OUTBOUND_REQUEST" }, "ignored:withdrawal"],
+      [{ ...cash, type: "TRANSFER_INSTANT_OUTBOUND" }, "ignored:withdrawal"],
+      [{ ...cash, type: "CARD_TRANSACTION" }, "ignored:cardSpending"],
+      [
+        { ...cash, type: "CARD_TRANSACTION_INTERNATIONAL" },
+        "ignored:cardSpending",
+      ],
+      [{ ...cash, type: "INTEREST_PAYMENT" }, "ignored:interest"],
+      [{ ...cash, type: "DIVIDEND" }, "unconfirmedAction"],
+      [{ type: "BENEFITS_SAVEBACK" }, "unsupportedAction"],
+      [{ type: "STOCKPERK" }, "unsupportedAction"],
+      [{ type: "BONUS" }, "unsupportedAction"],
+      [{ type: "MIGRATION" }, "unsupportedAction"],
+      [{ type: "REDEMPTION" }, "unsupportedAction"],
+      [{ type: "FINAL_MATURITY" }, "unsupportedAction"],
+      [{ type: "PRIVATE_MARKET_BUY" }, "unsupportedAction"],
+      [{ category: "CORPORATE_ACTION", type: "SPLIT" }, "unsupportedAction"],
+      [{ category: "DELIVERY", type: "BUY" }, "unsupportedAction"],
+    ];
+    for (const [cells, outcome] of cases) {
+      const result = rows(row(cells));
+      const [event] = result.events;
+      const blocking = result.diagnostics.find(
+        (d) => d.severity === "blocking",
+      );
+      const seen =
+        blocking?.code ??
+        (event?.kind === "ignored" ? `ignored:${event.reason}` : event?.kind);
+      expect(seen, JSON.stringify(cells)).toBe(outcome);
+    }
+  });
+});
+
 describe("tradeRepublic: what it checks", () => {
+  it("keys by transaction ID: two fills alike in all else stay two", () => {
+    const result = rows(
+      row(),
+      row({ transaction_id: "00000000-0000-4000-8000-000000000100" }),
+    );
+    expect(validateLedger(result.events).diagnostics).toEqual([]);
+  });
+
+  it("refuses a fee that is no number", () => {
+    expect(codes(rows(row({ fee: "1,00" })))).toEqual(["invalidNumber"]);
+  });
+
   it("blocks a row repeated inside one file, rather than count it twice", () => {
     const result = rows(row(), row());
     expect(result.events.filter((e) => e.kind === "trade")).toHaveLength(2);
@@ -262,7 +330,7 @@ describe("tradeRepublic: what it checks", () => {
       const [d] = rows(row(cells)).diagnostics;
       expect([d?.code, d?.params]).toEqual([
         "unconfirmedAction",
-        { broker: "traderepublic", action: "foreign-currency trade" },
+        { broker: "traderepublic", action: "FOREIGN_CURRENCY_TRADE" },
       ]);
     }
   });
