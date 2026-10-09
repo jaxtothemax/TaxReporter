@@ -366,7 +366,7 @@ So with ZDoh-2 art. 137(2), the creditable US tax is capped at 15% even if 30% w
 | Preferred shares converted to common, same issuer | Not a disposal; cash is a partial disposal (art. 95(7)) | high |
 | **Bonus shares** from capital increase out of company funds | Basis **0**, acquisition date = resolution date (arts. 98(4), 101(6)); code `D`; enables the art. 97(3) loss carry-forward | high |
 | **Stock / scrip dividends** (shares instead of cash) | Art. 90(3) taxes "razdelitev v obliki delnic" as a dividend. Telling a foreign stock dividend apart from a bonus issue is unclear. | **low**: needs review |
-| **Mergers / share-for-share exchanges** | Exchange = disposal (art. 94), valued at the market price and dated when it takes effect. Deferral only when both companies are resident in Slovenia or another EU state (ZDDPO-2 arts. 46, 50) and the transaction is notified (art. 100(2)(2); ZDavP-2 arts. 331, 380, 381). Deferred EU exchanges are flagged with `ForeignTransfer` ("Directive 90/434/EGS"). See §9.1. | high (disposal), medium (valuation) |
+| **Mergers / share-for-share exchanges** | Exchange = disposal (art. 94), valued at the market price. Deferral only for an EU transaction that ZDDPO-2 recognizes, notified by the company and the shareholder (art. 100(2)(2); ZDavP-2 arts. 331, 380, 381). Deferred EU exchanges are flagged with `ForeignTransfer` ("Directive 90/434/EGS"). See §9.1. | high (disposal), medium (valuation, date) |
 | **Spin-offs** | No clear rule for foreign cases. FURS treats a split-off funded from capital reserves as a dividend (art. 90(3)) unless deferral applies. | **low** |
 | **Return of capital** | Payout on a share-capital reduction = (partial) disposal (art. 94). A reduction with an unchanged number of shares goes on the separate `PLVPZOK` list, and later sales use the reduced unit cost in column 11 (`F11`) (corrected after verification: the original report mentioned only `F11`). A foreign "return of capital" without a formal capital reduction may be a dividend. | **low** |
 | **Fractional shares** | No special rule; XSD quantities allow 8 decimals | high (format) |
@@ -384,7 +384,7 @@ So with ZDoh-2 art. 137(2), the creditable US tax is capped at 15% even if 30% w
 
 Added on 2026-10-09 for #28, from the primary sources at the end of this section, all read that day. It is not part of the independent verification above.
 
-When a holder's shares are exchanged for shares of another company, as in a foreign company bought by another one for stock, the old shares are **disposed of** and the new ones **acquired**, both on the date of the exchange. Deferral exists only for EU transactions that the company notifies, so a foreign broker's client cannot use it for a takeover involving a company outside the EU.
+When a holder's shares are exchanged for shares of another company, as in a foreign company bought by another one for stock, the old shares are **disposed of** and the new ones **acquired**, both on the date of the exchange. Deferral exists only for EU transactions that the companies notify, so a takeover in which a company outside the EU takes part cannot be deferred.
 
 **The exchange is a disposal.**
 
@@ -392,33 +392,39 @@ When a holder's shares are exchanged for shares of another company, as in a fore
 - The one exchange art. 95 exempts is for same-kind securities of the **same issuer** that changes neither the shareholders' proportions nor the issuer's capital and involves no cash (art. 95(5)). Splits (95(6)) and preferred-to-common conversions (95(7)) concern the same issuer too. A takeover by another company is none of these.
 - FURS lists among taxable disposals *"zamenjava kapitala (tudi v primeru združitev in delitev gospodarskih družb)"*, an exchange of capital, including in mergers and divisions (opis). Its deferral paper (§3) adds: *"Pri družbenikih fizičnih osebah, zamenjava deleža praviloma predstavlja obdavčljivo odsvojitev kapitala, skladno s 94. členom ZDoh-2"* (for individual shareholders, an exchange of shares is as a rule a taxable disposal under art. 94).
 
-**Deferral needs an EU transaction that the company notifies.**
+**Deferral needs an EU transaction that the companies notify.**
 
 - Art. 100(2)(2) allows deferral only for exchanges of shares, mergers and divisions *"kot so opredeljene v zakonu, ki ureja davek od dohodkov pravnih oseb"*, as ZDDPO-2 defines them.
-- ZDDPO-2 grants that treatment only when both companies are resident in Slovenia or another EU state. For an exchange of shares, art. 46(1)(1): *"če sta prevzemna družba in prevzeta družba rezidenta Slovenije in oziroma ali rezidenta države članice EU, ki ni Slovenija"*. For mergers and divisions, art. 50(1), with the shareholder's side in art. 49(3).
-- The company notifies the transaction for all its shareholders at once, with its own filing under ZDavP-2 art. 380 or 381, and the shareholder notifies the deferral under ZDavP-2 art. 331 (FURS deferral paper, §3).
-- A takeover involving a company outside the EU is therefore taxed when it happens. A deferred EU exchange instead carries the old shares' acquisition dates and values over to the new ones (art. 100(5)(2), (6)(2)). When those shares are later sold, the list's `ForeignTransfer` box is "DA" (navodila: a security of a foreign company acquired by an exchange under Directive 90/434/EGS, where the exchange was not declared as a disposal).
+- FURS's deferral paper (§3) traces that provision to art. 8 of Directive 2009/133/EC, on transactions between companies *"iz različnih držav članic"* (from different member states). It requires the company to notify the transaction for all its shareholders at once, with its own filing under ZDavP-2 art. 380 or 381, and each shareholder to notify the deferral under ZDavP-2 art. 331.
+- ZDDPO-2's own conditions, *(unverified — see Verification)*:
+  - An exchange of shares qualifies only *"če sta prevzemna družba in prevzeta družba rezidenta Slovenije in oziroma ali rezidenta države članice EU, ki ni Slovenija"* (if both companies are resident in Slovenia or another EU state; art. 46(1)(1)).
+  - A merger or division is one *"ki se izvede v skladu z določili zakona, ki ureja gospodarske družbe o statusnem preoblikovanju družb"* (carried out under the Slovenian companies act's rules on status changes; art. 48(1)), which a merger under foreign law is not.
+- A takeover in which a company outside the EU takes part is therefore taxed when it happens. A deferred EU exchange instead carries the old shares' acquisition dates and values over to the new ones (art. 100(5)(2), (6)(2)), and when they are later sold, their list's `ForeignTransfer` box is "DA" (navodila: a security of a foreign company acquired by an exchange under Directive 90/434/EGS, where the exchange was not declared as a disposal).
 
 **Value.**
 
 - **Disposal value** (art. 99(1)): the value in the contract, but *"če vrednost kapitala ob odsvojitvi ni razvidna iz pogodbe, … se za vrednost kapitala ob odsvojitvi šteje primerljiva tržna cena kapitala ob odsvojitvi"* (if the contract shows no value, the comparable market price of the capital at disposal). A merger agreement states an exchange ratio, not a price, so the market price applies.
 - **Acquisition value of the new shares** (art. 98(2)): *"vrednost kapitala v času pridobitve, ki jo zavezanec dokazuje z ustreznimi dokazili"* (their value at acquisition, which the taxpayer proves with suitable evidence).
 - Each is converted at the Banka Slovenije rate of its own day (arts. 98(9), 99(3)).
-- **Cash** paid with the shares, for example for fractions, is part of what the old shares were exchanged for, so it adds to the disposal value. Even a deferred exchange taxes the cash part (ZDDPO-2 arts. 45(2), 49(4)).
-- **Not settled by any FURS text found:** whether "the comparable market price of the capital at disposal" means the old shares' last price before they stopped trading or the market value of the shares received. The two differ by the deal's spread. ZDDPO-2 measures the consideration at the fair value of the acquirer's securities (arts. 45(2), 49(4)), which favors the shares received. Recommended for TaxReporter: the user gives the value with its evidence; the app proposes the shares received times their market price on the exchange date, and uses the same euro total as the new lot's acquisition value, so that the exchange itself creates no gap between the two sides. See Open questions.
+- **Cash** paid with the shares, for example for fractions, is part of what the old shares were exchanged for, so it adds to the disposal value. ZDDPO-2 taxes the cash part even of a deferred exchange for its own taxpayers (arts. 45(2), 49(4)); that the same holds for an individual under art. 100 is an inference.
+- **Not settled by any FURS text found:** whether "the comparable market price of the capital at disposal" means the old shares' last price before they stopped trading or the market value of the shares received. The two differ by the deal's spread. ZDDPO-2 measures the consideration at the fair value of the acquirer's securities (arts. 45(2), 49(4)), which favors the shares received. See Open questions.
+- **Recommended for TaxReporter:** the user gives the price of one share received on the exchange date, in its currency, and where that price comes from. The app has no market data and fetches nothing but its rate snapshot. It multiplies the price by the shares received, converts the total at the Banka Slovenije rate of the day, and uses the same euro total as both the disposal value and the new lot's acquisition value, so the exchange itself creates no gap between the two sides.
 
 **Dates.**
 
-- Disposal (art. 102) and acquisition (art. 101(1)): the date of the contract or other legal transaction, otherwise the date *"razviden iz drugih dokazil"* (shown by other evidence). For a merger, that is the day it took legal effect, from the companies' announcement. A broker's booking date is not it: Trading 212 booked one several days later (research 06 §4.3).
+- Disposal (art. 102) and acquisition (art. 101(1)): the date of the contract or other legal transaction, otherwise the date *"razviden iz drugih dokazil"* (shown by other evidence).
+- For a merger, that is the day it took legal effect, as the companies announce it *(inference)*. The shareholder is not a party to the merger agreement, and their shares are exchanged when the merger takes effect, so this relies on the "other evidence" clause. The agreement's signing date, which can fall in an earlier tax year, is the other reading. See Open questions.
+- A broker's booking date is neither: Trading 212 booked one several days after the merger took effect (research 06 §4.3).
 - The new shares' holding period starts on that date (art. 96, §4.5). A taxable exchange restarts the clock for the 5-, 10- and 15-year rates.
 
 **On Doh-KDVP.**
 
 - The old security's list gets a sale row: F6 the date, F7 the quantity, F9 the value per unit. It is matched FIFO and checked under the 30-day rule like any sale.
-- The new security's list starts with a purchase row: F1 the exchange date, F2 **`E`** (*"zamenjava kapitala ob statusnih spremembah družbe"*, an exchange of capital on a company's status change; [01 §6](01-furs-doh-kdvp.md#6-acquisition-method-codes-f2-type-typegaintype)), F3 the shares received, F4 the value per unit, and `ForeignTransfer` false.
+- The new security's list starts with a purchase row: F1 the exchange date, F2 **`E`** (*"zamenjava kapitala ob statusnih spremembah družbe"*, an exchange of capital on a company's status change; [01 §6](01-furs-doh-kdvp.md#6-acquisition-method-codes-f2-type-typegaintype)), F3 the shares received, F4 the value per unit.
+- `ForeignTransfer` is a box of the whole list ([01 §4.2](01-furs-doh-kdvp.md#42-kdvpitem-one-per-inventory-list-popisni-list)), about how the sold security was acquired. After a taxable exchange it is false on both lists, unless the old shares themselves came from an earlier deferred EU exchange.
 - Code `E` names status changes such as mergers and divisions. For an exchange offer without a merger, which ZDDPO-2 art. 44 calls an exchange of shares, the form offers nothing closer than `H` (*drugo*). See Open questions.
 
-**What TaxReporter needs from the user** (#28): the exchange date, the value and where it comes from, and confirmation that no deferral was granted. A deferred EU exchange stays refused until the carry-over is built.
+**What TaxReporter needs from the user** (#28): the exchange date, the price of a share received and where it comes from, any cash received with the shares, and confirmation that no deferral was granted. A deferred EU exchange stays refused until the carry-over is built.
 
 **Sources read on 2026-10-09** (Last-Modified as served):
 
@@ -428,7 +434,7 @@ When a holder's shares are exchanged for shares of another company, as in a fore
 | [FURS opis, 15th edition](https://www.fu.gov.si/fileadmin/Internet/Davki_in_druge_dajatve/Podrocja/Dohodnina/Dohodek_iz_kapitala/Opis/Obresti_dividende_in_dobicek_iz_kapitala.doc) | 4 Aug 2026 |
 | [FURS, Odlog ugotavljanja davčne obveznosti](https://www.fu.gov.si/fileadmin/Internet/Davki_in_druge_dajatve/Podrocja/Dohodnina/Dohodek_iz_kapitala/Opis/Odlog_ugotavljanja_davcne_obveznosti.doc), §3 | 27 Mar 2026 |
 | [eDavki, Navodilo Doh-KDVP (2025 form)](https://edavki.durs.si/OpenPortal/Dokumenti/doh_odm_kdvp_25.n.sl.pdf); the 2026 edition is not published yet (`doh_odm_kdvp_26.n.sl.pdf` returns 404) | 14 Jan 2026 |
-| ZDDPO-2 arts. 44–46 and 49–50, consolidated text NPB 14 as mirrored by [zakonodaja.com](https://zakonodaja.com/zakon/zddpo-2/46-clen-pogoji); canonical copy at [PISRS ZAKO4687](https://pisrs.si/pregledPredpisa?id=ZAKO4687) | not sent (mirror) |
+| ZDDPO-2 arts. 44–46 and 48–50, consolidated text NPB 14 as mirrored by [zakonodaja.com](https://zakonodaja.com/zakon/zddpo-2/46-clen-pogoji). **Unverified:** PISRS now publishes NPB 23 ([ZAKO4687](https://pisrs.si/pregledPredpisa?id=ZAKO4687)), not read for this section | not sent (mirror) |
 
 ---
 
@@ -491,6 +497,8 @@ ZDDOIFI-B added matching fines for Doh-IFI (arts. 25.a–25.d).
 ## Verification
 
 An independent verifier re-checked all 25 critical claims against the PISRS consolidated texts (ZDoh-2 NPB 34–36, ZDavP-2 NPB 32), the FURS opis (15th edition), the FURS wash-sale explanation and its examples, the FURS IFI brochure, the eDavki instructions and XSD, the FURS public calls, ZDDOIFI-B, ZDavP-2P, ZINR and the US treaty text. All 25 were confirmed; three needed minor corrections, applied inline.
+
+**Added after verification (2026-10-09):** §9.1, on takeovers and mergers paid in shares, was written later from the primary sources it lists and has not been independently verified. Its reading of ZDDPO-2 arts. 44–46 and 48–50 is marked unverified: it comes from a mirror of the consolidated text NPB 14, while PISRS now publishes NPB 23. The section's conclusion rests mainly on ZDoh-2 art. 94 and the FURS deferral paper, which are primary; reading NPB 23 would confirm the EU-only conditions.
 
 **Claims not confirmed:** none.
 
@@ -556,6 +564,7 @@ An independent verifier re-checked all 25 critical claims against the PISRS cons
 - Treatment of rights handed out free to holders, such as subscription rights. Is that a distribution taxed as a dividend (art. 90), an acquisition at a cost of 0, or a derivative under ZDDOIFI? Trading 212 books them as `Custom stock distribution` at a price of 0 ([06 §4.3](06-brokers-ibkr-t212-revolut.md#43-action-values-h-unless-noted)). The reader refuses them until this is settled.
 - Which market price values a taxable exchange of shares (art. 99(1)): the old shares' last price before they stopped trading, or the shares received at the exchange? No FURS text found. §9.1 recommends the shares received, as ZDDPO-2 arts. 45(2) and 49(4) do for the cash part of an exchange.
 - The Doh-KDVP code for shares received in an exchange offer without a merger (ZDDPO-2 art. 44): `E` names status changes, such as mergers and divisions, so is it `H` (*drugo*)? (§9.1)
+- The date of a merger's exchange of shares: the day the merger took legal effect, which §9.1 infers from the "other evidence" clause of arts. 101(1) and 102, or the day the merger agreement was signed? It decides the tax year, the holding period and the exchange rate. Related: #13, the source for the trade-date rule.
 - Treatment of payments in lieu of dividends, IBKR stock-lending (SYEP) income, and Trading 212 cash interest (deposit interest with the EUR 1,000 allowance versus other interest).
 - Does FURS compute the foreign tax credit per Doh-Div row or aggregated per country or year? Should `ForeignTax` be entered as the full amount withheld (30%) or capped at the treaty rate? The instructions say to enter the tax paid. (Per the verifier, enter the tax actually paid and FURS applies the cap; the per-row versus aggregate question remains open.)
 - Identity key for "istovrstni kapital" in FIFO and wash-sale matching: is ISIN sufficient, and how should ISIN changes after corporate actions be linked?
