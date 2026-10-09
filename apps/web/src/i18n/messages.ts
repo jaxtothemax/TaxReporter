@@ -285,6 +285,7 @@ export interface Messages {
       lead: string,
     ) => string;
     readonly waiting: string;
+    readonly unavailable: string;
     readonly stops: {
       readonly files: { readonly title: string; readonly intro: string };
       readonly details: { readonly title: string; readonly intro: string };
@@ -758,6 +759,8 @@ export const en: Messages = {
     announceStop: (stop, stops, title) => `Stop ${stop} of ${stops}: ${title}.`,
     announceNote: (note, notes, lead) => `${note} of ${notes}: ${lead}.`,
     waiting: "Preparing this stop.",
+    unavailable:
+      "This part of the demo could not be shown here. The explanations still apply.",
     stops: {
       files: {
         title: "Two brokers, one history",
@@ -884,7 +887,7 @@ export const en: Messages = {
     treatyCappedCredit: (country, rate, product, excess) =>
       `The treaty with ${country} allows ${rate}: ${product}. The other ${excess} withheld does not reduce the Slovenian tax.`,
     findingSeverity: (blocking, warning, info) =>
-      `Three kinds of notes. ${blocking}: holds its return back until fixed. ${warning}: worth reading. ${info}: needs nothing.`,
+      `Notes come in three kinds. \u201c${blocking}\u201d holds its return back until it is fixed, \u201c${warning}\u201d is worth reading, and \u201c${info}\u201d needs nothing.`,
     notOnTheseReturns:
       "Rows that are not on these returns are named here rather than left out without a word, so nothing in a file goes missing unnoticed.",
     returnForms:
@@ -1289,7 +1292,9 @@ export const sl: Messages = {
     announceStop: (stop, stops, title) =>
       `Korak ${stop} od ${stops}: ${title}.`,
     announceNote: (note, notes, lead) => `${note} od ${notes}: ${lead}.`,
-    waiting: "Pripravljam ta korak.",
+    waiting: "Korak se pripravlja.",
+    unavailable:
+      "Tega dela demo podatkov tukaj ni bilo mogoče prikazati. Pojasnila še vedno veljajo.",
     stops: {
       files: {
         title: "Dva posrednika, ena zgodovina",
@@ -1317,7 +1322,7 @@ export const sl: Messages = {
           `Prodane delnice (${sold}) so se povezale z nakupi pred prodajo, najprej z najstarejšim. Vsak povezani nakup ohrani svoj čas imetništva.`,
       },
       fifoBrokers: {
-        title: "FIFO prek posrednikov",
+        title: "Najprej najstarejši, prek posrednikov",
         intro: (security, boughtAt, soldAt) =>
           `Delnice ${security} so bile kupljene pri ${boughtAt}, prodane pa pri ${soldAt}. Nakupi se povežejo po kodi ISIN, ne glede na to, pri katerem posredniku so.`,
       },
@@ -1407,7 +1412,7 @@ export const sl: Messages = {
     treatyCappedCredit: (country, rate, product, excess) =>
       `Pogodba z državo ${country} dovoljuje ${rate}: ${product}. Preostalih ${excess} odtegnjenega davka slovenskega davka ne zmanjša.`,
     findingSeverity: (blocking, warning, info) =>
-      `Tri vrste opomb. ${blocking}: zadrži napoved, dokler ni popravljeno. ${warning}: vredno prebrati. ${info}: ne zahteva ničesar.`,
+      `Opombe so treh vrst. \u201e${blocking}\u201c zadrži napoved, dokler ni popravljeno, \u201e${warning}\u201c je vredno prebrati, \u201e${info}\u201c pa ne zahteva ničesar.`,
     notOnTheseReturns:
       "Vrstice, ki jih ni v teh napovedih, so navedene tukaj, namesto da bi bile izpuščene brez besede, zato nič iz datoteke ne izgine neopazno.",
     returnForms:

@@ -9,7 +9,12 @@ import { describe, expect, it } from "vitest";
 
 import { App } from "../App";
 import { demoPreview } from "../demo/demoPreview";
-import { describe as describePath, type AnchorPath } from "../explain/anchors";
+import {
+  describe as describePath,
+  EXPLAIN_NAMES,
+  resolve,
+  type AnchorPath,
+} from "../explain/anchors";
 import type { Locale } from "../i18n/format";
 import { en, sl, type Messages } from "../i18n/messages";
 import { HOLDING_BUCKETS } from "../model/preview";
@@ -324,6 +329,103 @@ describe("what the later stops say of the demo", () => {
   });
 });
 
+describe("finding what an explanation points at", () => {
+  /** A minimal DOM: elements with attributes and children, searched in order. */
+  interface Fake {
+    readonly attrs: Readonly<Record<string, string>>;
+    readonly children: readonly Fake[];
+  }
+  const node = (attrs: Record<string, string>, ...children: Fake[]): Fake => ({
+    attrs,
+    children,
+  });
+  const all = (root: Fake): Fake[] =>
+    root.children.flatMap((child) => [child, ...all(child)]);
+  const element = (fake: Fake): Element & ParentNode => {
+    const wrap = {
+      getAttribute: (name: string) => fake.attrs[name] ?? null,
+      querySelectorAll: (selector: string) => {
+        const name = /^\[data-explain="([^"]+)"\]$/.exec(selector)?.[1];
+        if (name === undefined)
+          throw new Error(`a selector beyond a name: ${selector}`);
+        return all(fake)
+          .filter((f) => f.attrs["data-explain"] === name)
+          .map(element);
+      },
+    };
+    return wrap as unknown as Element & ParentNode;
+  };
+
+  it("matches keys as text, whatever they hold, and never parses them", () => {
+    const hostile = [
+      'quote"d',
+      "back\\slash",
+      "a]b",
+      "line\nbreak",
+      "cr\rlf",
+      "form\ffeed",
+      "nul\u0000",
+      "lone\ud800",
+      '"],[data-explain]',
+    ];
+    const root = node(
+      {},
+      ...hostile.map((key) =>
+        node(
+          { "data-explain": "files.text", "data-explain-key": key },
+          node({ "data-explain": "sec.rate", "data-explain-key": `in ${key}` }),
+        ),
+      ),
+    );
+    hostile.forEach((key, i) => {
+      const found = resolve(element(root), [{ name: "files.text", key }]);
+      expect(found?.getAttribute("data-explain-key"), `key ${String(i)}`).toBe(
+        key,
+      );
+      const inner = resolve(element(root), [
+        { name: "files.text", key },
+        { name: "sec.rate", key: `in ${key}` },
+      ]);
+      expect(inner?.getAttribute("data-explain-key")).toBe(`in ${key}`);
+    });
+    expect(
+      resolve(element(root), [{ name: "files.text", key: "absent" }]),
+    ).toBeNull();
+  });
+
+  it("is marked on a screen for every name it knows", () => {
+    const sources = import.meta.glob<string>("../screens/**/*.tsx", {
+      query: "?raw",
+      import: "default",
+      eager: true,
+    });
+    const screens = Object.entries(sources)
+      .filter(([path]) => !/\.test\.tsx$/.test(path))
+      .map(([, source]) => source)
+      .join("\n");
+    for (const name of EXPLAIN_NAMES) {
+      expect(screens, name).toContain(`explain("${name}"`);
+    }
+  });
+});
+
+describe("the rules the explanations state", () => {
+  it("says the holding-period thresholds core applies", () => {
+    // holdingSchedule names 5, 10 and 15 completed years.
+    expect([bucketFor(4), bucketFor(5), bucketFor(9), bucketFor(10)]).toEqual([
+      "25",
+      "20",
+      "20",
+      "15",
+    ]);
+    expect([bucketFor(14), bucketFor(15)]).toEqual(["15", "0"]);
+    for (const [, t] of LOCALES) {
+      const said = t.explain.holdingSchedule("a", "b", "c", "d", "e", "f");
+      for (const years of ["5", "10", "15"]) expect(said).toContain(years);
+    }
+  });
+});
+
 describe("what the tour must never say or do", () => {
   const sayings = (t: Messages) =>
     JSON.stringify(
@@ -363,7 +465,7 @@ describe("what the tour must never say or do", () => {
     const code = (source: string) =>
       source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
     const banned =
-      /cssText|setAttribute\(\s*["']style["']|<style[\s>]|\.style\s*=[^=]/;
+      /cssText|setAttribute\(\s*["'`]style["'`]|setAttributeNS\([^)]*["'`]style["'`]|createElement\(\s*["'`]style["'`]|<style[\s>]|\.style\s*=[^=]|\sstyle="/;
     for (const [path, source] of files) {
       expect(code(source), path).not.toMatch(banned);
     }

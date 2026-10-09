@@ -96,9 +96,17 @@ at a time on a phone; and the demo data stays as it is (#26).
   Firefox and WebKit. The CI job runs in Microsoft's Playwright image pinned by digest,
   because `playwright install` verifies no hash of the browsers it downloads. The tests
   stay out of `pre-push-checks` (`make test-e2e`), so a contributor without the browsers
-  can still push. Playwright bundles third-party libraries that no lockfile scan sees;
-  a few carried advisories at 1.64.0 (none reachable from these tests), so each bump
-  re-checks that bundle.
+  can still push. Playwright bundles third-party libraries that no lockfile scan sees.
+  At 1.64.0 four carried advisories, none reachable from these tests: brace-expansion
+  5.0.7 (GHSA-mh99-v99m-4gvg, GHSA-rgw5-rvv9-x895, GHSA-qhr7-859c-m2p7,
+  GHSA-6j4f-fj2g-mc7p, GHSA-q2hr-2g5m-vwhr), @modelcontextprotocol/sdk 1.29.0
+  (GHSA-6qxp-vccf-f47h), @hono/node-server 1.19.14 (GHSA-frvp-7c67-39w9) and fast-uri
+  3.1.7 (GHSA-hrr3-gc8f-f4qj). Each bump re-checks that bundle against OSV, and the
+  report a failed run uploads carries no git details (`captureGitInfo` off).
+- **The tour fails safe.** It sits in its own error boundary, which ends the tour and
+  gives the page back; leaving demo mode ends it too; a stop whose card never appears
+  says so instead of waiting; and anchors are found by name with their keys compared
+  as text, never parsed, since keys will come from the user's own files.
 - **Removing the tour is cheap:** the tour module, the override in the app frame and the
   banner action. The anchors, the review's view and the explanations stay useful.
 

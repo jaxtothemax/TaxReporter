@@ -249,3 +249,113 @@ for (const [width, height] of [
     expect(problems).toEqual([]);
   });
 }
+
+test("never runs over the user's own files", async ({ page }) => {
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: /Use my files|Uporabi svoje datoteke/ })
+    .click();
+  await expect(page.locator("#main h1")).toBeFocused();
+  await page.waitForTimeout(800);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.locator("#demo-tour")).toHaveCount(0);
+});
+
+test("outside the tour, a new screen still takes focus to its heading", async ({
+  page,
+}) => {
+  const dialog = await enterDemo(page);
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  const files = await page.locator("#main h1").textContent();
+  await page.locator(".actions-row .btn-primary").click();
+  await expect(page.locator("#main h1")).not.toHaveText(files ?? "");
+  await expect(page.locator("#main h1")).toBeFocused();
+});
+
+test("leaving the review and coming back opens it as new", async ({ page }) => {
+  const dialog = await enterDemo(page);
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  for (let step = 0; step < 2; step += 1) {
+    await page.locator(".actions-row .btn-primary").click();
+  }
+  await page.locator("#review-tab-dividends").click();
+  await page.locator("#review-tab-gains").click();
+  await page
+    .locator('details[data-explain-key="US0378331005"] > summary')
+    .click();
+  await page.locator("#review-tab-dividends").click();
+  await page
+    .getByRole("button", { name: /^(Back|Nazaj)$/ })
+    .last()
+    .click();
+  await page.locator(".actions-row .btn-primary").click();
+  await expect(page.locator("#review-tab-gains")).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await expect(page.locator("details.security[open]")).toHaveCount(0);
+});
+
+test("Tab never reaches the page behind the tour", async ({
+  page,
+  browserName,
+}) => {
+  const dialog = await enterDemo(page);
+  await settled(dialog);
+  const forward = browserName === "webkit" ? "Alt+Tab" : "Tab";
+  for (let k = 0; k < 6; k += 1) {
+    await page.keyboard.press(forward);
+    const outside = await page.evaluate(() => {
+      const active = document.activeElement;
+      return (
+        active !== null &&
+        active !== document.body &&
+        active.closest("dialog") === null
+      );
+    });
+    expect(outside, `after ${String(k + 1)} Tab`).toBe(false);
+  }
+});
+
+test("in forced colors the tour draws no dim and a system-color frame", async ({
+  page,
+}) => {
+  await page.emulateMedia({ forcedColors: "active" });
+  const dialog = await enterDemo(page);
+  await settled(dialog);
+  const look = await page.evaluate(() => {
+    const dim = document.querySelector(".tour-dim");
+    const frame = document.querySelector(".tour-frame");
+    return {
+      dim: dim === null ? null : getComputedStyle(dim).fill,
+      frame: frame === null ? null : getComputedStyle(frame).strokeWidth,
+    };
+  });
+  expect(look.dim).toMatch(/transparent|rgba\(0, 0, 0, 0\)|none/);
+  expect(look.frame).toBe("3px");
+});
+
+for (const [width, height] of [
+  [844, 390],
+  [320, 256],
+] as const) {
+  test(`at ${String(width)}x${String(height)} the dock stays usable`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height });
+    const dialog = await enterDemo(page);
+    await settled(dialog);
+    const skip = await dialog.getByRole("button").first().boundingBox();
+    expect(skip).not.toBeNull();
+    expect(skip?.y ?? -1).toBeGreaterThanOrEqual(0);
+    expect((skip?.y ?? 0) + (skip?.height ?? 0)).toBeLessThanOrEqual(height);
+    await expect(dialog.locator(".tour-next")).toBeInViewport();
+    // One explanation at a time here: Next shows the stop's second one.
+    await dialog.locator(".tour-next").click();
+    await settled(dialog);
+    await expect(dialog.locator(".tour-note-count")).toHaveText(/^2\D/);
+    await expect(dialog.locator(".tour-next")).toBeInViewport();
+  });
+}

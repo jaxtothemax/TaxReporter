@@ -112,7 +112,7 @@ describe("beside the card", () => {
     expectSound(f, cutout, placed);
     for (const p of placed) {
       expect(p.side).toBe("right");
-      expect(p.box.top).toBeGreaterThanOrEqual(SPACE.edge);
+      expect(p.box.top).toBeGreaterThanOrEqual(f.headerBottom + SPACE.header);
       expect(bottom(p.box)).toBeLessThanOrEqual(f.dockTop - SPACE.edge);
     }
   });
@@ -151,7 +151,9 @@ describe("above and below the card", () => {
       const placed = placeRow(f, cutout, moved, heights, w ?? 0, sides);
       expectSound(f, cutout, placed);
       for (const p of placed) {
-        expect(p.box.top).toBeGreaterThanOrEqual(SPACE.edge - 0.5);
+        expect(p.box.top).toBeGreaterThanOrEqual(
+          f.headerBottom + SPACE.header - 0.5,
+        );
         expect(bottom(p.box)).toBeLessThanOrEqual(f.dockTop - SPACE.edge + 0.5);
       }
     });

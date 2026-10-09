@@ -121,12 +121,15 @@ export function within(inner: Box, outer: Box): boolean {
   );
 }
 
-/** The band boxes may use: the whole window above the dock, header included. */
+/** The band boxes may use: between the sticky header and the dock. */
 function boxBand(frame: Frame): {
   readonly top: number;
   readonly bottom: number;
 } {
-  return { top: SPACE.edge, bottom: frame.dockTop - SPACE.edge };
+  return {
+    top: Math.max(SPACE.edge, frame.headerBottom + SPACE.header),
+    bottom: frame.dockTop - SPACE.edge,
+  };
 }
 
 /** The band the focus card must stay in: below the header, above the dock. */
@@ -320,7 +323,7 @@ export function rowCardBand(
   const above = sides.includes("above") ? tallest("above") + SPACE.row : 0;
   const below = sides.includes("below") ? tallest("below") + SPACE.row : 0;
   return {
-    top: Math.max(card.top, SPACE.edge + above),
+    top: Math.max(card.top, boxBand(frame).top + above),
     bottom: card.bottom - below,
   };
 }
@@ -438,8 +441,10 @@ export function choose(
     readonly row: readonly number[];
   },
   prefer: "gutter" | "row",
+  /** A phone's window, as the stylesheet's media query sees it. */
+  phone: boolean = frame.width <= WIDE,
 ): Presentation {
-  if (frame.width <= WIDE) return { mode: "sheet" };
+  if (phone) return { mode: "sheet" };
   const tryGutter = (): Presentation | null => {
     const width = gutterWidth(frame, cutout);
     return width !== null && gutterFits(frame, cutout, targets, heights.gutter)

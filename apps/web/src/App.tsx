@@ -23,7 +23,7 @@ import { createRunner } from "./engine/runner";
 import type { Locale } from "./i18n/format";
 import { I18nProvider, useI18n } from "./i18n/i18n";
 import { DetailsStep } from "./screens/DetailsStep";
-import { DownloadStep } from "./screens/DownloadStep";
+import { DownloadStep, formFileName } from "./screens/DownloadStep";
 import { FilesStep } from "./screens/FilesStep";
 import {
   EmptyReview,
@@ -137,6 +137,15 @@ function Frame({
   const tourRun = state.mode === "demo" ? tour.run : null;
   const tourOpen = useRef(false);
   tourOpen.current = tourRun !== null;
+
+  // The tour belongs to the demo: leaving it ends the tour, so a later entry
+  // never resumes a stale stop. (The modal dialog makes this unreachable while
+  // the tour shows; the reducer state would outlive it otherwise.)
+  useEffect(() => {
+    if (state.mode !== "demo" && tour.run !== null) {
+      tourDispatch({ type: "exit" });
+    }
+  }, [state.mode, tour.run]);
   const stop = tourRun === null ? undefined : TOUR[tourRun.stop];
   const shownScreen = stop?.view.screen ?? state.screen;
   const shown: WizardState =
@@ -154,13 +163,13 @@ function Frame({
     }
     if (scrollY !== null)
       window.scrollTo({ top: scrollY, behavior: "instant" });
-    const target = focusTarget(focus);
-    target?.focus({ preventScroll: true });
+    const back = focusTarget(focus);
+    back?.focus({ preventScroll: true });
     // A browser may still hand focus back to what had it before the dialog
     // opened, after this runs (WebKit does): give it to the target again.
     requestAnimationFrame(() => {
-      if (target?.isConnected === true && document.activeElement !== target) {
-        target.focus({ preventScroll: true });
+      if (back?.isConnected === true && document.activeElement !== back) {
+        back.focus({ preventScroll: true });
       }
     });
     restore.current = noRestore();
@@ -296,11 +305,10 @@ function Frame({
 
   const ownReturns = useMemo((): BuiltReturns | null => {
     if (prepared === null) return null;
-    const year = String(TAX_YEAR);
     // The names last: nothing in a reply can rename a download.
     return {
-      kdvp: { ...prepared.kdvp, fileName: `Doh_KDVP_${year}.xml` },
-      div: { ...prepared.div, fileName: `Doh_Div_${year}.xml` },
+      kdvp: { ...prepared.kdvp, fileName: formFileName("kdvp", TAX_YEAR) },
+      div: { ...prepared.div, fileName: formFileName("div", TAX_YEAR) },
     };
   }, [prepared]);
 
@@ -469,21 +477,32 @@ function Frame({
       </Main>
       <AppFooter />
       {tourRun === null || stop === undefined ? null : (
-        <TourLayer
-          run={tourRun}
-          preview={demoPreview}
-          restore={restore.current}
-          onNext={(capacity) => {
-            tourDispatch({ type: "next", capacity });
-          }}
-          onBack={(capacity) => {
-            tourDispatch({ type: "back", capacity });
-          }}
-          onClosed={() => {
+        // A failure in the tour closes it and gives the page back, rather
+        // than taking the app down with it.
+        <ErrorBoundary
+          resetKey={tourRun.stop}
+          fallback={null}
+          onError={() => {
             restorePending.current = true;
             tourDispatch({ type: "exit" });
           }}
-        />
+        >
+          <TourLayer
+            run={tourRun}
+            preview={demoPreview}
+            restore={restore.current}
+            onNext={(capacity) => {
+              tourDispatch({ type: "next", capacity });
+            }}
+            onBack={(capacity) => {
+              tourDispatch({ type: "back", capacity });
+            }}
+            onClosed={() => {
+              restorePending.current = true;
+              tourDispatch({ type: "exit" });
+            }}
+          />
+        </ErrorBoundary>
       )}
     </div>
   );

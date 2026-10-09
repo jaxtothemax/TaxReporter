@@ -32,6 +32,7 @@ import {
   type ReturnPreview,
   type SecurityResult,
 } from "../model/preview";
+import { formFileName } from "../screens/DownloadStep";
 import type { ReviewView } from "../screens/ReviewStep";
 import type { FlowStep } from "../state/wizard";
 import { bucketLabel } from "../ui/bits";
@@ -779,7 +780,7 @@ export const TOUR: readonly TourStop[] = [
       {
         target: path(["download.fileName", "kdvp"]),
         text: ({ t, preview }) => ({
-          lead: `Doh_KDVP_${String(preview.taxYear)}.xml`,
+          lead: formFileName("kdvp", preview.taxYear),
           mono: true,
           body: t.explain.edavkiImport,
         }),

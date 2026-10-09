@@ -74,7 +74,7 @@ export function measureOf(name: ExplainName): "box" | "text" {
   return ANCHORS[name];
 }
 
-/** Every anchor name, for tests that check each one is used. */
+/** Every anchor name: tour.test.tsx checks that a screen marks each one. */
 export const EXPLAIN_NAMES = Object.freeze(
   Object.keys(ANCHORS) as ExplainName[],
 );
@@ -88,32 +88,40 @@ export interface AnchorRef {
 /** From an outer anchor to an inner one: each step is found inside the last. */
 export type AnchorPath = readonly AnchorRef[];
 
-/** Builds a path; a shorthand for `[{ name, key }, ...]`. */
 /** A step of `path`: a name, or a name and its key. */
 export type PathStep = ExplainName | readonly [ExplainName, string];
 
+/** Builds a path; a shorthand for `[{ name, key }, ...]`. */
 export function path(...steps: PathStep[]): AnchorPath {
   return steps.map((step) =>
     typeof step === "string" ? { name: step } : { name: step[0], key: step[1] },
   );
 }
 
-/** The attribute selector for one step; keys are quoted, never parsed. */
-export function selectorOf(ref: AnchorRef): string {
-  const quote = (value: string) =>
-    `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-  const named = `[data-explain=${quote(ref.name)}]`;
-  return ref.key === undefined
-    ? named
-    : `${named}[data-explain-key=${quote(ref.key)}]`;
-}
-
-/** The element at the end of `anchors`, or null where any step is missing. */
+/**
+ * The element at the end of `anchors`, or null where any step is missing.
+ *
+ * Only the name goes into a selector: names are a closed set known when the
+ * app is built. A key is compared as text, never parsed, because keys will
+ * come from the user's own files (a file name may hold a newline, which no
+ * quoting makes safe inside a CSS string, and NUL never matches at all).
+ */
 export function resolve(root: ParentNode, anchors: AnchorPath): Element | null {
   let found: Element | null = null;
   let scope: ParentNode = root;
   for (const ref of anchors) {
-    found = scope.querySelector(selectorOf(ref));
+    found = null;
+    for (const element of scope.querySelectorAll(
+      `[data-explain="${ref.name}"]`,
+    )) {
+      if (
+        ref.key === undefined ||
+        element.getAttribute("data-explain-key") === ref.key
+      ) {
+        found = element;
+        break;
+      }
+    }
     if (found === null) return null;
     scope = found;
   }

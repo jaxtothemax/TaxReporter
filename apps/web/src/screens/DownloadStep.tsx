@@ -46,6 +46,11 @@ export function filingDeadline(taxYear: number): string {
   return due.toISOString().slice(0, 10);
 }
 
+/** The name a return is saved under, the same for the demo's and the user's. */
+export function formFileName(form: "kdvp" | "div", taxYear: number): string {
+  return `${form === "kdvp" ? "Doh_KDVP" : "Doh_Div"}_${String(taxYear)}.xml`;
+}
+
 export function FormCard({
   id,
   form,
@@ -163,7 +168,6 @@ export function DownloadStep({
   }, [source]);
   const returns = writing.status === "ready" ? writing.returns : null;
   const deadline = formatDate(filingDeadline(preview.taxYear), locale);
-  const year = String(preview.taxYear);
   const lists = preview.securities.length;
   const payments = preview.dividends.length;
   const forms = [
@@ -177,7 +181,7 @@ export function DownloadStep({
             ? t.download.kdvpNone
             : plural(lists, locale, t.download.kdvpBody)
         }
-        fileName={`Doh_KDVP_${year}.xml`}
+        fileName={formFileName("kdvp", preview.taxYear)}
         built={returns?.kdvp ?? null}
       />
     ),
@@ -191,7 +195,7 @@ export function DownloadStep({
             ? t.download.divNone
             : plural(payments, locale, t.download.divBody)
         }
-        fileName={`Doh_Div_${year}.xml`}
+        fileName={formFileName("div", preview.taxYear)}
         built={returns?.div ?? null}
       />
     ),

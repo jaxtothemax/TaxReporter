@@ -93,6 +93,11 @@ explanation, not `disabled`, so keyboard users can reach it and hear why.
   the app for them. A fixed container holding fixed children takes no `transform`,
   `filter` or `backdrop-filter`, which would make it their containing block.
 - Measure only after the `.screen` / `.tab-panel` entrance animation has finished.
+- The tour's cutout is the one shape outside the radius scale: concentric with the lit
+  card, its radius is the card's own (capped at `--r-lg`) plus the padding around it.
+- The tour's dock never grows past the window: it scrolls inside itself, and in the
+  one-at-a-time sheet its controls row stays pinned and carries the bottom padding.
+  Explanation boxes stay between the sticky header and the dock.
 - Tour motion: 160, 200 and 240ms fades, a 220ms progress transition and two 900ms ring
   pulses, all inside `prefers-reduced-motion: no-preference`. In forced-colors mode the
   tour draws no dim: a `Highlight` frame and `CanvasText` lines and rings.

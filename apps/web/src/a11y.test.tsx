@@ -117,6 +117,12 @@ for (const locale of ["sl", "en"] as const) {
         />,
       );
 
+      if (tour !== undefined) {
+        it(`${name}: the tour's dialog is there, labelled by its heading`, () => {
+          expect(html).toMatch(/<dialog[^>]*aria-labelledby="tour-title"/);
+        });
+      }
+
       it(`${name}: every aria-labelledby and aria-describedby target exists`, () => {
         const known = ids(html);
         for (const m of html.matchAll(

@@ -8,7 +8,9 @@
 # Every application job runs the SAME `make <target>` a developer and the git
 # hooks run (install-deps, lint, format-check, typecheck, test, build), so a
 # green check here means exactly what a green `make` means locally. The
-# commands themselves live once, in the root package.json scripts.
+# commands themselves live once, in the root package.json scripts. The e2e job
+# is the one exception: its Playwright image has no make, so it runs the
+# commands `make install-deps` and `make test-e2e` run, spelled out.
 #
 # Gate SCRIPTS are the exception: check-added-files-covered.mjs and
 # check-licenses.mjs are called directly from `run:` — never through make — and
@@ -212,7 +214,7 @@ jobs:
       - run: pnpm run build
       - run: pnpm --dir apps/web exec playwright test
       # Traces and screenshots of the demo only: the tests never load a real
-      # export.
+      # export, and playwright.config.ts keeps git details out of the report.
       - if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

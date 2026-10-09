@@ -28,6 +28,10 @@ export default defineConfig({
       ? "list"
       : [["list"], ["html", { open: "never" }]],
   use: { baseURL: URL, trace: "retain-on-failure" },
+  // No commit, author or diff in the report: on GitHub Actions Playwright
+  // would otherwise add them (and fetch the base commit) to what a failed run
+  // uploads.
+  captureGitInfo: { commit: false, diff: false },
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
     { name: "firefox", use: { ...devices["Desktop Firefox"] } },

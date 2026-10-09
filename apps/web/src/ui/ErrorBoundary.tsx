@@ -12,6 +12,8 @@ interface Props {
   readonly fallback: ReactNode;
   /** When this changes, the boundary renders its children again. */
   readonly resetKey: unknown;
+  /** Told when a child failed, e.g. to close what the child was showing. */
+  readonly onError?: () => void;
   readonly children: ReactNode;
 }
 
@@ -35,6 +37,10 @@ export class ErrorBoundary extends Component<Props, State> {
     return Object.is(props.resetKey, state.key)
       ? null
       : { failed: false, key: props.resetKey };
+  }
+
+  override componentDidCatch(): void {
+    this.props.onError?.();
   }
 
   override render(): ReactNode {

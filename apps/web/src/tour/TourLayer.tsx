@@ -76,12 +76,15 @@ export interface TourRestore {
   readonly scrollers: Map<HTMLElement, number>;
 }
 
-/** Whether the window is a phone's: where no document exists (a render on
- * the server, in tests), it is taken as wide. */
+/**
+ * Whether the window is a phone's, by the same media query the stylesheet
+ * uses, so the layout and the dock's shape agree at every width. Where no
+ * window exists (a render on the server, in tests), it is taken as wide.
+ */
 function narrowWindow(): boolean {
   return (
-    typeof document !== "undefined" &&
-    document.documentElement.clientWidth <= WIDE
+    typeof window !== "undefined" &&
+    window.matchMedia(`(max-width: ${String(WIDE)}px)`).matches
   );
 }
 
@@ -123,14 +126,31 @@ function boxOf(rect: DOMRect): Box {
   };
 }
 
-/** An element's box, or the extent of its text for a "text" anchor. */
+/**
+ * An element's box, or for a "text" anchor the extent of its words: each
+ * visible text node's own rectangles, so a line ends at the text and not at
+ * a block's full width. Text hidden for screen readers is left out.
+ */
 function measure(element: Element, anchors: AnchorPath): Box {
   const last = anchors.at(-1);
   if (last !== undefined && measureOf(last.name) === "text") {
-    const range = document.createRange();
-    range.selectNodeContents(element);
-    const rect = range.getBoundingClientRect();
-    if (rect.width > 0 && rect.height > 0) return boxOf(rect);
+    const rects: Box[] = [];
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    for (
+      let node = walker.nextNode();
+      node !== null;
+      node = walker.nextNode()
+    ) {
+      if ((node.textContent ?? "").trim() === "") continue;
+      if (node.parentElement?.closest(".visually-hidden") != null) continue;
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      for (const rect of range.getClientRects()) {
+        if (rect.width > 0 && rect.height > 0) rects.push(boxOf(rect));
+      }
+    }
+    const words = union(rects);
+    if (words !== null) return words;
   }
   return boxOf(element.getBoundingClientRect());
 }
@@ -259,7 +279,8 @@ export function TourLayer({
     readonly row: readonly number[];
   }>({ gutter: [], row: [] });
   const [geometry, setGeometry] = useState<Geometry | null>(null);
-  const [waiting, setWaiting] = useState(false);
+  // Said while a stop's elements are awaited, or when they never came.
+  const [notice, setNotice] = useState<"waiting" | "unavailable" | null>(null);
   const [announcement, setAnnouncement] = useState("");
   // Bumped when a stop has been prepared: the next layout scrolls it into view.
   const [prepared, setPrepared] = useState(0);
@@ -396,7 +417,7 @@ export function TourLayer({
       if (stop === undefined) return;
       const forStop = run.stop;
       const noticeTimer = setTimeout(() => {
-        if (!isCancelled()) setWaiting(true);
+        if (!isCancelled()) setNotice("waiting");
       }, NOTICE_MS);
       const focus = await waitFor(() => {
         const found = stop.focus.map((anchors) => resolve(document, anchors));
@@ -406,7 +427,7 @@ export function TourLayer({
       }, WAIT_MS);
       clearTimeout(noticeTimer);
       if (isCancelled()) return;
-      setWaiting(false);
+      setNotice(focus === null ? "unavailable" : null);
       if (focus === null) {
         setChosen({ stop: forStop, value: { mode: "sheet" } });
         setPrepared((n) => n + 1);
@@ -439,7 +460,14 @@ export function TourLayer({
       setHeights(measured);
       setChosen({
         stop: forStop,
-        value: choose(frame, grown, targets, measured, stop.prefer),
+        value: choose(
+          frame,
+          grown,
+          targets,
+          measured,
+          stop.prefer,
+          narrowWindow(),
+        ),
       });
       setPrepared((n) => n + 1);
     },
@@ -451,6 +479,7 @@ export function TourLayer({
   useEffect(() => {
     let cancelled = false;
     setGeometry(null);
+    setNotice(null);
     void prepare(() => cancelled);
     return () => {
       cancelled = true;
@@ -559,21 +588,31 @@ export function TourLayer({
     };
   }, [place]);
 
-  // Say where the tour is: the stop, and in the sheet, the explanation.
+  // Say where the tour is, since focus stays on Next: the stop and its
+  // introduction, and in the sheet the explanation in view; or that a stop is
+  // still being prepared, or could not be shown.
   useEffect(() => {
+    if (notice !== null) {
+      setAnnouncement(
+        notice === "waiting" ? t.tour.waiting : t.tour.unavailable,
+      );
+      return;
+    }
     if (stop === undefined || presentation === null) return;
-    const lead = texts[shown.from]?.lead;
-    const stopText = t.tour.announceStop(stopNumber, stopsNumber, title);
+    const note = texts[shown.from];
+    const intro = stop.intro({ t, locale, preview });
+    const stopText = `${t.tour.announceStop(stopNumber, stopsNumber, title)} ${intro}`;
     setAnnouncement(
-      presentation.mode === "sheet" && lead !== undefined && count > 1
-        ? `${stopText} ${t.tour.announceNote(
+      presentation.mode === "sheet" && note != null
+        ? `${shown.from === 0 ? `${stopText} ` : ""}${t.tour.announceNote(
             formatNumber(String(shown.from + 1), locale),
             formatNumber(String(count), locale),
-            lead,
-          )}`
+            note.lead,
+          )} ${note.body}`
         : stopText,
     );
   }, [
+    notice,
     stop,
     presentation,
     shown.from,
@@ -581,6 +620,7 @@ export function TourLayer({
     count,
     t,
     locale,
+    preview,
     stopNumber,
     stopsNumber,
     title,
@@ -641,60 +681,59 @@ export function TourLayer({
       data-ready={laid === null ? undefined : "true"}
       onClose={onClosed}
     >
-      {frame === undefined ? null : (
-        <svg
-          className="tour-canvas"
-          aria-hidden
-          focusable="false"
-          viewBox={`0 0 ${String(frame.width)} ${String(frame.height)}`}
-          preserveAspectRatio="none"
-        >
+      <svg className="tour-canvas" aria-hidden focusable="false">
+        {/* Drawn from the moment the tour opens, the whole window dimmed
+              until a stop is laid out: never a bright page between two stops.
+              Coordinates are CSS pixels: the SVG fills the window unscaled. */}
+        {frame === undefined ? (
+          <rect className="tour-dim" width="100%" height="100%" />
+        ) : (
           <path
             className="tour-dim"
             fillRule="evenodd"
             d={dimPath(frame, laid?.cutout ?? null, laid?.radius ?? 0)}
           />
-          {laid?.cutout == null ? null : (
-            <path
-              className="tour-frame"
-              d={roundedRect(laid.cutout, laid.radius)}
-            />
-          )}
-          {placed?.map((p, k) =>
-            p.line === null ? null : (
-              <g key={`line-${String(k)}`}>
-                <path className="tour-line-casing" d={linePath(p.line)} />
-                <path className="tour-line" d={linePath(p.line)} />
+        )}
+        {laid?.cutout == null ? null : (
+          <path
+            className="tour-frame"
+            d={roundedRect(laid.cutout, laid.radius)}
+          />
+        )}
+        {placed?.map((p, k) =>
+          p.line === null ? null : (
+            <g key={`line-${String(k)}`}>
+              <path className="tour-line-casing" d={linePath(p.line)} />
+              <path className="tour-line" d={linePath(p.line)} />
+            </g>
+          ),
+        )}
+        {[...(placed?.map((p) => p.ring) ?? []), laid?.sheetRing ?? null].map(
+          (ring, k) =>
+            ring === null ? null : (
+              <g key={`ring-${String(k)}`} className="tour-ring">
+                <circle
+                  className="tour-ring-halo"
+                  cx={ring[0]}
+                  cy={ring[1]}
+                  r={8}
+                />
+                <circle
+                  className="tour-ring-mark"
+                  cx={ring[0]}
+                  cy={ring[1]}
+                  r={5.5}
+                />
+                <circle
+                  className="tour-ring-pulse"
+                  cx={ring[0]}
+                  cy={ring[1]}
+                  r={5.5}
+                />
               </g>
             ),
-          )}
-          {[...(placed?.map((p) => p.ring) ?? []), laid?.sheetRing ?? null].map(
-            (ring, k) =>
-              ring === null ? null : (
-                <g key={`ring-${String(k)}`} className="tour-ring">
-                  <circle
-                    className="tour-ring-halo"
-                    cx={ring[0]}
-                    cy={ring[1]}
-                    r={8}
-                  />
-                  <circle
-                    className="tour-ring-mark"
-                    cx={ring[0]}
-                    cy={ring[1]}
-                    r={5.5}
-                  />
-                  <circle
-                    className="tour-ring-pulse"
-                    cx={ring[0]}
-                    cy={ring[1]}
-                    r={5.5}
-                  />
-                </g>
-              ),
-          )}
-        </svg>
-      )}
+        )}
+      </svg>
 
       <div
         ref={dock}
@@ -726,6 +765,11 @@ export function TourLayer({
           )}
         >
           {stop.intro({ t, locale, preview })}
+          {notice === null ? null : (
+            <span className="tour-waiting muted small">
+              {notice === "waiting" ? t.tour.waiting : t.tour.unavailable}
+            </span>
+          )}
         </p>
         <ol className="tour-notes" role="list" aria-label={t.tour.listLabel}>
           {indices.map((index) =>
@@ -735,9 +779,6 @@ export function TourLayer({
             ),
           )}
         </ol>
-        {waiting ? (
-          <p className="tour-waiting muted small">{t.tour.waiting}</p>
-        ) : null}
         <div className="tour-controls">
           {sheet && count > 1 ? (
             <span className="tour-note-count" aria-hidden>
@@ -747,7 +788,8 @@ export function TourLayer({
               )}
             </span>
           ) : null}
-          <span id="tour-at-start" className="visually-hidden">
+          {/* Hidden from reading; aria-describedby still names Back with it. */}
+          <span id="tour-at-start" hidden>
             {t.tour.atStart}
           </span>
           <Button
