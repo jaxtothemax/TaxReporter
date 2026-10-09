@@ -19,6 +19,7 @@ import {
 
 import { CsvError, readCsv, type CsvTable } from "./csv.js";
 import { ibkr } from "./ibkr.js";
+import { tradeRepublic } from "./trade-republic.js";
 import { decodeUtf8, sniff } from "./intake.js";
 import { trading212, trading212Cfd } from "./trading212.js";
 import {
@@ -125,6 +126,7 @@ function capped(result: ImportResult): ImportResult {
 export const CSV_ADAPTERS: readonly CsvAdapter[] = Object.freeze([
   trading212,
   trading212Cfd,
+  tradeRepublic,
 ]);
 
 /** Every XML adapter; a file must match exactly one of them. */

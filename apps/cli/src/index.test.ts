@@ -238,6 +238,30 @@ describe("taxreporter", () => {
     );
   });
 
+  it("writes Doh-KDVP from a Trade Republic export", () => {
+    const out = join(scratch(), "out");
+    const result = run([
+      path(
+        "packages/brokers/test/fixtures/trade-republic/tr-transactions-2026.csv",
+      ),
+      "--year",
+      "2026",
+      "--tax-number",
+      "12345678",
+      "--out",
+      out,
+    ]);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("traderepublic-csv-2026");
+    const xml = readFileSync(join(out, "Doh_KDVP_2026.xml"), "utf8");
+    // Bought 2 Apple on 10 March, sold 1 on 15 July (Ljubljana time).
+    expect(xml).toContain("<ISIN>US0378331005</ISIN>");
+    expect(xml).toContain("2026-07-15");
+    expect(xml).toContain("2026-03-10");
+    // No dividends: Doh-Div has nothing to file.
+    expect(existsSync(join(out, "Doh_Div_2026.xml"))).toBe(false);
+  });
+
   it("writes Doh-KDVP but holds Doh-Div back while a payer is unknown", () => {
     const out = join(scratch(), "out");
     const result = run([

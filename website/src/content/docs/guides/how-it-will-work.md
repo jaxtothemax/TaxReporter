@@ -21,6 +21,9 @@ that will be:
 - **Trading 212:** the CSV export of your account history.
 - **Interactive Brokers (IBKR):** a Flex Query report. These pages will list exactly which
   sections and fields to turn on.
+- **Trade Republic:** the transaction export (CSV), with all transactions. Its dividends will
+  be read once a real export confirms how it writes them; until then a dividend in the file
+  will stop both returns, with the reason.
 
 Export your **whole history**, from the day you opened the account, not only the tax year.
 Each sale is matched against your earliest purchases of the same security first ("first in,

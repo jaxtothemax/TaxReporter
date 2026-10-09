@@ -69,7 +69,9 @@ export type NumberColumn =
   | "tradeMoney"
   | "multiplier"
   | "amount"
-  | "ibCommission";
+  | "ibCommission"
+  | "shares"
+  | "price";
 
 /** Why a CSV export could not be read (packages/brokers/src/csv.ts). */
 export type CsvReason =
@@ -344,6 +346,11 @@ export interface DiagnosticParams {
   unknownAction: { readonly broker: string; readonly action: UntrustedText };
   /** `action` comes from the adapter's own closed list, never the file. */
   unsupportedAction: { readonly broker: string; readonly action: string };
+  /**
+   * Rows whose treatment is settled but whose columns' meaning in this
+   * export no source confirms yet; `action` from the adapter's own list.
+   */
+  unconfirmedAction: { readonly broker: string; readonly action: string };
   invalidTime: None;
   dateMovedToLjubljana: { readonly date: IsoDate; readonly utcDate: IsoDate };
   invalidIsin: None;
