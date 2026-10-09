@@ -125,7 +125,7 @@ function refused<C extends DiagnosticCode>(
   };
 }
 
-const BLANK = new Set([" ", "\t", "\r", "\n", "﻿"]);
+const BLANK = new Set([" ", "\t", "\r", "\n", "\uFEFF"]);
 
 /** Whether the text's first character past any blank is `<`: XML. */
 function looksLikeXml(text: string): boolean {

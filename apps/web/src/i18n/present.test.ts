@@ -126,6 +126,38 @@ describe("findingText", () => {
     ).toContain("Banka Slovenije published none for that day");
   });
 
+  it("names no ticker that could pass for something else", () => {
+    const spoofed = findingText(
+      {
+        severity: "blocking",
+        code: "payerUnknown",
+        params: { isin: "US0378331005" },
+      },
+      { ...context("en"), symbols: { US0378331005: "MSFT (US5949181045)" } },
+    );
+    expect(spoofed).toMatch(/^US0378331005: Doh-Div needs/);
+    // A key an object inherits is no ticker of any security.
+    const inherited = findingText(
+      {
+        severity: "blocking",
+        code: "payerUnknown",
+        params: { isin: "constructor" },
+      },
+      context("en"),
+    );
+    expect(inherited).toMatch(/^constructor: Doh-Div needs/);
+  });
+
+  it("shows no character from a file that displays as something else", () => {
+    const text = say({
+      severity: "blocking",
+      code: "unknownElement",
+      params: { element: { untrusted: "Trades\u202eXX\u200b" } },
+    });
+    // Each becomes a space, so nothing reorders or hides the text around it.
+    expect(text).toContain("“Trades XX”");
+  });
+
   it("shows file text as text, cut to its length by the engine", () => {
     const text = say({
       severity: "blocking",

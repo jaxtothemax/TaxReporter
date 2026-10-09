@@ -11,6 +11,11 @@ export const LIMITS = Object.freeze({
   /** Files in one session: ten years of two brokers' yearly exports, and more. */
   filesPerSession: 100,
   /**
+   * Bytes of all of a session's files together, checked before any is read:
+   * the browser holds every file in memory and copies it to its engine.
+   */
+  sessionBytes: 256 * 1024 * 1024,
+  /**
    * Accounts one file may hold: an Interactive Brokers statement lists one
    * per account, and a Slovenian client migrated between IB entities has a
    * few. More is an advisor's file, not one taxpayer's.

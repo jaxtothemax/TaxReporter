@@ -26,6 +26,7 @@ export interface Messages {
     readonly footerLogos: string;
     readonly opensInNewTab: string;
     readonly themeLight: string;
+    readonly crashed: string;
   };
   readonly brokers: { readonly trading212: string; readonly ibkr: string };
   readonly start: {
@@ -89,6 +90,10 @@ export interface Messages {
     readonly announceRead: string;
     readonly announceFailed: string;
     readonly unsupported: string;
+    readonly tooLarge: (limit: string) => string;
+    readonly tooMuch: (limit: string) => string;
+    readonly notAdded: PluralForms;
+    readonly filesLimit: (limit: string) => string;
     readonly unsupportedBlocked: string;
     readonly announceAdded: PluralForms;
     readonly announceRemoved: (name: string) => string;
@@ -193,6 +198,7 @@ export interface Messages {
     readonly estimatedTax: string;
     readonly rate: (rate: string, currency: string) => string;
     readonly rateList: (date: string) => string;
+    readonly rateFixed: string;
     readonly rateInEur: string;
     readonly source: (file: string, row: string) => string;
     readonly colPayer: string;
@@ -213,6 +219,7 @@ export interface Messages {
     readonly noSales: string;
     readonly noDividends: string;
     readonly attention: PluralForms;
+    readonly moreNotes: PluralForms;
     readonly blocked: string;
     readonly blockedOne: (form: string) => string;
     readonly preparing: string;
@@ -262,6 +269,8 @@ export const en: Messages = {
     footerLogos: "Company logos are trademarks of their owners.",
     opensInNewTab: "(opens in a new tab)",
     themeLight: "Light theme",
+    crashed:
+      "Something went wrong showing this step. Nothing was sent anywhere. Go back, or start over.",
   },
   brokers: { trading212: "Trading 212", ibkr: "Interactive Brokers" },
   start: {
@@ -357,6 +366,15 @@ export const en: Messages = {
     announceRead: "Your files are read.",
     announceFailed: "Your files could not be read.",
     unsupported: "Not a CSV or XML export. Remove it to continue.",
+    tooLarge: (limit) =>
+      `Larger than any broker export (over ${limit}), so it is not read. Remove it to continue.`,
+    tooMuch: (limit) =>
+      `With it, your files would come to more than ${limit}, more than TaxReporter reads at once, so it is not read. Remove it, or a larger file, and add it again.`,
+    notAdded: {
+      one: "{n} file was not added.",
+      other: "{n} files were not added.",
+    },
+    filesLimit: (limit) => `TaxReporter reads at most ${limit} files at once.`,
     unsupportedBlocked: "Remove the files TaxReporter cannot read to continue.",
     announceAdded: { one: "{n} file added.", other: "{n} files added." },
     announceRemoved: (name) => `${name} removed.`,
@@ -483,6 +501,7 @@ export const en: Messages = {
     estimatedTax: "Estimated tax",
     rate: (rate, currency) => `1 EUR = ${rate} ${currency}`,
     rateList: (date) => `BSI list of ${date}`,
+    rateFixed: "Fixed euro conversion rate",
     rateInEur: "Already in EUR",
     source: (file, row) => `${file}, row ${row}`,
     colPayer: "Payer",
@@ -507,6 +526,10 @@ export const en: Messages = {
     attention: {
       one: "{n} note needs your attention before you download.",
       other: "{n} notes need your attention before you download.",
+    },
+    moreNotes: {
+      one: "{n} more note is not shown.",
+      other: "{n} more notes are not shown.",
     },
     blocked: "Fix the notes that stop the returns before you continue.",
     blockedOne: (form) =>
@@ -580,6 +603,8 @@ export const sl: Messages = {
     footerLogos: "Logotipi podjetij so blagovne znamke njihovih lastnikov.",
     opensInNewTab: "(odpre se v novem zavihku)",
     themeLight: "Svetla tema",
+    crashed:
+      "Pri prikazu tega koraka je šlo nekaj narobe. Nič ni bilo nikamor poslano. Vrnite se ali začnite znova.",
   },
   brokers: { trading212: "Trading 212", ibkr: "Interactive Brokers" },
   start: {
@@ -675,6 +700,18 @@ export const sl: Messages = {
     announceRead: "Datoteke so prebrane.",
     announceFailed: "Datotek ni bilo mogoče prebrati.",
     unsupported: "To ni izvoz CSV ali XML. Za nadaljevanje ga odstranite.",
+    tooLarge: (limit) =>
+      `Večja je od katerega koli izvoza posrednika (več kot ${limit}), zato ni prebrana. Za nadaljevanje jo odstranite.`,
+    tooMuch: (limit) =>
+      `Z njo bi vaše datoteke skupaj presegle ${limit}, kolikor jih TaxReporter prebere naenkrat, zato ni prebrana. Odstranite njo ali večjo datoteko in jo dodajte znova.`,
+    notAdded: {
+      one: "{n} datoteka ni bila dodana.",
+      two: "{n} datoteki nista bili dodani.",
+      few: "{n} datoteke niso bile dodane.",
+      other: "{n} datotek ni bilo dodanih.",
+    },
+    filesLimit: (limit) =>
+      `TaxReporter prebere največ ${limit} datotek naenkrat.`,
     unsupportedBlocked:
       "Za nadaljevanje odstranite datoteke, ki jih TaxReporter ne more prebrati.",
     announceAdded: {
@@ -824,6 +861,7 @@ export const sl: Messages = {
     estimatedTax: "Ocena davka",
     rate: (rate, currency) => `1 EUR = ${rate} ${currency}`,
     rateList: (date) => `tečajnica BS z dne ${date}`,
+    rateFixed: "Nepreklicno menjalno razmerje za evro",
     rateInEur: "Že v EUR",
     source: (file, row) => `${file}, vrstica ${row}`,
     colPayer: "Izplačevalec",
@@ -850,6 +888,12 @@ export const sl: Messages = {
       two: "{n} opombi zahtevata vašo pozornost pred prenosom.",
       few: "{n} opombe zahtevajo vašo pozornost pred prenosom.",
       other: "{n} opomb zahteva vašo pozornost pred prenosom.",
+    },
+    moreNotes: {
+      one: "Še {n} opomba ni prikazana.",
+      two: "Še {n} opombi nista prikazani.",
+      few: "Še {n} opombe niso prikazane.",
+      other: "Še {n} opomb ni prikazanih.",
     },
     blocked: "Pred nadaljevanjem odpravite opombe, ki ustavijo napovedi.",
     blockedOne: (form) =>

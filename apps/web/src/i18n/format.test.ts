@@ -149,6 +149,13 @@ describe("formatDate and formatCountry", () => {
 
   it("rejects malformed dates", () => {
     expect(() => formatDate("12.3.2026", "sl")).toThrow(RangeError);
+    // An error message can reach a log: it never repeats the value.
+    expect(() => formatDate("SECRET-12345678", "sl")).toThrow(
+      /^Not an ISO date$/,
+    );
+    expect(() => formatNumber("SECRET-12345678", "sl")).toThrow(
+      /^Not a plain decimal string$/,
+    );
   });
 
   it("names countries in the UI language", () => {

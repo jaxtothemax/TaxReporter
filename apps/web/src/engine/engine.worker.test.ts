@@ -71,14 +71,53 @@ describe("engine.worker", () => {
     expect(posted).toEqual([]);
   });
 
-  it("ignores anything that is not a request of this protocol", async () => {
+  it("imports the lockdown before any other module", async () => {
+    const source = (await import("./engine.worker.ts?raw")).default;
+    const imports = [...source.matchAll(/^import\s.*$/gm)].map((m) => m[0]);
+    expect(imports[0]).toBe('import "./lockdown-now";');
+  });
+
+  it("does no work for anything but a request of this protocol", async () => {
     const { send, posted } = await start();
     send("hello");
+    send({ id: -1 });
     send({ ...request(1), v: 2 });
-    send({ ...request(1), kind: "delete" });
+    send({ ...request(2), kind: "delete" });
     await settled();
     expect(handleRequest).not.toHaveBeenCalled();
-    expect(posted).toEqual([]);
+    // A message naming a request number hears that it failed, at once.
+    expect(posted).toEqual([
+      { v: 1, id: 1, kind: "failed" },
+      { v: 1, id: 2, kind: "failed" },
+    ]);
+  });
+
+  it("answers a failure and goes on when a step throws", async () => {
+    handleRequest.mockImplementationOnce(() =>
+      Promise.reject(new Error("secret file text")),
+    );
+    const { send, posted } = await start();
+    send(request(1));
+    send(request(2));
+    await settled();
+    await settled();
+    expect(posted).toEqual([{ v: 1, id: 1, kind: "failed" }, { id: 2 }]);
+  });
+
+  it("goes on even when posting a reply throws", async () => {
+    const { send, posted } = await start();
+    let calls = 0;
+    vi.stubGlobal("postMessage", (message: unknown) => {
+      calls += 1;
+      // The first reply cannot be cloned; the failure that replaces it can.
+      if (calls === 1) throw new Error("DataCloneError");
+      posted.push(message);
+    });
+    send(request(1));
+    send(request(2));
+    await settled();
+    await settled();
+    expect(posted).toEqual([{ v: 1, id: 1, kind: "failed" }, { id: 2 }]);
   });
 
   it("answers requests one at a time, in the order they came", async () => {

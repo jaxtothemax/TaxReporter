@@ -25,6 +25,7 @@ import {
   type TaxpayerDetails,
 } from "./protocol";
 import {
+  bounded,
   fileIndex,
   payerPrompts,
   sessionFindings,
@@ -111,11 +112,15 @@ export async function handleRequest(
     const index = fileIndex(read, names);
     const files = summarize(read, index);
     if (request.kind === "read") {
+      const session = bounded(
+        sessionFindings(read.ledger.diagnostics, files, index),
+      );
       return {
         ...base,
         kind: "read",
         files,
-        findings: sessionFindings(read.ledger.diagnostics, files, index),
+        findings: session.findings,
+        omittedFindings: session.omitted,
         payers: payerPrompts(read.ledger.events, request.taxYear),
         symbols: symbolsOf(read.ledger.events),
       };

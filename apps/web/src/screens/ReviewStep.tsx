@@ -236,7 +236,8 @@ export function ReviewStep({
   const [tab, setTab] = useState<ReviewTab>("gains");
   const year = String(preview?.taxYear ?? TAX_YEAR);
   const notes = preview?.findings ?? [];
-  const noteCount = formatNumber(String(notes.length), locale);
+  const omitted = preview?.omittedFindings ?? 0;
+  const noteCount = formatNumber(String(notes.length + omitted), locale);
   const blocking = notes.filter((d) => d.severity === "blocking").length;
   const needAttention = notes.filter((d) => d.severity !== "info").length;
 
@@ -337,6 +338,7 @@ export function ReviewStep({
                     </h2>
                     <NotesPanel
                       findings={preview.findings}
+                      omitted={preview.omittedFindings}
                       symbols={preview.symbols}
                       fileNames={fileNames}
                     />

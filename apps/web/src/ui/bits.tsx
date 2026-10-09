@@ -10,6 +10,7 @@ import {
   type Locale,
 } from "../i18n/format";
 import { useI18n } from "../i18n/i18n";
+import type { Messages } from "../i18n/messages";
 import type {
   BrokerId,
   HoldingBucket,
@@ -48,6 +49,16 @@ export function Eur({
   );
 }
 
+/**
+ * Where a rate came from: the BSI list of a day, or, for a currency the euro
+ * replaced, its fixed conversion rate, which no daily list publishes.
+ */
+function rateSource(rate: RateProvenance, locale: Locale, t: Messages): string {
+  return rate.source === "euro-changeover"
+    ? t.review.rateFixed
+    : t.review.rateList(formatDate(rate.listDate, locale));
+}
+
 /** "1 EUR = 1,1547 USD" with the BSI list it came from, or "Already in EUR". */
 export function RateText({ rate }: { readonly rate: RateProvenance | null }) {
   const { locale, t } = useI18n();
@@ -59,9 +70,7 @@ export function RateText({ rate }: { readonly rate: RateProvenance | null }) {
       <span className="num nowrap">
         {t.review.rate(formatRate(rate.rate, locale), rate.currency)}
       </span>
-      <span className="muted small">
-        {t.review.rateList(formatDate(rate.listDate, locale))}
-      </span>
+      <span className="muted small">{rateSource(rate, locale, t)}</span>
     </span>
   );
 }
@@ -75,9 +84,7 @@ export function RateChip({ rate }: { readonly rate: RateProvenance }) {
       <span className="num">
         {t.review.rate(formatRate(rate.rate, locale), rate.currency)}
       </span>
-      <span className="rate-chip-list">
-        {t.review.rateList(formatDate(rate.listDate, locale))}
-      </span>
+      <span className="rate-chip-list">{rateSource(rate, locale, t)}</span>
     </span>
   );
 }

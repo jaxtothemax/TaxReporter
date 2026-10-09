@@ -616,6 +616,7 @@ export const demoPreview: ReturnPreview = {
       params: { isin: "NL0010273215", date: "2026-08-04" },
     },
   ],
+  omittedFindings: 0,
   symbols: {
     US0378331005: "AAPL",
     US67066G1040: "NVDA",

@@ -13,6 +13,7 @@ import {
   UploadSimpleIcon,
   WarningCircleIcon,
 } from "@phosphor-icons/react";
+import { LIMITS } from "@taxreporter/core";
 import type { AccountChoice } from "@taxreporter/pipeline";
 import { useEffect, useRef, useState, type DragEvent } from "react";
 
@@ -21,6 +22,7 @@ import type { FileSummary } from "../engine/protocol";
 import {
   formatDate,
   formatKilobytes,
+  formatMebibytes,
   formatNumber,
   plural,
 } from "../i18n/format";
@@ -44,7 +46,8 @@ const UNREADABLE = new Set(["refused", "clash", "notRead"]);
 function isRefused(file: AddedFile, summary: FileSummary | undefined): boolean {
   if (file.kind !== "own") return false;
   return (
-    !file.supported || (summary !== undefined && UNREADABLE.has(summary.status))
+    file.refusal !== null ||
+    (summary !== undefined && UNREADABLE.has(summary.status))
   );
 }
 
@@ -65,6 +68,10 @@ function FileIcon({
 
 const blockingOf = (findings: readonly Finding[]) =>
   findings.filter((f) => f.severity === "blocking");
+
+/** Problems shown under one file, and for the files together. */
+const SHOWN_PER_FILE = 3;
+const SHOWN_TOGETHER = 20;
 
 function FileDetail({
   file,
@@ -88,8 +95,14 @@ function FileDetail({
       </p>
     );
   }
-  if (!file.supported) {
-    return <p className="file-detail is-error">{t.files.unsupported}</p>;
+  if (file.refusal !== null) {
+    const why =
+      file.refusal === "type"
+        ? t.files.unsupported
+        : file.refusal === "tooLarge"
+          ? t.files.tooLarge(formatMebibytes(LIMITS.fileBytes, locale))
+          : t.files.tooMuch(formatMebibytes(LIMITS.sessionBytes, locale));
+    return <p className="file-detail is-error">{why}</p>;
   }
   const summary = summaryOf(state, file.id);
   if (summary === undefined) {
@@ -102,12 +115,20 @@ function FileDetail({
       </p>
     );
   }
-  const said = (findings: readonly Finding[]) =>
-    findings.map((f, i) => (
-      <p key={`${f.code}-${String(i)}`} className="file-detail is-error">
-        {findingText(f, context)}
-      </p>
-    ));
+  const said = (findings: readonly Finding[]) => (
+    <>
+      {findings.slice(0, SHOWN_PER_FILE).map((f, i) => (
+        <p key={`${f.code}-${String(i)}`} className="file-detail is-error">
+          {findingText(f, context)}
+        </p>
+      ))}
+      {findings.length > SHOWN_PER_FILE ? (
+        <p className="file-detail is-error">
+          {plural(findings.length - SHOWN_PER_FILE, locale, t.review.moreNotes)}
+        </p>
+      ) : null}
+    </>
+  );
   switch (summary.status) {
     case "refused":
       return <>{said(blockingOf(summary.findings))}</>;
@@ -276,7 +297,10 @@ export function FilesStep({
 
   function remove(file: AddedFile): void {
     onRemoveFile(file.id);
-    announce(t.files.announceRemoved(file.name), state.files.length - 1);
+    announce(
+      t.files.announceRemoved(labels.get(file.id) ?? file.name),
+      state.files.length - 1,
+    );
     // The focused button disappears with its row; keep focus in the list.
     listHeading.current?.focus();
   }
@@ -395,7 +419,7 @@ export function FilesStep({
                     </Chip>
                   ) : (
                     <IconButton
-                      label={t.files.remove(file.name)}
+                      label={t.files.remove(labels.get(file.id) ?? file.name)}
                       onClick={() => {
                         remove(file);
                       }}
@@ -417,6 +441,15 @@ export function FilesStep({
         <Note tone="danger">{t.files.readFailed}</Note>
       ) : null}
 
+      {state.notAdded === 0 ? null : (
+        <Note tone="danger" role="alert">
+          {plural(state.notAdded, locale, t.files.notAdded)}{" "}
+          {t.files.filesLimit(
+            formatNumber(String(LIMITS.filesPerSession), locale),
+          )}
+        </Note>
+      )}
+
       {asksAccounts(state) ? (
         <AccountQuestion accounts={state.accounts} onChange={onSetAccounts} />
       ) : null}
@@ -426,12 +459,21 @@ export function FilesStep({
           <h2 id="problems">{t.files.problemsTitle}</h2>
           <p className="muted small">{t.files.problemsBody}</p>
           <div className="note-stack">
-            {together.map((f, i) => (
+            {together.slice(0, SHOWN_TOGETHER).map((f, i) => (
               <Note key={`${f.code}-${String(i)}`} tone="danger">
                 {findingText(f, context)}
               </Note>
             ))}
           </div>
+          {together.length > SHOWN_TOGETHER ? (
+            <p className="muted small">
+              {plural(
+                together.length - SHOWN_TOGETHER,
+                locale,
+                t.review.moreNotes,
+              )}
+            </p>
+          ) : null}
         </section>
       )}
 

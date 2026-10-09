@@ -16,7 +16,10 @@ const CONTENT_SECURITY_POLICY = [
   "img-src 'self' data:",
   "font-src 'self'",
   "connect-src 'self'",
-  "worker-src 'self'",
+  // blob: for the engine worker's bootstrap, which makes the worker inherit
+  // this policy (ADR 0013 §3): a worker loaded from its own URL would get
+  // its policy from response headers, and GitHub Pages sends none.
+  "worker-src 'self' blob:",
   "object-src 'none'",
   "base-uri 'none'",
   "form-action 'none'",

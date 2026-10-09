@@ -20,7 +20,8 @@ const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 function numeric(value: string): Intl.StringNumericLiteral {
   if (!PLAIN_DECIMAL.test(value)) {
-    throw new RangeError(`Not a plain decimal string: "${value}"`);
+    // Never the value itself: a message can reach a log (CLAUDE.md, "Privacy").
+    throw new RangeError("Not a plain decimal string");
   }
   return value as Intl.StringNumericLiteral;
 }
@@ -161,7 +162,7 @@ export function formatPercent(fraction: string, locale: Locale): string {
 export function formatDate(iso: string, locale: Locale): string {
   const match = ISO_DATE.exec(iso);
   if (match === null) {
-    throw new RangeError(`Not an ISO date: "${iso}"`);
+    throw new RangeError("Not an ISO date");
   }
   const [, year, month, day] = match.map(Number) as [
     number,
@@ -191,7 +192,7 @@ export function formatMonth(
 ): string {
   const match = ISO_MONTH.exec(month);
   if (match === null) {
-    throw new RangeError(`Not an ISO month: "${month}"`);
+    throw new RangeError("Not an ISO month");
   }
   const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, 1));
   return new Intl.DateTimeFormat(TAG[locale], {
@@ -214,6 +215,11 @@ export function formatKilobytes(bytes: number, locale: Locale): string {
     unit: "kilobyte",
     maximumFractionDigits: 0,
   }).format(Math.max(1, Math.ceil(bytes / 1024)));
+}
+
+/** A size in mebibytes, as limits are stated: "64 MiB". */
+export function formatMebibytes(bytes: number, locale: Locale): string {
+  return `${formatNumber(String(Math.round(bytes / 1048576)), locale)} MiB`;
 }
 
 export interface PluralForms {

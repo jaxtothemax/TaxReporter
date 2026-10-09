@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { engineReplies } from "../testing/ownFiles";
 import { isFinding, isReply, isRequest, PROTOCOL_VERSION } from "./protocol";
 
 const finding = {
@@ -26,6 +27,7 @@ const read = {
     },
   ],
   findings: [finding],
+  omittedFindings: 0,
   payers: [
     {
       isin: "US1912161007",
@@ -139,6 +141,47 @@ describe("isRequest", () => {
       { ...request, payers: [{ isin: "X" }] },
     ]) {
       expect(isRequest(bad)).toBe(false);
+    }
+  });
+});
+
+describe("isReply on the review", () => {
+  it("takes the engine's own prepared reply, and none with a field broken", async () => {
+    const { prepared } = await engineReplies();
+    expect(isReply(prepared)).toBe(true);
+    const { preview } = prepared;
+    const [security] = preview.securities;
+    const [dividend] = preview.dividends;
+    if (security === undefined || dividend === undefined) {
+      throw new Error("the fixtures have a sale and a dividend");
+    }
+    const [row] = security.rows;
+    if (row === undefined) throw new Error("a sale has rows");
+    const broken = [
+      // A value the formatters would throw on, a date that is none.
+      { ...preview, gainsTotals: { ...preview.gainsTotals, gainEur: "1e3" } },
+      { ...preview, dividends: [{ ...dividend, date: "1. 4. 2026" }] },
+      { ...preview, dividends: [{ ...dividend, grossEur: { amount: "1" } }] },
+      // A row from another kind of list, a broker the screens cannot name.
+      {
+        ...preview,
+        securities: [{ ...security, rows: [{ ...row, kind: "gift" }] }],
+      },
+      { ...preview, securities: [{ ...security, brokers: ["etoro"] }] },
+      // Keys that are no ISINs, a bucket that is no bucket.
+      { ...preview, symbols: { constructor: "X" } },
+      { ...preview, securities: [{ ...security, isin: "AAPL" }] },
+      {
+        ...preview,
+        gainsEstimate: {
+          ...preview.gainsEstimate,
+          positiveByBucket: { "25": "1.00" },
+        },
+      },
+      { ...preview, omittedFindings: -1 },
+    ];
+    for (const bad of broken) {
+      expect(isReply({ ...prepared, preview: bad })).toBe(false);
     }
   });
 });

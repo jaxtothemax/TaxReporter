@@ -27,7 +27,6 @@ import { StartScreen } from "./screens/StartScreen";
 import {
   blockingReason,
   initialWizardState,
-  isSupportedFile,
   labelsOf,
   payerDetails,
   readableFiles,
@@ -43,6 +42,8 @@ import {
   type Theme,
 } from "./ui/AppChrome";
 import { DemoBanner } from "./ui/bits";
+import { ErrorBoundary } from "./ui/ErrorBoundary";
+import { Button, Note } from "./ui/kit";
 import { Stepper } from "./ui/Stepper";
 
 /** The demo's returns, from the engine the download step loads when it opens. */
@@ -78,7 +79,9 @@ function Frame({
   const [state, dispatch] = useReducer(wizardReducer, initialState);
   const [theme, setTheme] = useState<Theme>(initialTheme);
   const previousScreen = useRef(state.screen);
-  // Each file's bytes, read once when it was added, by file id.
+  // Each added file, by id, and its bytes once the engine first needs them:
+  // a file refused unread is never read at all.
+  const handles = useRef(new Map<string, File>());
   const bytes = useRef(new Map<string, Promise<ArrayBuffer>>());
   const nextFile = useRef(1);
   const nextRequest = useRef(1);
@@ -127,13 +130,17 @@ function Frame({
     target?.focus({ preventScroll: true });
   }, [state.screen]);
 
-  // A file no longer listed takes its bytes with it.
+  // A file no longer listed (or never listed, from a drop larger than a
+  // session) takes its bytes with it.
   useEffect(() => {
     const listed = new Set(state.files.map((f) => f.id));
+    for (const id of handles.current.keys()) {
+      if (!listed.has(id)) handles.current.delete(id);
+    }
     for (const id of bytes.current.keys()) {
       if (!listed.has(id)) bytes.current.delete(id);
     }
-  }, [state.files]);
+  });
 
   // Own files live only in this tab: closing or reloading it loses them, so
   // the browser asks first (it shows its own words, not ours).
@@ -149,16 +156,28 @@ function Frame({
     };
   }, [holdsOwnFiles]);
 
+  /** The bytes of a listed file, read once, when first asked for. */
+  function bytesOf(id: string): Promise<ArrayBuffer> {
+    const read = bytes.current.get(id);
+    if (read !== undefined) return read;
+    const file = handles.current.get(id);
+    if (file === undefined) {
+      return Promise.reject(new Error("A file without its bytes"));
+    }
+    const content = file.arrayBuffer();
+    bytes.current.set(id, content);
+    return content;
+  }
+
   /** The request's files, by id, named by their labels. */
   async function requestFiles(
     fileIds: readonly string[],
   ): Promise<RequestFile[]> {
     return Promise.all(
-      fileIds.map(async (id) => {
-        const content = bytes.current.get(id);
-        if (content === undefined) throw new Error("A file without its bytes");
-        return { name: labels.get(id) ?? id, bytes: await content };
-      }),
+      fileIds.map(async (id) => ({
+        name: labels.get(id) ?? id,
+        bytes: await bytesOf(id),
+      })),
     );
   }
 
@@ -213,13 +232,8 @@ function Frame({
     const files = chosen.map((file) => {
       const id = `file-${String(nextFile.current)}`;
       nextFile.current += 1;
-      // A file that can never be read is never read at all.
-      if (isSupportedFile(file.name)) {
-        const content = file.arrayBuffer();
-        // Reported by the reading that awaits it, never as an unhandled error.
-        content.catch(() => undefined);
-        bytes.current.set(id, content);
-      }
+      // A handle only: nothing is read until the engine is asked to.
+      handles.current.set(id, file);
       return { id, name: file.name, size: file.size };
     });
     dispatch({ type: "addFiles", files });
@@ -228,9 +242,10 @@ function Frame({
   const ownReturns = useMemo((): BuiltReturns | null => {
     if (prepared === null) return null;
     const year = String(TAX_YEAR);
+    // The names last: nothing in a reply can rename a download.
     return {
-      kdvp: { fileName: `Doh_KDVP_${year}.xml`, ...prepared.kdvp },
-      div: { fileName: `Doh_Div_${year}.xml`, ...prepared.div },
+      kdvp: { ...prepared.kdvp, fileName: `Doh_KDVP_${year}.xml` },
+      div: { ...prepared.div, fileName: `Doh_Div_${year}.xml` },
     };
   }, [prepared]);
 
@@ -280,75 +295,100 @@ function Frame({
               }}
             />
             {state.mode === "demo" ? <DemoBanner /> : null}
-            {state.screen === "files" ? (
-              <FilesStep
-                state={state}
-                taxYear={TAX_YEAR}
-                onAddFiles={addFiles}
-                onRemoveFile={(id) => {
-                  dispatch({ type: "removeFile", id });
-                }}
-                onSetAccounts={(choice) => {
-                  dispatch({ type: "setAccounts", accounts: choice });
-                }}
-                onUseDemoFiles={() => {
-                  dispatch({ type: "useDemoFiles" });
-                }}
-                onBack={back}
-                onNext={next}
-              />
-            ) : null}
-            {state.screen === "details" ? (
-              <DetailsStep
-                state={state}
-                onChange={(field, value) => {
-                  dispatch({ type: "setDetail", field, value });
-                }}
-                onPayerChange={(isin, field, value) => {
-                  dispatch({ type: "setPayer", isin, field, value });
-                }}
-                onBack={back}
-                onNext={next}
-              />
-            ) : null}
-            {state.screen === "review" ? (
-              <ReviewStep
-                preview={preview}
-                status={reviewStatus(state)}
-                fileNames={fileNames}
-                forms={
-                  prepared === null
-                    ? null
-                    : { kdvp: prepared.kdvp, div: prepared.div }
-                }
-                canContinue={
-                  state.mode === "own"
-                    ? blockingReason(state, "review") === null
-                    : !demoBlocked
-                }
-                onBack={back}
-                onNext={next}
-                onStartDemo={startDemo}
-              />
-            ) : null}
-            {state.screen === "download" ? (
-              preview === null ||
-              (state.mode === "own" && ownReturns === null) ? (
-                // Unreachable through the flow (own files block at the
-                // review until prepared), but never render a blank screen.
-                <EmptyReview onStartDemo={startDemo} />
-              ) : (
-                <DownloadStep
-                  preview={preview}
-                  demo={state.mode === "demo"}
-                  returns={ownReturns ?? writeDemoReturns}
-                  onBack={back}
-                  onRestart={() => {
-                    dispatch({ type: "restart" });
+            <ErrorBoundary
+              resetKey={state.screen}
+              fallback={
+                <div className="screen">
+                  <Note tone="danger" role="alert">
+                    {t.app.crashed}
+                  </Note>
+                  <div className="actions-row">
+                    <Button size="lg" onClick={back}>
+                      {t.nav.back}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="lg"
+                      onClick={() => {
+                        dispatch({ type: "restart" });
+                      }}
+                    >
+                      {t.download.startOver}
+                    </Button>
+                  </div>
+                </div>
+              }
+            >
+              {state.screen === "files" ? (
+                <FilesStep
+                  state={state}
+                  taxYear={TAX_YEAR}
+                  onAddFiles={addFiles}
+                  onRemoveFile={(id) => {
+                    dispatch({ type: "removeFile", id });
                   }}
+                  onSetAccounts={(choice) => {
+                    dispatch({ type: "setAccounts", accounts: choice });
+                  }}
+                  onUseDemoFiles={() => {
+                    dispatch({ type: "useDemoFiles" });
+                  }}
+                  onBack={back}
+                  onNext={next}
                 />
-              )
-            ) : null}
+              ) : null}
+              {state.screen === "details" ? (
+                <DetailsStep
+                  state={state}
+                  onChange={(field, value) => {
+                    dispatch({ type: "setDetail", field, value });
+                  }}
+                  onPayerChange={(isin, field, value) => {
+                    dispatch({ type: "setPayer", isin, field, value });
+                  }}
+                  onBack={back}
+                  onNext={next}
+                />
+              ) : null}
+              {state.screen === "review" ? (
+                <ReviewStep
+                  preview={preview}
+                  status={reviewStatus(state)}
+                  fileNames={fileNames}
+                  forms={
+                    prepared === null
+                      ? null
+                      : { kdvp: prepared.kdvp, div: prepared.div }
+                  }
+                  canContinue={
+                    state.mode === "own"
+                      ? blockingReason(state, "review") === null
+                      : !demoBlocked
+                  }
+                  onBack={back}
+                  onNext={next}
+                  onStartDemo={startDemo}
+                />
+              ) : null}
+              {state.screen === "download" ? (
+                preview === null ||
+                (state.mode === "own" && ownReturns === null) ? (
+                  // Unreachable through the flow (own files block at the
+                  // review until prepared), but never render a blank screen.
+                  <EmptyReview onStartDemo={startDemo} />
+                ) : (
+                  <DownloadStep
+                    preview={preview}
+                    demo={state.mode === "demo"}
+                    returns={ownReturns ?? writeDemoReturns}
+                    onBack={back}
+                    onRestart={() => {
+                      dispatch({ type: "restart" });
+                    }}
+                  />
+                )
+              ) : null}
+            </ErrorBoundary>
           </div>
         )}
       </Main>

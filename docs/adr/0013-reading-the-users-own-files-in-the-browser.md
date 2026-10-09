@@ -36,29 +36,47 @@ and are open to review.
    pipeline, the rate snapshot and the XML writers; the page owns only display. A long read
    leaves the page responsive, and a worker has no DOM, so no text from a file can be
    rendered except through the one reply shape the page checks.
-3. **The worker locks itself down before reading anything.** At start it removes `fetch`,
-   `XMLHttpRequest`, `WebSocket`, `EventSource`, `WebTransport`, `importScripts`, `indexedDB`,
-   `caches`, `navigator` (and with it the origin's private file system), `BroadcastChannel`,
-   `Worker` and `SharedWorker` from its global scope, and refuses to start if any is left. The page's Content Security Policy already forbids
-   every other origin (`connect-src 'self'`); the lockdown makes "parsers do not touch the
-   network" hold even against a same-origin request, and makes storing a file impossible
-   rather than merely absent. The rate snapshot arrives as bundled modules (`?raw` imports,
-   ADR 0005), which the module loader fetches, not those APIs.
+3. **The worker runs under the page's policy, and locks itself down besides.** Two layers:
+   - **The policy.** A worker loaded from its own URL takes its Content Security Policy from
+     the headers its script is served with, and GitHub Pages sends none: it would run with no
+     policy at all, `eval` and every other origin open. So the page starts the worker from a
+     `blob:` bootstrap whose only statement imports the bundled engine; a worker from a local
+     scheme inherits the page's policy (`worker-src 'self' blob:`). Under it, `eval` and any
+     request to another origin, by `fetch`, `import()` or a font, are refused by the browser,
+     however they are made.
+   - **The lockdown.** As its first import, before any other module runs, the worker replaces
+     `fetch`, `XMLHttpRequest`, `WebSocket`, `WebSocketStream`, `EventSource`, `WebTransport`,
+     `importScripts`, `FontFace`, `fonts`, `indexedDB`, `caches`, `navigator` (and with it the
+     origin's private file system), the legacy file-system calls, `BroadcastChannel`, `Worker`
+     and `SharedWorker` with undefined, on its scope and on every prototype up the chain that
+     defines them (Chromium keeps most on `WorkerGlobalScope.prototype`, where a property on
+     the scope alone would only hide them), and refuses to start if any level still holds one.
+     This closes the same origin too, and storage, which the policy does not.
+   No list can name every way out, and `import()` is syntax, not a property: the policy is
+   what holds; the lockdown narrows what is left to the module loader and the reply channel.
+   The rate snapshot arrives as bundled same-origin modules (`?raw` imports, ADR 0005).
 4. **A versioned protocol, checked on both sides.** Every message carries `v: 1`, a request
    ID and a kind. The worker answers only well-formed requests; the page drops any reply that
    is not well-formed, not of this version, or not for the latest request (a stale read after
    the user removed a file). Nothing but plain data crosses: amounts, rates and quantities as
    decimal strings (ADR 0006), never a `Decimal` or any class. An internal error crosses as a
    bare `failed`, with no message, since a message could carry file text.
-5. **Two requests.** `read` runs on every change to the file set or the account answer and
-   returns, per file, its broker and the days it covers, or why it was refused, plus the
-   ledger's findings and the dividend payers to ask about. `prepare` runs when the review
-   opens, with the taxpayer and payer details, and returns the review's figures and both
-   forms' XML. Each request carries every file's bytes: the worker keeps nothing between
-   requests, so there is no cache to go stale and a reply is a function of its request.
-6. **Files stay in memory.** A file's bytes are read with `File.arrayBuffer()` when it is
-   added and live only in the page's memory, as long as the tab does; nothing is written to
-   storage. Because a reload loses them, the page asks before unloading while own files are
+5. **Two requests, one at a time.** `read` runs on every change to the file set or the account
+   answer and returns, per file, its broker and the days it covers, or why it was refused,
+   plus the ledger's findings and the dividend payers to ask about. `prepare` runs when the
+   review opens, with the taxpayer and payer details, and returns the review's figures and
+   both forms' XML. Each request carries every file's bytes: the worker keeps nothing between
+   requests, so there is no cache to go stale and a reply is a function of its request. A
+   newer request makes any older one stale, so the worker still busy with it is ended rather
+   than left to hold a second copy of every file. A reply carries at most 500 findings,
+   blocking ones first, and counts the rest; whether a form is withheld is decided over all of
+   them.
+6. **Files are bounded before a byte is read, then stay in memory.** A file that is not CSV
+   or XML, is larger than `LIMITS.fileBytes`, or would take the session past
+   `LIMITS.sessionBytes` is refused unread, and no more than `LIMITS.filesPerSession` files
+   are listed. The bytes of the rest are read with `File.arrayBuffer()` when the engine first
+   needs them and live only in the page's memory, as long as the tab does; nothing is written
+   to storage. Because a reload loses them, the page asks before unloading while own files are
    loaded. Removing a file, choosing the demo or starting over drops its bytes.
 7. **The account question is asked where it arises.** With two or more Trading 212 files,
    whose exports do not name their account, the Files step asks whether they come from one
@@ -78,7 +96,9 @@ and are open to review.
     code, severity and parameters: a file as its position in the request, never its name;
     file text only inside `UntrustedText`. The page names files and words the parameters in
     the user's language from one catalog (`apps/web/src/i18n/findings.ts`), so changing the
-    language needs no new read, and file text is shown as React text, never as markup.
+    language needs no new read. File text is shown as React text, never as markup, and
+    without the control, bidirectional and other format characters that would make it display
+    as something it is not; a symbol is named beside an ISIN only when it looks like a ticker.
 
 ## Consequences
 
@@ -90,9 +110,12 @@ and are open to review.
 - **The worker cannot be unit-tested in jsdom.** The worker file stays a thin shell around a
   pure `handleRequest`, which is tested in Node with the broker fixtures; the page takes the
   engine as a dependency, so the screens are tested with a fake.
-- **Large sessions cost memory twice:** the page holds the bytes, and each request copies them
-  to the worker. At the 64 MiB file cap and typical sessions of a few megabytes this is fine;
-  transferring instead of copying would need the page to re-read files for each request.
+- **A session costs its files' size twice while a request runs:** the page holds the bytes,
+  and the one request in flight holds a copy. The session cap bounds both; transferring
+  instead of copying would need the page to re-read files for each request.
+- **The worker's start depends on `blob:` workers**, which every current browser supports;
+  a browser that refused one would show the files as unreadable rather than read them
+  without the policy.
 - **Typing payer addresses is real work** for an investor with many dividend payers, until a
   payer directory ships.
 - **Unload warnings are coarse:** browsers show their own text, not ours.

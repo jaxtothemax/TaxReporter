@@ -9,9 +9,11 @@
  * the number of the request it answers, and an answer to any but the latest
  * request is dropped, so a slow read can never overwrite a newer one.
  */
+import { LIMITS } from "@taxreporter/core";
 import type { AccountChoice } from "@taxreporter/pipeline";
 
 import { demoPreview } from "../demo/demoPreview";
+import { printableName } from "../i18n/text";
 import type {
   FailedReply,
   FileSummary,
@@ -44,9 +46,16 @@ export type AddedFile =
       readonly id: string;
       readonly name: string;
       readonly size: number;
-      /** Only CSV and XML exports can ever be read; anything else is refused. */
-      readonly supported: boolean;
+      /** Why the file is refused unread, or null for a file the engine reads. */
+      readonly refusal: OwnRefusal | null;
     };
+
+/**
+ * Why a file is refused before a byte of it is read (ADR 0013 §6): it is
+ * not a CSV or XML export, it is larger than any broker export, or it would
+ * take the session past the bytes the tab holds.
+ */
+export type OwnRefusal = "type" | "tooLarge" | "tooMuch";
 
 export interface Details {
   readonly taxNumber: string;
@@ -103,6 +112,8 @@ export interface WizardState {
   readonly preparing: Preparing;
   /** Set when the user tried to move on past a step that still has errors. */
   readonly showErrors: boolean;
+  /** Files left out of the last addition because the list was full. */
+  readonly notAdded: number;
 }
 
 export type WizardAction =
@@ -177,6 +188,7 @@ export const initialWizardState: WizardState = {
   reading: IDLE,
   preparing: IDLE,
   showErrors: false,
+  notAdded: 0,
 };
 
 /** Spaces are allowed while typing ("1234 5678") and dropped before checking. */
@@ -208,9 +220,10 @@ export function labelsOf(
   const used = new Set<string>();
   const labels = new Map<string, string>();
   for (const file of files) {
-    let label = file.name;
+    const name = printableName(file.name);
+    let label = name;
     for (let n = 2; used.has(label); n += 1) {
-      label = `${file.name} (${String(n)})`;
+      label = `${name} (${String(n)})`;
     }
     used.add(label);
     labels.set(file.id, label);
@@ -218,9 +231,31 @@ export function labelsOf(
   return labels;
 }
 
-/** The own files the engine is asked to read: those that can be. */
+/** The own files the engine is asked to read: those not refused. */
 export function readableFiles(state: WizardState): readonly AddedFile[] {
-  return state.files.filter((f) => f.kind === "own" && f.supported);
+  return state.files.filter((f) => f.kind === "own" && f.refusal === null);
+}
+
+/**
+ * Each new file's refusal, if any, in the order given: the bounds the CLI
+ * checks before reading (CLAUDE.md, "Bound everything"), and the bytes the
+ * session may hold together.
+ */
+function refusals(
+  listed: readonly AddedFile[],
+  added: readonly { readonly name: string; readonly size: number }[],
+): (OwnRefusal | null)[] {
+  let bytes = 0;
+  for (const file of listed) {
+    if (file.kind === "own" && file.refusal === null) bytes += file.size;
+  }
+  return added.map((file) => {
+    if (!isSupportedFile(file.name)) return "type";
+    if (file.size > LIMITS.fileBytes) return "tooLarge";
+    if (bytes + file.size > LIMITS.sessionBytes) return "tooMuch";
+    bytes += file.size;
+    return null;
+  });
 }
 
 /** The engine's summary of a file, once the latest reading names it. */
@@ -289,6 +324,7 @@ function demoFiles(): AddedFile[] {
 
 export type BlockingReason =
   | "needFiles"
+  /** A file refused before reading: not CSV or XML, or too large. */
   | "unsupportedFile"
   | "stillReading"
   | "readFailed"
@@ -306,7 +342,7 @@ export function blockingReason(
 ): BlockingReason | null {
   if (step === "files") {
     if (state.files.length === 0) return "needFiles";
-    if (state.files.some((f) => f.kind === "own" && !f.supported)) {
+    if (state.files.some((f) => f.kind === "own" && f.refusal !== null)) {
       return "unsupportedFile";
     }
     if (state.mode === "demo") return null;
@@ -396,25 +432,32 @@ export function wizardReducer(
       };
     case "addFiles": {
       if (action.files.length === 0) return state;
-      const added: AddedFile[] = action.files.map((file) => ({
+      const own = state.files.filter((f) => f.kind === "own");
+      // A list longer than a session may read is never made: the rest of
+      // a large drop is left out, and said so.
+      const room = Math.max(0, LIMITS.filesPerSession - own.length);
+      const taken = action.files.slice(0, room);
+      const refused = refusals(own, taken);
+      const added: AddedFile[] = taken.map((file, i) => ({
         kind: "own",
         id: file.id,
         name: file.name,
         size: file.size,
-        supported: isSupportedFile(file.name),
+        refusal: refused[i] ?? null,
       }));
       return filesChanged({
         ...state,
         mode: "own",
-        files: [...state.files.filter((f) => f.kind === "own"), ...added],
+        files: [...own, ...added],
         showErrors: false,
+        notAdded: action.files.length - taken.length,
       });
     }
     case "removeFile": {
       const files = state.files.filter((f) => f.id !== action.id);
       return files.length === state.files.length
         ? state
-        : filesChanged({ ...state, files });
+        : filesChanged({ ...state, files, notAdded: 0 });
     }
     case "setAccounts":
       return action.accounts === state.accounts

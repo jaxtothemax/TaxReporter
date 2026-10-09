@@ -309,6 +309,58 @@ describe("App", () => {
     expect(html).toContain(en.files.unsupportedBlocked);
   });
 
+  it("lets the demo go on from the review, which nothing blocks", () => {
+    const html = render(screens[3]?.[1] ?? demo);
+    expect(html).toMatch(/<button[^>]*>Continue/);
+    expect(html).not.toMatch(/<button[^>]*disabled[^>]*>Continue/);
+  });
+
+  it("stops at the review of own files while no return can be written", () => {
+    const withheld = {
+      ...prepared,
+      kdvp: { ...prepared.kdvp, xml: null, blocking: 1 },
+      div: { ...prepared.div, xml: null, blocking: 1 },
+    };
+    const stopped = render(preparedState(read, withheld));
+    expect(stopped).toMatch(/<button[^>]*disabled[^>]*>Continue/);
+    expect(stopped).toMatch(/aria-describedby="review-attention"/);
+    // With one return written, the user goes on to download it.
+    const one = { ...withheld, kdvp: prepared.kdvp };
+    const going = render(preparedState(read, one));
+    expect(going).not.toMatch(/<button[^>]*disabled[^>]*>Continue/);
+  });
+
+  it("refuses a file too large to read, unread, and says why", () => {
+    const state = stateAfter(
+      { type: "startOwn" },
+      {
+        type: "addFiles",
+        files: [{ id: "file-1", name: "huge.csv", size: 65 * 1024 * 1024 }],
+      },
+    );
+    const html = text(render(state));
+    expect(html).toContain(
+      "Larger than any broker export (over 64 MiB), so it is not read.",
+    );
+  });
+
+  it("says how many files of a large drop it left out", () => {
+    const state = stateAfter(
+      { type: "startOwn" },
+      {
+        type: "addFiles",
+        files: Array.from({ length: 102 }, (_, i) => ({
+          id: `file-${String(i)}`,
+          name: `${String(i)}.csv`,
+          size: 1,
+        })),
+      },
+    );
+    expect(text(render(state))).toContain(
+      "2 files were not added. TaxReporter reads at most 100 files at once.",
+    );
+  });
+
   it("points out the demo's warning above the review tabs", () => {
     const html = text(render(screens[3]?.[1] ?? demo, "en"));
     expect(html).toContain("2 notes need your attention before you download.");

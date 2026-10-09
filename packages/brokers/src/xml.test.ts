@@ -76,7 +76,7 @@ describe("scanXml", () => {
       ["<A></B>", "mismatchedEnd"],
       ["<A/><B/>", "afterRoot"],
       ["<A/>text", "text"],
-      ["﻿<A/>", "text"],
+      ["\uFEFF<A/>", "text"],
       ["<A b='\u0001'/>", "illegalCharacter"],
       ["<!-- a -- b --><A/>", "comment"],
       ["", "noRoot"],
@@ -87,7 +87,7 @@ describe("scanXml", () => {
 
   it("keeps the characters a reference may name, the bidi ones included", () => {
     // Allowed by XML; the form's own checks neutralize them downstream.
-    expect(events('<A b="&#x202E;"/>')[0]).toBe("open A@1 b=‮");
+    expect(events('<A b="&#x202E;"/>')[0]).toBe("open A@1 b=\u202E");
   });
 
   it("refuses a document cut short anywhere", () => {

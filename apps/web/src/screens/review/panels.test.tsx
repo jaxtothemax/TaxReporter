@@ -10,7 +10,7 @@ import { demoPreview } from "../../demo/demoPreview";
 import type { Locale } from "../../i18n/format";
 import { I18nProvider } from "../../i18n/i18n";
 import { en, sl } from "../../i18n/messages";
-import { SourceText } from "../../ui/bits";
+import { RateText, SourceText } from "../../ui/bits";
 import { DownloadStep, filingDeadline, FormCard } from "../DownloadStep";
 import { ReviewStep } from "../ReviewStep";
 import { DividendsPanel } from "./DividendsPanel";
@@ -284,6 +284,76 @@ describe("empty and edge states", () => {
       ),
     );
     expect(none).not.toContain(proof);
+  });
+});
+
+describe("RateText", () => {
+  it("names a legacy currency's fixed euro rate, not a list of a day", () => {
+    const html = text(
+      render(
+        <RateText
+          rate={{
+            currency: "SIT",
+            rate: "239.64",
+            listDate: "2006-12-29",
+            source: "euro-changeover",
+          }}
+        />,
+      ),
+    );
+    expect(html).toContain(en.review.rateFixed);
+    expect(html).not.toContain("BSI list of");
+  });
+});
+
+describe("DownloadStep notes", () => {
+  const returns = {
+    kdvp: { fileName: "Doh_KDVP_2026.xml", xml: "<x/>", blocking: 0 },
+    div: { fileName: "Doh_Div_2026.xml", xml: "<y/>", blocking: 0 },
+  };
+  const step = (demo: boolean) =>
+    text(
+      render(
+        <DownloadStep
+          preview={demoPreview}
+          demo={demo}
+          returns={returns}
+          onBack={() => undefined}
+          onRestart={() => undefined}
+        />,
+      ),
+    );
+
+  it("warns never to import the demo's files", () => {
+    expect(step(true)).toContain(
+      "These files hold the demo's made-up trades".replace("'", "&#x27;"),
+    );
+  });
+
+  it("asks the user to check their own returns, and gives no demo warning", () => {
+    const own = step(false);
+    expect(own).toContain(en.download.ownFiles.split(";")[0] ?? "");
+    expect(own).not.toContain("made-up trades");
+    // Written already: the buttons are ready at once.
+    expect(own).toContain(en.download.readyChip);
+  });
+});
+
+describe("NotesPanel with many notes", () => {
+  it("shows the first of each severity and says how many more there are", () => {
+    const many = Array.from({ length: 130 }, () => ({
+      severity: "info" as const,
+      code: "fundFromName" as const,
+      params: { isin: "IE00BK5BQT80" },
+    }));
+    const html = text(
+      render(
+        <NotesPanel findings={many} omitted={7} symbols={{}} fileNames={[]} />,
+      ),
+    );
+    expect(html.match(/marked as a fund/g)).toHaveLength(100);
+    expect(html).toContain("30 more notes are not shown.");
+    expect(html).toContain("7 more notes are not shown.");
   });
 });
 

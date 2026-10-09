@@ -1,16 +1,19 @@
 /**
- * The engine worker (ADR 0013 §2–3): it locks away the network and storage,
- * then answers the page's requests with `handleRequest`, one at a time. A
- * message that is not a request of this protocol's version is ignored.
+ * The engine worker (ADR 0013 §2–3). Its first import locks away the
+ * network and storage APIs before any other module runs; then it answers
+ * the page's requests with `handleRequest`, one at a time, in order.
  *
- * Typed by hand rather than through the WebWorker library, whose globals
- * clash with the DOM's in one TypeScript project.
+ * A message that is not a request of this protocol gets no work done: a
+ * failure, if it names a request number the page could be waiting on,
+ * otherwise nothing. Typed by hand rather than through the WebWorker
+ * library, whose globals clash with the DOM's in one TypeScript project.
  */
+import "./lockdown-now";
+
 import type { RateTable } from "@taxreporter/fx";
 
 import { handleRequest } from "./handle";
-import { lockDown } from "./lockdown";
-import { isRequest } from "./protocol";
+import { isRequest, PROTOCOL_VERSION, type FailedReply } from "./protocol";
 import { loadRates } from "./rates";
 
 interface WorkerScope {
@@ -19,8 +22,6 @@ interface WorkerScope {
 }
 
 const scope = globalThis as unknown as WorkerScope;
-
-lockDown(globalThis);
 
 let rates: Promise<RateTable> | null = null;
 
@@ -33,13 +34,42 @@ function snapshot(): Promise<RateTable> {
   return rates;
 }
 
+/** The request number a message names, if it names one at all. */
+function requestId(message: unknown): number | null {
+  if (typeof message !== "object" || message === null) return null;
+  const id: unknown = (message as { readonly id?: unknown }).id;
+  return typeof id === "number" && Number.isSafeInteger(id) && id >= 0
+    ? id
+    : null;
+}
+
+/** Tells the page a request failed; if even that cannot be sent, its timeout ends the wait. */
+function fail(id: number): void {
+  const reply: FailedReply = { v: PROTOCOL_VERSION, id, kind: "failed" };
+  try {
+    scope.postMessage(reply);
+  } catch {
+    // Nothing more can reach the page.
+  }
+}
+
 /** Requests are answered in the order they came, never two at once. */
 let queue: Promise<void> = Promise.resolve();
 
 scope.onmessage = (event) => {
   const request = event.data;
-  if (!isRequest(request)) return;
-  queue = queue.then(async () => {
-    scope.postMessage(await handleRequest(request, snapshot));
-  });
+  if (!isRequest(request)) {
+    const id = requestId(request);
+    if (id !== null) fail(id);
+    return;
+  }
+  // A step that throws, even in posting its reply, answers as a failure
+  // and leaves the queue running for the next request.
+  queue = queue
+    .then(async () => {
+      scope.postMessage(await handleRequest(request, snapshot));
+    })
+    .catch(() => {
+      fail(request.id);
+    });
 };

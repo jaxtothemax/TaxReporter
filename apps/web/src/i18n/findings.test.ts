@@ -15,6 +15,8 @@ describe("the findings catalog", () => {
         const text = (message as (p: never) => string)(named);
         expect(text, code).not.toMatch(/undefined|\[object/);
         expect(text.length, code).toBeGreaterThan(10);
+        // A full sentence, however its parameters read.
+        expect(text, code).toMatch(/[.!?][”"»]?$/);
       }
     }
     expect(Object.keys(findingsSl).sort()).toEqual(

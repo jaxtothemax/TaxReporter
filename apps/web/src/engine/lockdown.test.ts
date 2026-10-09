@@ -2,29 +2,69 @@ import { describe, expect, it, vi } from "vitest";
 
 import { LOCKED, lockDown } from "./lockdown";
 
-/** A stand-in for a worker's global scope, its APIs on the prototype. */
-function workerScope(): object {
-  const proto: Record<string, unknown> = {};
+/**
+ * A stand-in for a worker's global scope as Chromium lays it out: the
+ * scope, then WorkerGlobalScope.prototype with the APIs on it, then an
+ * EventTarget.prototype with one more, then Object.prototype.
+ */
+function workerScope(): {
+  readonly scope: object;
+  readonly levels: readonly object[];
+} {
+  const eventTarget: Record<string, unknown> = Object.create(
+    Object.prototype,
+  ) as Record<string, unknown>;
+  Object.defineProperty(eventTarget, "fetch", {
+    value: () => "reached from further up",
+    writable: true,
+    configurable: true,
+  });
+  const workerGlobal = Object.create(eventTarget) as Record<string, unknown>;
   for (const name of LOCKED) {
-    Object.defineProperty(proto, name, {
+    Object.defineProperty(workerGlobal, name, {
       get: () => () => "reached",
       configurable: true,
     });
   }
-  return Object.create(proto) as object;
+  const scope = Object.create(workerGlobal) as object;
+  return { scope, levels: [scope, workerGlobal, eventTarget] };
 }
 
 describe("lockDown", () => {
   it("leaves no way to the network or to storage", () => {
-    const scope = workerScope();
+    const { scope } = workerScope();
     lockDown(scope);
     for (const name of LOCKED) {
-      expect((scope as Record<string, unknown>)[name], name).toBeUndefined();
+      expect(Reflect.get(scope, name), name).toBeUndefined();
     }
   });
 
+  it("takes each name from the prototypes too, where calling it would still work", () => {
+    const { scope, levels } = workerScope();
+    lockDown(scope);
+    for (const level of levels) {
+      for (const name of LOCKED) {
+        const descriptor = Object.getOwnPropertyDescriptor(level, name);
+        if (descriptor === undefined) continue;
+        // A getter would still answer: none may be left, nor any value.
+        expect(Object.keys(descriptor).sort(), name).toEqual([
+          "configurable",
+          "enumerable",
+          "value",
+          "writable",
+        ]);
+        expect(descriptor.value, name).toBeUndefined();
+      }
+    }
+    // As a page script would try it: WorkerGlobalScope.prototype.fetch.call.
+    expect(Reflect.get(levels[1] ?? {}, "fetch")).toBeUndefined();
+    expect(Reflect.get(levels[2] ?? {}, "fetch")).toBeUndefined();
+    // Nothing is added to Object.prototype, which never had the names.
+    expect(Object.hasOwn(Object.prototype, "fetch")).toBe(false);
+  });
+
   it("cannot be undone", () => {
-    const scope = workerScope() as Record<string, unknown>;
+    const scope = workerScope().scope as Record<string, unknown>;
     lockDown(scope);
     expect(() => {
       scope["fetch"] = () => "again";
@@ -35,7 +75,7 @@ describe("lockDown", () => {
   });
 
   it("refuses to start half locked", () => {
-    const scope = workerScope();
+    const { scope } = workerScope();
     Object.defineProperty(scope, "fetch", {
       value: () => "pinned",
       configurable: false,
@@ -48,7 +88,7 @@ describe("lockDown", () => {
   it("refuses to start when a name still answers after it was shadowed", () => {
     // A global object that takes the definitions without applying them:
     // only the check that follows them can tell.
-    const scope = workerScope();
+    const { scope } = workerScope();
     vi.spyOn(Object, "defineProperty").mockImplementation((target) => target);
     expect(() => {
       lockDown(scope);
@@ -66,6 +106,9 @@ describe("lockDown", () => {
         "caches",
         "navigator",
         "Worker",
+        "FontFace",
+        "WebSocketStream",
+        "webkitRequestFileSystem",
       ]),
     );
   });

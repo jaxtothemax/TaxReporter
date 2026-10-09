@@ -7,6 +7,8 @@ import type {
   ReadReply,
 } from "../engine/protocol";
 import { demoPreview } from "../demo/demoPreview";
+import { LIMITS } from "@taxreporter/core";
+
 import {
   asksAccounts,
   blockingReason,
@@ -17,6 +19,7 @@ import {
   labelsOf,
   normalizeTaxNumber,
   payerDetails,
+  readableFiles,
   summaryOf,
   wizardReducer,
   type WizardAction,
@@ -54,6 +57,7 @@ const readReply = (
   kind: "read",
   files,
   findings: [],
+  omittedFindings: 0,
   payers: [
     {
       isin: "US1912161007",
@@ -159,8 +163,8 @@ describe("own files", () => {
       { type: "addFiles", files: [file("file-2", "b.xml", 20)] },
     );
     expect(state.files).toEqual([
-      { kind: "own", id: "file-1", name: "a.csv", size: 10, supported: true },
-      { kind: "own", id: "file-2", name: "b.xml", size: 20, supported: true },
+      { kind: "own", id: "file-1", name: "a.csv", size: 10, refusal: null },
+      { kind: "own", id: "file-2", name: "b.xml", size: 20, refusal: null },
     ]);
   });
 
@@ -448,13 +452,112 @@ describe("own files", () => {
         files: [file("file-1", "a.csv", 1), file("file-2", "b.xlsx", 1)],
       },
     );
-    expect(state.files.map((f) => f.kind === "own" && f.supported)).toEqual([
-      true,
-      false,
+    expect(state.files.map((f) => f.kind === "own" && f.refusal)).toEqual([
+      null,
+      "type",
     ]);
     expect(blockingReason(state, "files")).toBe("unsupportedFile");
     const fixed = wizardReducer(state, { type: "removeFile", id: "file-2" });
     expect(blockingReason(fixed, "files")).toBe("stillReading");
+  });
+
+  it("refuses a file larger than any export, unread", () => {
+    const state = run(
+      { type: "startOwn" },
+      {
+        type: "addFiles",
+        files: [
+          file("file-1", "a.csv", LIMITS.fileBytes),
+          file("file-2", "b.csv", LIMITS.fileBytes + 1),
+        ],
+      },
+    );
+    expect(state.files.map((f) => f.kind === "own" && f.refusal)).toEqual([
+      null,
+      "tooLarge",
+    ]);
+    expect(readableFiles(state).map((f) => f.id)).toEqual(["file-1"]);
+    expect(blockingReason(state, "files")).toBe("unsupportedFile");
+  });
+
+  it("refuses a file that would take the session past its bytes", () => {
+    // Four files at the per-file cap fill the session exactly; a fifth
+    // byte is one too many, however small its file.
+    const full = Array.from({ length: 4 }, (_, i) =>
+      file(`file-${String(i + 1)}`, `${String(i)}.csv`, LIMITS.fileBytes),
+    );
+    expect(4 * LIMITS.fileBytes).toBe(LIMITS.sessionBytes);
+    const state = run(
+      { type: "startOwn" },
+      { type: "addFiles", files: full },
+      { type: "addFiles", files: [file("file-5", "x.csv", 1)] },
+    );
+    expect(state.files.map((f) => f.kind === "own" && f.refusal)).toEqual([
+      null,
+      null,
+      null,
+      null,
+      "tooMuch",
+    ]);
+    // A refused file does not count against the session's bytes.
+    const after = wizardReducer(state, {
+      type: "addFiles",
+      files: [file("file-6", "big.csv", LIMITS.fileBytes + 1)],
+    });
+    expect(after.files.at(-1)).toMatchObject({ refusal: "tooLarge" });
+  });
+
+  it("lists no more files than a session reads, and says how many it left out", () => {
+    const drop = Array.from({ length: LIMITS.filesPerSession + 3 }, (_, i) =>
+      file(`file-${String(i)}`, `${String(i)}.csv`, 1),
+    );
+    const state = run({ type: "startOwn" }, { type: "addFiles", files: drop });
+    expect(state.files).toHaveLength(LIMITS.filesPerSession);
+    expect(state.notAdded).toBe(3);
+    const more = wizardReducer(state, {
+      type: "addFiles",
+      files: [file("one-more", "y.csv", 1)],
+    });
+    expect(more.files).toHaveLength(LIMITS.filesPerSession);
+    expect(more.notAdded).toBe(1);
+    const removed = wizardReducer(more, { type: "removeFile", id: "file-0" });
+    expect(removed.notAdded).toBe(0);
+  });
+
+  it("drops the prepared returns when the files or the accounts change", () => {
+    const prepared = run(
+      { type: "startOwn" },
+      {
+        type: "addFiles",
+        files: [file("file-1", "a.csv"), file("file-2", "b.csv")],
+      },
+      { type: "readStarted", request: 1, fileIds: ["file-1", "file-2"] },
+      {
+        type: "readDone",
+        request: 1,
+        reply: readReply([summary(), summary()]),
+      },
+      { type: "setDetail", field: "taxNumber", value: "12345678" },
+      { type: "goTo", screen: "review" },
+      { type: "prepareStarted", request: 2, fileIds: ["file-1", "file-2"] },
+      {
+        type: "prepareDone",
+        request: 2,
+        reply: prepareReply(form(), form()),
+      },
+    );
+    expect(canEnter(prepared, "download")).toBe(true);
+    for (const change of [
+      { type: "addFiles", files: [file("file-3", "c.csv")] },
+      { type: "removeFile", id: "file-2" },
+      { type: "setAccounts", accounts: "separate" },
+    ] as const satisfies readonly WizardAction[]) {
+      const changed = wizardReducer(prepared, change);
+      expect(changed.preparing, change.type).toEqual({ status: "idle" });
+      expect(changed.reading, change.type).toEqual({ status: "idle" });
+      // The old returns, with or without the file, are never offered.
+      expect(canEnter(changed, "download"), change.type).toBe(false);
+    }
   });
 
   it("refuses to jump past a step that still blocks", () => {

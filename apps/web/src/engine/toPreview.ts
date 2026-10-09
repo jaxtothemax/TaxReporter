@@ -42,6 +42,7 @@ import {
   type ReturnPreview,
   type SecurityResult,
 } from "../model/preview";
+import { isTicker, plainText } from "../i18n/text";
 import type { FileSummary, PayerPrompt } from "./protocol";
 
 /** The request's files: their names by position, and positions by ID. */
@@ -237,10 +238,12 @@ function toDividend(
     : { amount: cents(d.foreignTaxEur), currency: "EUR" };
   return {
     date: d.date,
-    symbol: d.security.symbol ?? "",
-    payer: filled(
-      d.record?.payer.name ?? payerNames.get(isin),
-      filled(d.security.name, isin),
+    symbol: tickerOf(d.security.symbol),
+    payer: plainText(
+      filled(
+        d.record?.payer.name ?? payerNames.get(isin),
+        filled(d.security.name, isin),
+      ),
     ),
     isin,
     country: isoCountry(d.record?.payer.country ?? d.sourceCountry ?? ""),
@@ -256,6 +259,15 @@ function toDividend(
   };
 }
 
+/**
+ * A security's ticker as the screen may show it: cleaned, and only when it
+ * looks like a ticker (i18n/text.ts); "" otherwise.
+ */
+function tickerOf(symbol: string | undefined): string {
+  const plain = plainText(symbol ?? "");
+  return isTicker(plain) ? plain : "";
+}
+
 /** The ticker of every security the ledger names, by ISIN. */
 export function symbolsOf(
   events: readonly LedgerEvent[],
@@ -263,12 +275,47 @@ export function symbolsOf(
   const symbols: Record<string, string> = {};
   for (const event of events) {
     if (event.kind !== "trade" && event.kind !== "dividend") continue;
-    const { isin, symbol } = event.security;
-    if (symbol !== undefined && symbol !== "" && !(isin in symbols)) {
+    const { isin } = event.security;
+    const symbol = tickerOf(event.security.symbol);
+    if (symbol !== "" && !Object.hasOwn(symbols, isin)) {
       symbols[isin] = symbol;
     }
   }
   return symbols;
+}
+
+/**
+ * Findings one reply carries at most. A file that repeats one row could
+ * raise one finding per row, hundreds of thousands, more than a page can
+ * show or a message should copy; the rest are counted, never sent.
+ */
+export const MAX_FINDINGS = 500;
+
+const RANK = { blocking: 0, warning: 1, info: 2 } as const;
+
+/**
+ * The findings a reply carries, at most MAX_FINDINGS: blocking ones first,
+ * then warnings, then notes, each kept in its own order; and how many were
+ * left out. Whether a return is withheld is counted before this, over all.
+ */
+export function bounded(findings: readonly Finding[]): {
+  readonly findings: Finding[];
+  readonly omitted: number;
+} {
+  if (findings.length <= MAX_FINDINGS) {
+    return { findings: [...findings], omitted: 0 };
+  }
+  const kept = new Set(
+    findings
+      .map((finding, at) => ({ rank: RANK[finding.severity], at }))
+      .sort((a, b) => a.rank - b.rank || a.at - b.at)
+      .slice(0, MAX_FINDINGS)
+      .map((item) => item.at),
+  );
+  return {
+    findings: findings.filter((_, at) => kept.has(at)),
+    omitted: findings.length - kept.size,
+  };
 }
 
 /** Every finding of the run, from reading the files and from both builders. */
@@ -314,12 +361,14 @@ export function toPreview(
       rowsRead: summary.rows,
     });
   });
+  const shown = bounded(findingsOf(prepared).map((d) => toFinding(d, index)));
   return {
     taxYear,
     files,
     securities,
     dividends,
-    findings: findingsOf(prepared).map((d) => toFinding(d, index)),
+    findings: shown.findings,
+    omittedFindings: shown.omitted,
     symbols: symbolsOf(prepared.ledger.events),
     gainsTotals: {
       proceedsEur: cents(sum(allLots, (lot) => lot.disposalEur)),
@@ -372,7 +421,10 @@ export function summarize(read: ReadExports, index: FileIndex): FileSummary[] {
   for (const { file, result } of read.imports) {
     const position = names.indexOf(file);
     if (position < 0) continue;
-    const findings = result.diagnostics.map((d) => toFinding(d, index));
+    // Every one of them is in the review as well; here they are capped.
+    const { findings } = bounded(
+      result.diagnostics.map((d) => toFinding(d, index)),
+    );
     if (result.broker === "unknown") {
       summaries[position] = { ...none, status: "refused", findings };
       continue;
@@ -443,12 +495,12 @@ export function payerPrompts(
   const prompts = new Map<string, PayerPrompt>();
   for (const event of events) {
     if (event.kind !== "dividend" || !event.date.startsWith(year)) continue;
-    const { isin, symbol, name } = event.security;
+    const { isin } = event.security;
     const seen = prompts.get(isin);
     prompts.set(isin, {
       isin,
-      symbol: filled(seen?.symbol, symbol),
-      name: filled(seen?.name, name),
+      symbol: filled(seen?.symbol, tickerOf(event.security.symbol)),
+      name: filled(seen?.name, plainText(event.security.name ?? "")),
       isinCountry: fursCountryFromIso(isin.slice(0, 2)) ?? "",
       payments: (seen?.payments ?? 0) + 1,
     });

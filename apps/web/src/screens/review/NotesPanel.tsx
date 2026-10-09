@@ -5,7 +5,7 @@
  */
 import { CheckIcon } from "@phosphor-icons/react";
 
-import { formatNumber } from "../../i18n/format";
+import { formatNumber, plural } from "../../i18n/format";
 import { useI18n } from "../../i18n/i18n";
 import { findingText } from "../../i18n/present";
 import type { DiagnosticSeverity, Finding } from "../../model/preview";
@@ -20,12 +20,18 @@ const TONE = {
 
 const ORDER: readonly DiagnosticSeverity[] = ["blocking", "warning", "info"];
 
+/** Notes shown of one severity; a long list says how many more it holds. */
+export const SHOWN_PER_GROUP = 100;
+
 export function NotesPanel({
   findings,
+  omitted = 0,
   symbols,
   fileNames,
 }: {
   readonly findings: readonly Finding[];
+  /** Notes the engine left out of `findings` (engine/toPreview.ts). */
+  readonly omitted?: number;
   /** Tickers by ISIN, to name securities. */
   readonly symbols: Readonly<Record<string, string>>;
   /** The names of the files read, by their position in the request. */
@@ -57,7 +63,7 @@ export function NotesPanel({
               </span>
             </h3>
             <div className="note-stack">
-              {group.map((d, i) => (
+              {group.slice(0, SHOWN_PER_GROUP).map((d, i) => (
                 <Note key={`${d.code}-${String(i)}`} tone={TONE[severity]}>
                   {findingText(d, context)}
                   {d.source === undefined ? null : (
@@ -73,10 +79,24 @@ export function NotesPanel({
                   )}
                 </Note>
               ))}
+              {group.length > SHOWN_PER_GROUP ? (
+                <p className="muted small">
+                  {plural(
+                    group.length - SHOWN_PER_GROUP,
+                    locale,
+                    t.review.moreNotes,
+                  )}
+                </p>
+              ) : null}
             </div>
           </div>
         );
       })}
+      {omitted === 0 ? null : (
+        <p className="muted small">
+          {plural(omitted, locale, t.review.moreNotes)}
+        </p>
+      )}
     </div>
   );
 }

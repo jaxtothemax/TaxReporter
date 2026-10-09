@@ -79,5 +79,8 @@ describe("LIMITS", () => {
   it("is one frozen table", () => {
     expect(Object.isFrozen(LIMITS)).toBe(true);
     expect(LIMITS.fileBytes).toBe(64 * 1024 * 1024);
+    // A session holds a few files at the per-file cap, not the cap 100 times.
+    expect(LIMITS.sessionBytes).toBe(256 * 1024 * 1024);
+    expect(LIMITS.sessionBytes).toBeGreaterThan(LIMITS.fileBytes);
   });
 });

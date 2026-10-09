@@ -5,19 +5,29 @@
  * by its position in the request, no class instance and no error text. Both
  * sides check what they receive, and a message of another version or shape
  * is dropped, never half used. The worker is this app's own code, so the
- * checks guard against a stale script or a bug, not an attacker: they are
- * strict where file text travels (findings, file summaries) and check only
- * the outline of the review's figures, which are already strings.
+ * checks guard against a stale script or a bug more than an attacker, but
+ * they are complete: every field the screens read is checked for its shape
+ * (decimals, dates, ISINs, closed lists), so a reply that passes renders.
  */
+import { isIsin } from "@taxreporter/core";
 import type { AccountChoice } from "@taxreporter/pipeline";
 
 import { isFindingCode } from "../i18n/present";
 import {
   BROKERS,
+  HOLDING_BUCKETS,
   type BrokerId,
+  type DividendRow,
   type Finding,
   type FindingParam,
+  type ImportedFile,
+  type KdvpRow,
+  type MatchedLot,
+  type Money,
+  type MonthlyAmount,
+  type RateProvenance,
   type ReturnPreview,
+  type SecurityResult,
 } from "../model/preview";
 
 export const PROTOCOL_VERSION = 1;
@@ -118,6 +128,8 @@ export interface ReadReply extends ReplyBase {
   readonly files: readonly FileSummary[];
   /** Findings about the files together: overlaps, repeats, shared events. */
   readonly findings: readonly Finding[];
+  /** Findings left out of `findings`, the least severe first. */
+  readonly omittedFindings: number;
   readonly payers: readonly PayerPrompt[];
   readonly symbols: Readonly<Record<string, string>>;
 }
@@ -181,13 +193,27 @@ export function isFinding(v: unknown): v is Finding {
   );
 }
 
+// The shapes the formatters accept: a plain decimal, an ISO date.
+const PLAIN_DECIMAL = /^-?\d{1,40}(\.\d{1,40})?$/;
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const MONTH = /^\d{4}-\d{2}$/;
+
+const isDecimal = (v: unknown): v is string =>
+  isString(v) && PLAIN_DECIMAL.test(v);
+const isDate = (v: unknown): v is string => isString(v) && ISO_DATE.test(v);
+const isDateOrNull = (v: unknown): v is string | null =>
+  v === null || isDate(v);
+const isAnIsin = (v: unknown): v is string => isString(v) && isIsin(v);
+const decimals = (v: Rec, ...names: readonly string[]) =>
+  names.every((name) => isDecimal(v[name]));
+
 function isFileSummary(v: unknown): v is FileSummary {
   return (
     isRecord(v) &&
     STATUSES.has(v["status"] as string) &&
     (v["broker"] === null || isBroker(v["broker"])) &&
-    isStringOrNull(v["firstDate"]) &&
-    isStringOrNull(v["lastDate"]) &&
+    isDateOrNull(v["firstDate"]) &&
+    isDateOrNull(v["lastDate"]) &&
     isCount(v["rows"]) &&
     (v["sameAs"] === null || isCount(v["sameAs"])) &&
     typeof v["unnamedAccount"] === "boolean" &&
@@ -198,7 +224,7 @@ function isFileSummary(v: unknown): v is FileSummary {
 function isPayerPrompt(v: unknown): v is PayerPrompt {
   return (
     isRecord(v) &&
-    isString(v["isin"]) &&
+    isAnIsin(v["isin"]) &&
     isString(v["symbol"]) &&
     isString(v["name"]) &&
     isString(v["isinCountry"]) &&
@@ -215,23 +241,133 @@ function isForm(v: unknown): v is FormOutput {
   );
 }
 
-const isStringRecord = (v: unknown): v is Record<string, string> =>
-  isRecord(v) && Object.values(v).every(isString);
+/** Tickers by ISIN: every key an ISIN, every value text. */
+const isSymbols = (v: unknown): v is Record<string, string> =>
+  isRecord(v) &&
+  Object.entries(v).every(([isin, symbol]) => isIsin(isin) && isString(symbol));
 
-/** The review's outline: its lists are lists and its findings are findings. */
-function isPreview(v: unknown): v is ReturnPreview {
+const isMoney = (v: unknown): v is Money =>
+  isRecord(v) && isDecimal(v["amount"]) && isString(v["currency"]);
+
+const RATE_SOURCES = new Set(["bsi-daily", "bsi-monthly", "euro-changeover"]);
+
+const isRate = (v: unknown): v is RateProvenance | null =>
+  v === null ||
+  (isRecord(v) &&
+    isString(v["currency"]) &&
+    isDecimal(v["rate"]) &&
+    isDate(v["listDate"]) &&
+    RATE_SOURCES.has(v["source"] as string));
+
+const isSource = (v: unknown): boolean =>
+  isRecord(v) && isString(v["file"]) && isCount(v["row"]);
+
+const isBucket = (v: unknown): boolean =>
+  (HOLDING_BUCKETS as readonly unknown[]).includes(v);
+
+const isBuckets = (v: unknown): boolean =>
+  isRecord(v) && HOLDING_BUCKETS.every((bucket) => isDecimal(v[bucket]));
+
+function isKdvpRow(v: unknown): v is KdvpRow {
+  if (!isRecord(v)) return false;
+  const split = v["splitAdjusted"];
   return (
-    isRecord(v) &&
+    (v["kind"] === "purchase" || v["kind"] === "sale") &&
+    isDate(v["date"]) &&
+    decimals(v, "quantity", "priceEur") &&
+    isMoney(v["price"]) &&
+    isRate(v["rate"]) &&
+    isBroker(v["broker"]) &&
+    isSource(v["source"]) &&
+    (split === undefined ||
+      (isRecord(split) && isString(split["ratio"]) && isDate(split["date"])))
+  );
+}
+
+const isLot = (v: unknown): v is MatchedLot =>
+  isRecord(v) &&
+  isDate(v["purchaseDate"]) &&
+  isDate(v["saleDate"]) &&
+  decimals(
+    v,
+    "quantity",
+    "acquisitionEur",
+    "disposalEur",
+    "gainEur",
+    "normedCostsEur",
+  ) &&
+  isCount(v["yearsHeld"]) &&
+  isBucket(v["bucket"]);
+
+const isSecurity = (v: unknown): v is SecurityResult =>
+  isRecord(v) &&
+  isAnIsin(v["isin"]) &&
+  isString(v["symbol"]) &&
+  isString(v["name"]) &&
+  isArrayOf(v["brokers"], isBroker) &&
+  isArrayOf(v["rows"], isKdvpRow) &&
+  isArrayOf(v["lots"], isLot) &&
+  decimals(v, "quantitySold", "proceedsEur", "costEur", "gainEur");
+
+const isDividend = (v: unknown): v is DividendRow =>
+  isRecord(v) &&
+  isDate(v["date"]) &&
+  isString(v["symbol"]) &&
+  isString(v["payer"]) &&
+  isAnIsin(v["isin"]) &&
+  isString(v["country"]) &&
+  isMoney(v["gross"]) &&
+  isMoney(v["foreignTax"]) &&
+  isRate(v["rate"]) &&
+  decimals(v, "grossEur", "foreignTaxEur", "creditEur") &&
+  (v["treatyRate"] === null || isDecimal(v["treatyRate"])) &&
+  isBroker(v["broker"]) &&
+  isSource(v["source"]);
+
+const isImportedFile = (v: unknown): v is ImportedFile =>
+  isRecord(v) &&
+  isString(v["name"]) &&
+  isBroker(v["broker"]) &&
+  isDate(v["firstDate"]) &&
+  isDate(v["lastDate"]) &&
+  isCount(v["rowsRead"]);
+
+const isMonth = (v: unknown): v is MonthlyAmount =>
+  isRecord(v) &&
+  isString(v["month"]) &&
+  MONTH.test(v["month"]) &&
+  isDecimal(v["grossEur"]);
+
+/** The review, every field its screens read. */
+function isPreview(v: unknown): v is ReturnPreview {
+  if (!isRecord(v)) return false;
+  const totals = v["gainsTotals"];
+  const gains = v["gainsEstimate"];
+  const dividends = v["dividendsEstimate"];
+  return (
     isCount(v["taxYear"]) &&
-    Array.isArray(v["files"]) &&
-    Array.isArray(v["securities"]) &&
-    Array.isArray(v["dividends"]) &&
+    isArrayOf(v["files"], isImportedFile) &&
+    isArrayOf(v["securities"], isSecurity) &&
+    isArrayOf(v["dividends"], isDividend) &&
     isArrayOf(v["findings"], isFinding) &&
-    isStringRecord(v["symbols"]) &&
-    isRecord(v["gainsTotals"]) &&
-    isRecord(v["gainsEstimate"]) &&
-    isRecord(v["dividendsEstimate"]) &&
-    Array.isArray(v["dividendsByMonth"])
+    isCount(v["omittedFindings"]) &&
+    isSymbols(v["symbols"]) &&
+    isRecord(totals) &&
+    decimals(totals, "proceedsEur", "costEur", "gainEur") &&
+    isRecord(gains) &&
+    isBuckets(gains["positiveByBucket"]) &&
+    isBuckets(gains["allocatedByBucket"]) &&
+    decimals(gains, "lossesEur", "netBaseEur", "taxEur") &&
+    isRecord(dividends) &&
+    decimals(
+      dividends,
+      "taxRate",
+      "grossEur",
+      "foreignTaxEur",
+      "creditEur",
+      "taxDueEur",
+    ) &&
+    isArrayOf(v["dividendsByMonth"], isMonth)
   );
 }
 
@@ -247,8 +383,9 @@ export function isReply(v: unknown): v is EngineReply {
       return (
         isArrayOf(v["files"], isFileSummary) &&
         isArrayOf(v["findings"], isFinding) &&
+        isCount(v["omittedFindings"]) &&
         isArrayOf(v["payers"], isPayerPrompt) &&
-        isStringRecord(v["symbols"])
+        isSymbols(v["symbols"])
       );
     case "prepare":
       return (

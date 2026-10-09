@@ -23,6 +23,7 @@ import {
   formatRate,
   type Locale,
 } from "./format";
+import { isTicker, plainText } from "./text";
 
 const CATALOGS: Readonly<
   Record<
@@ -100,17 +101,19 @@ function shown(
 ): string {
   const { locale } = context;
   if (typeof value === "object") {
-    return "file" in value ? context.fileName(value.file) : value.untrusted;
+    return "file" in value
+      ? context.fileName(value.file)
+      : plainText(value.untrusted);
   }
   if (typeof value === "number") {
     // A row or line number is an identifier: its digits are never grouped.
     return name === "row" ? String(value) : formatNumber(String(value), locale);
   }
   if (name === "isin") {
-    const symbol = context.symbols[value];
-    return symbol === undefined || symbol === ""
-      ? value
-      : `${symbol} (${value})`;
+    const symbol = Object.hasOwn(context.symbols, value)
+      ? plainText(context.symbols[value] ?? "")
+      : "";
+    return isTicker(symbol) ? `${symbol} (${value})` : value;
   }
   if (DATES.has(name) && ISO_DATE.test(value)) return formatDate(value, locale);
   if (!PLAIN_DECIMAL.test(value)) {

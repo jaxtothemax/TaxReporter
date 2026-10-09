@@ -5,12 +5,13 @@
 
 > **Implementation status (2026-10-08):** built on branch `feat/import-contract`, not yet on
 > `main`. Items 1–10 are in `packages/core/src/{ledger,dates,diagnostics,limits,keys,validate}.ts`,
-> `packages/brokers/src/{intake,adapter,time,trading212}.ts` and `apps/cli/src/{intake,prepare,index}.ts`.
-> PII canaries run over an adapter's findings and keys (`trading212.test.ts`) and over the CLI's
-> whole text and JSON output (`apps/cli/src/index.test.ts`). Not built yet: the web worker
-> (items 1 and 11 in the browser), and an XML family adapter (Interactive Brokers), with the XML
-> depth and attribute limits. Not every limit has a test at its value as well as one past it
-> yet.
+> `packages/brokers/src/{intake,adapter,time,trading212}.ts`, `apps/cli/src/{intake,index}.ts`
+> and, since ADR 0013, `packages/pipeline/src/prepare.ts`, which both apps call. PII canaries run
+> over an adapter's findings and keys (`trading212.test.ts`) and over the CLI's whole text and
+> JSON output (`apps/cli/src/index.test.ts`). The XML family adapter (Interactive Brokers, ADR
+> 0012) and the web worker (items 1 and 11 in the browser, ADR 0013) are built on their own
+> branches, `feat/ibkr-adapter` and `feat/web-own-files`. Not every limit has a test at its value
+> as well as one past it yet.
 
 ## Context
 

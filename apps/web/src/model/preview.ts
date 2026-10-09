@@ -192,6 +192,8 @@ export interface ReturnPreview {
   readonly securities: readonly SecurityResult[];
   readonly dividends: readonly DividendRow[];
   readonly findings: readonly Finding[];
+  /** Findings left out of `findings`, the least severe first (engine/toPreview.ts). */
+  readonly omittedFindings: number;
   /** The ticker of every security the files name, by ISIN, for the findings. */
   readonly symbols: Readonly<Record<string, string>>;
   readonly gainsTotals: GainsTotals;
