@@ -37,8 +37,9 @@ export interface FindingWords {
   readonly brokers: Readonly<Record<string, string>>;
   /**
    * Actions an adapter names in its own words rather than the export's, as
-   * "FOREIGN_CURRENCY_TRADE"; an export's own token, as BENEFITS_SAVEBACK,
-   * is shown as the export writes it.
+   * "FOREIGN_CURRENCY_TRADE" or IBKR's "shortSale"; a word followed by an
+   * export's code ("corporateAction FI") is worded and keeps the code. An
+   * export's own token, as BENEFITS_SAVEBACK, is shown as written.
    */
   readonly actions: Readonly<Record<string, string>>;
   /** A Flex Query section, as Interactive Brokers' own screens name it. */
@@ -458,7 +459,18 @@ export const wordsEn: FindingWords = {
     ibkr: "Interactive Brokers",
     traderepublic: "Trade Republic",
   },
-  actions: { FOREIGN_CURRENCY_TRADE: "trades in a foreign currency" },
+  actions: {
+    FOREIGN_CURRENCY_TRADE: "trades in a foreign currency",
+    shortSale: "short sales",
+    isinChange: "corporate actions that change an ISIN",
+    returnOfCapital: "returns of capital",
+    capitalGainDistribution: "capital gain distributions",
+    interestDistribution: "interest distributions",
+    partnershipDistribution: "partnership distributions",
+    nonDividendDistribution: "non-dividend distributions",
+    corporateAction: "corporate action",
+    notes: "trades marked",
+  },
   sections: {
     Trades: "Trades",
     CashTransactions: "Cash Transactions",
@@ -850,7 +862,18 @@ export const wordsSl: FindingWords = {
     ibkr: "Interactive Brokers",
     traderepublic: "Trade Republic",
   },
-  actions: { FOREIGN_CURRENCY_TRADE: "posli v tuji valuti" },
+  actions: {
+    FOREIGN_CURRENCY_TRADE: "posli v tuji valuti",
+    shortSale: "prodaje na kratko",
+    isinChange: "korporacijska dejanja, ki spremenijo ISIN",
+    returnOfCapital: "vračila kapitala",
+    capitalGainDistribution: "izplačila kapitalskih dobičkov",
+    interestDistribution: "izplačila obresti",
+    partnershipDistribution: "izplačila komanditnih družb",
+    nonDividendDistribution: "izplačila, ki niso dividende",
+    corporateAction: "korporacijsko dejanje",
+    notes: "posli z oznako",
+  },
   // Interactive Brokers' screens are not in Slovenian: their own names.
   sections: {
     Trades: "Trades",

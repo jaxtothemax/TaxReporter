@@ -201,6 +201,12 @@ describe("tradeRepublic: what it refuses", () => {
     }
   });
 
+  it("names the category, not the type, when only the category is unknown", () => {
+    const [d] = rows(row({ category: "SECRET_CATEGORY" })).diagnostics;
+    expect(d?.code).toBe("unknownAction");
+    expect(JSON.stringify(d?.params)).toContain("SECRET_CATEGORY");
+  });
+
   it("refuses a type or an account it does not know, keeping their text out of exports", () => {
     for (const cells of [
       { type: "SECRET_TYPE" },
@@ -314,6 +320,10 @@ describe("tradeRepublic: what it checks", () => {
       { type: "CUSTOMER_INBOUND" },
       { type: "INTEREST_PAYMENT" },
       { category: "CASH", type: "CARD_TRANSACTION" },
+      // Each condition alone: a TRADING deposit with nothing else, and a
+      // CASH card payment that names a security.
+      { type: "CUSTOMER_INBOUND", symbol: "", shares: "", price: "" },
+      { category: "CASH", type: "CARD_TRANSACTION", shares: "", price: "" },
     ]) {
       expect(codes(rows(row(cells))), JSON.stringify(cells)).toEqual([
         "unknownAction",

@@ -143,8 +143,13 @@ function shown(
         return reason(finding.code, value, words);
       case "broker":
         return word(words.brokers, value);
-      case "action":
-        return word(words.actions, value);
+      case "action": {
+        // "corporateAction FI": the adapter's word, then the export's code.
+        const space = value.indexOf(" ");
+        return space === -1
+          ? word(words.actions, value)
+          : `${word(words.actions, value.slice(0, space))}${value.slice(space)}`;
+      }
       case "section":
         return word(words.sections, value);
       case "check":

@@ -44,8 +44,9 @@ Trade Republic, and the optional AI check.
 These come after v0.1. None of them has a version or a date yet, and the order may change
 based on feedback.
 
-- **More brokers:** eToro, Revolut, Robinhood, DEGIRO, XTB, Saxo and Lightyear.
-  Robinhood first needs research into how its EU stock tokens are taxed.
+- **More brokers,** in order of how many Slovenian investors use them: eToro, XTB, DEGIRO,
+  Revolut, Lightyear, Saxo and Robinhood. Robinhood first needs research into how its EU stock
+  tokens are taxed.
 - **Equity-plan platforms** for shares from an employer's plan (RSUs and ESPP).
 - **Doh-Obr:** interest, for example interest a broker pays on uninvested cash.
 - **D-IFI:** derivatives such as options, futures and CFDs.

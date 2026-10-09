@@ -151,6 +151,10 @@ describe("findingText", () => {
     expect(sl("FOREIGN_CURRENCY_TRADE")).toContain("»posli v tuji valuti«");
     expect(sl("FOREIGN_CURRENCY_TRADE")).toContain("Trade Republic");
     expect(sl("DIVIDEND")).toContain("»DIVIDEND«");
+    // Interactive Brokers' own words too, a code kept as the export has it.
+    expect(sl("shortSale")).toContain("»prodaje na kratko«");
+    expect(sl("corporateAction FI")).toContain("»korporacijsko dejanje FI«");
+    expect(sl("notes Ca")).toContain("»posli z oznako Ca«");
   });
 
   it("names no ticker that could pass for something else", () => {

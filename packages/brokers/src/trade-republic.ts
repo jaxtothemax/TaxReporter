@@ -25,7 +25,7 @@
  *   whose cost basis is a tax question; corporate actions, deliveries and
  *   migrations; bonds, private markets and crypto; and any row this adapter
  *   does not know.
- * - **Keys** by `transaction_id`, which Trade Republic never reuses, and
+ * - **Keys** by `transaction_id`, assumed never reused (ADR 0015), and
  *   without an ordinal (ADR 0011 §5): the same row in an overlapping
  *   export is read once, and a row repeated inside one file blocks as a
  *   repeat instead of counting twice.
@@ -243,11 +243,19 @@ function read(table: CsvTable, context: ReadContext): ImportResult {
       continue;
     }
     const side = BUYS.has(type) ? "buy" : SELLS.has(type) ? "sell" : null;
-    if (side === null || category !== "TRADING") {
-      // The type is file text: it travels only wrapped, for the screen.
+    // The type, or a trade's category, is file text: it travels only
+    // wrapped, for the screen, and names whichever is unknown.
+    if (side === null) {
       block("unknownAction", {
         broker: TRADE_REPUBLIC,
         action: untrusted(type),
+      });
+      continue;
+    }
+    if (category !== "TRADING") {
+      block("unknownAction", {
+        broker: TRADE_REPUBLIC,
+        action: untrusted(category),
       });
       continue;
     }

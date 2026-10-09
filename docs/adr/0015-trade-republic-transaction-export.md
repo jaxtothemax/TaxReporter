@@ -62,7 +62,8 @@ monthly purchases, one sale.
 7. **Keys** are built from `transaction_id` and the row's content without an ordinal
    (ADR 0011 §5): a row repeated inside one file blocks as a repeat instead of counting twice.
    That Trade Republic never reuses an ID is an assumption from the format (a UUID per row),
-   not a documented rule; if it ever did, two rows would block as a repeat, never be merged.
+   not a documented rule; if it ever did, two rows with the same ID and content would block as
+   a repeat, never be merged.
 8. **A trade's figures are checked.** Its cash `amount` must be its quantity times its price,
    give or take its fee and a cent; a price in another unit, or another row's amount, shows
    there. A trade with a foreign leg (`original_amount`, `original_currency` or `fx_rate`
@@ -77,6 +78,9 @@ monthly purchases, one sale.
   30 December and booked on 2 January would land in the wrong tax year. A real export, or
   Trade Republic's own confirmation PDF beside it, settles this before the adapter ships.
 - **What a dividend row's columns hold** (decision 6).
+- **Does a trade keep its `transaction_id` from one export to the next?** Overlapping exports
+  are read once only if it does (decision 4). If Trade Republic issued IDs per export, the
+  same trade in two files would count twice. Two overlapping real exports settle it.
 
 ## Consequences
 

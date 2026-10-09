@@ -74,6 +74,7 @@ describe("the findings catalog", () => {
       "unreadable",
       "rateErrors",
       "brokers",
+      "actions",
       "sections",
       "tradeChecks",
     ] as const) {
