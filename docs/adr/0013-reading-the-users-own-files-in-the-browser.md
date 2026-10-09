@@ -1,10 +1,10 @@
 # 13. Reading the user's own files in the browser
 
 **Date:** 2026-10-08
-**Status:** Proposed
+**Status:** Accepted (2026-10-09)
 
-> **Implementation status (2026-10-09):** built on branch `feat/web-own-files`, not yet on
-> `main`: `packages/pipeline/src/prepare.ts` and, in `apps/web/src/`, `engine/` (`protocol.ts`,
+> **Implementation status (2026-10-09):** on `main`, not yet in a release:
+> `packages/pipeline/src/prepare.ts` and, in `apps/web/src/`, `engine/` (`protocol.ts`,
 > `handle.ts`, `toPreview.ts`, `lockdown.ts`, `engine.worker.ts`, `client.ts`, `rates.ts`),
 > `i18n/present.ts`, `state/wizard.ts` and the four step screens. Tested in Node over the
 > synthetic broker fixtures and in a headless browser against the dev server and the
@@ -132,7 +132,9 @@ and are open to review.
 ## On Acceptance
 
 <!-- Complete when this ADR's Status moves to Accepted — not before. -->
-- [ ] Open issues naming this ADR re-read against the settled decision:
-      `python3 scripts/adr-accepted-issue-sweep.py --adr 0013`
-- [ ] Any issue carrying pre-ADR scope rewritten — **title and body** — led by a
-      dated correction note. Record the count here, **including zero**.
+- [x] Open issues naming this ADR re-read against the settled decision:
+      `python3 scripts/adr-accepted-issue-sweep.py --adr 0013` (2026-10-09): 0 flagged. The
+      script matches only the spelling `ADR-0013`, so the issues that write `ADR 0013` were
+      read by hand: #3, #5, #6, all filed on 2026-10-09 from the settled text.
+- [x] Any issue carrying pre-ADR scope rewritten — **title and body** — led by a
+      dated correction note. Count: **0**.

@@ -33,6 +33,11 @@ export {
 export { decodeUtf8, sniff } from "./intake.js";
 export { fromUtcStamp } from "./time.js";
 export {
+  TRADE_REPUBLIC,
+  TRADE_REPUBLIC_COLUMNS,
+  tradeRepublic,
+} from "./trade-republic.js";
+export {
   splitRatio,
   TRADING212,
   trading212,

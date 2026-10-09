@@ -15,9 +15,9 @@ Nothing yet. TaxReporter has not had a release, and there is nothing to install.
 
 ### v0.1: the first filing season (tax year 2026)
 
-The goal of v0.1 is that a Slovenian tax resident with a Trading 212 account, an Interactive
-Brokers account, or both, can prepare **Doh-KDVP** and **Doh-Div** for tax year 2026 and import
-them into eDavki without errors. Returns for 2026 are due on 1 March 2027 (28 February 2027 is
+The goal of v0.1 is that a Slovenian tax resident with a Trading 212, an Interactive Brokers or
+a Trade Republic account, or several, can prepare **Doh-KDVP** and **Doh-Div** for tax year 2026
+and import them into eDavki without errors. Returns for 2026 are due on 1 March 2027 (28 February 2027 is
 a Sunday, so the deadline moves to the next working day), so v0.1 needs to be usable well before
 then.
 
@@ -26,7 +26,9 @@ Planned scope:
 - **Doh-KDVP:** gains from selling shares and ETFs, with sales matched "first in, first out"
   (FIFO) per security across all your brokers and accounts.
 - **Doh-Div:** dividends, including the tax withheld abroad.
-- **Brokers:** Trading 212 (CSV export) and Interactive Brokers (Flex Query report).
+- **Brokers:** Trading 212 (CSV export), Interactive Brokers (Flex Query report) and Trade
+  Republic (transaction export, CSV; its dividends once a real export confirms how they are
+  written).
 - **Exchange rates:** the Banka Slovenije daily and monthly lists, with the source, list date
   and rate kept next to every converted amount.
 - **Browser app:** it will run on your device, with nothing uploaded, in Slovenian and English.
@@ -34,16 +36,17 @@ Planned scope:
 - **FURS XML format:** files built to FURS's published schemas, with tests that check the output
   against them.
 
-Not in v0.1: interest (Doh-Obr), derivatives (D-IFI), brokers other than Trading 212 and IBKR,
-and the optional AI check.
+Not in v0.1: interest (Doh-Obr), derivatives (D-IFI), brokers other than Trading 212, IBKR and
+Trade Republic, and the optional AI check.
 
 ## Planned
 
 These come after v0.1. None of them has a version or a date yet, and the order may change
 based on feedback.
 
-- **More brokers:** eToro, Revolut, Robinhood, DEGIRO, XTB, Saxo, Lightyear and Trade Republic.
-  Robinhood first needs research into how its EU stock tokens are taxed.
+- **More brokers,** in order of how many Slovenian investors use them: eToro, XTB, DEGIRO,
+  Revolut, Lightyear, Saxo and Robinhood. Robinhood first needs research into how its EU stock
+  tokens are taxed.
 - **Equity-plan platforms** for shares from an employer's plan (RSUs and ESPP).
 - **Doh-Obr:** interest, for example interest a broker pays on uninvested cash.
 - **D-IFI:** derivatives such as options, futures and CFDs.
@@ -56,6 +59,6 @@ based on feedback.
 ## Follow progress or ask for something
 
 Work is planned and tracked in the project's
-[GitHub issues](https://github.com/jaxtothemax/TaxReporter/issues). If your broker or your
+[GitHub issues](https://github.com/jaxtothemax/broker-to-edavki/issues). If your broker or your
 situation is missing from this page, open an issue and describe it, without attaching any real
 files. [Contributing](/contributing/) explains how.

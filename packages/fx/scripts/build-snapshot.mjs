@@ -37,7 +37,7 @@ const SOURCES = {
 };
 // BSI has refused Python's default User-Agent (research 03 §13).
 const USER_AGENT =
-  "TaxReporter rate snapshot (+https://github.com/jaxtothemax/TaxReporter)";
+  "TaxReporter rate snapshot (+https://github.com/jaxtothemax/broker-to-edavki)";
 const DATA = new URL("../data/", import.meta.url);
 
 const { values } = parseArgs({

@@ -1,10 +1,9 @@
 # 14. XLSX import
 
 **Date:** 2026-10-09
-**Status:** Proposed
+**Status:** Accepted (2026-10-09)
 
-> **Implementation status (2026-10-09):** built on branch `feat/xlsx-reader`, not yet on
-> `main`. The DEFLATE decoder and CRC-32 (`packages/brokers/src/{inflate,crc32}.ts`), the ZIP
+> **Implementation status (2026-10-09):** on `main`, not yet in a release. The DEFLATE decoder and CRC-32 (`packages/brokers/src/{inflate,crc32}.ts`), the ZIP
 > reader (`zip.ts`), the OOXML profile of the XML scanner (`xml.ts`), the number and serial
 > readers (`xlsx-values.ts`), the workbook reader (`xlsx.ts`) and the dispatch (`adapter.ts`)
 > are in. No XLSX adapter is, so no workbook is recognized yet; the sheet classification of
@@ -256,7 +255,9 @@ skips rather than refuses (decision 4).
 ## On Acceptance
 
 <!-- Complete when this ADR's Status moves to Accepted — not before. -->
-- [ ] Open issues naming this ADR re-read against the settled decision:
-      `python3 scripts/adr-accepted-issue-sweep.py --adr 0014`
-- [ ] Any issue carrying pre-ADR scope rewritten — **title and body** — led by a
-      dated correction note. Record the count here, **including zero**.
+- [x] Open issues naming this ADR re-read against the settled decision:
+      `python3 scripts/adr-accepted-issue-sweep.py --adr 0014` (2026-10-09): 0 flagged. The
+      script matches only the spelling `ADR-0014`, so the issues that write `ADR 0014` were
+      read by hand: #8, #9, #10, #16, all filed on 2026-10-09 from the settled text.
+- [x] Any issue carrying pre-ADR scope rewritten — **title and body** — led by a
+      dated correction note. Count: **0**.

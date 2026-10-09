@@ -1,16 +1,14 @@
 # 11. Import contract for broker files
 
 **Date:** 2026-10-08
-**Status:** Proposed
+**Status:** Accepted (2026-10-09)
 
-> **Implementation status (2026-10-08):** built on branch `feat/import-contract`, not yet on
-> `main`. Items 1–10 are in `packages/core/src/{ledger,dates,diagnostics,limits,keys,validate}.ts`,
+> **Implementation status (2026-10-09):** on `main`, not yet in a release. Items 1–10 are in `packages/core/src/{ledger,dates,diagnostics,limits,keys,validate}.ts`,
 > `packages/brokers/src/{intake,adapter,time,trading212}.ts`, `apps/cli/src/{intake,index}.ts`
 > and, since ADR 0013, `packages/pipeline/src/prepare.ts`, which both apps call. PII canaries run
 > over an adapter's findings and keys (`trading212.test.ts`) and over the CLI's whole text and
 > JSON output (`apps/cli/src/index.test.ts`). The XML family adapter (Interactive Brokers, ADR
-> 0012) and the web worker (items 1 and 11 in the browser, ADR 0013) are built on their own
-> branches, `feat/ibkr-adapter` and `feat/web-own-files`. Not every limit has a test at its value
+> 0012) and the web worker (items 1 and 11 in the browser, ADR 0013) are on `main` too. Not every limit has a test at its value
 > as well as one past it yet.
 
 ## Context
@@ -172,7 +170,9 @@ identity by `(broker, key)` in the contract.
 ## On Acceptance
 
 <!-- Complete when this ADR's Status moves to Accepted — not before. -->
-- [ ] Open issues naming this ADR re-read against the settled decision:
-      `python3 scripts/adr-accepted-issue-sweep.py --adr 0011`
-- [ ] Any issue carrying pre-ADR scope rewritten — **title and body** — led by a
-      dated correction note. Record the count here, **including zero**.
+- [x] Open issues naming this ADR re-read against the settled decision:
+      `python3 scripts/adr-accepted-issue-sweep.py --adr 0011` (2026-10-09): 0 flagged. The
+      script matches only the spelling `ADR-0011`, so the issues that write `ADR 0011` were
+      read by hand: #11, #13, #16, all filed on 2026-10-09 from the settled text.
+- [x] Any issue carrying pre-ADR scope rewritten — **title and body** — led by a
+      dated correction note. Count: **0**.

@@ -63,8 +63,9 @@ const USAGE = `Usage: taxreporter <exports...> --year <YYYY> --tax-number <8 dig
                    [--payers <payers.json>] [--coverage-end <YYYY-MM-DD>]
                    [--accounts same|separate] [--json]
 
-Reads broker exports (Trading 212 history CSV, Interactive Brokers Activity
-Flex Query XML) and writes the eDavki returns
+Reads broker exports (Trading 212 history CSV, Trade Republic transaction
+export CSV, Interactive Brokers Activity Flex Query XML) and writes the eDavki
+returns
 Doh_KDVP_<year>.xml and Doh_Div_<year>.xml into --out. Nothing leaves this
 computer and nothing is filed: review the files, then import them in eDavki.
 

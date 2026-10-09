@@ -10,7 +10,7 @@
 import type { DiagnosticCode } from "@taxreporter/core";
 
 /** Brokers the review can show, in display order. */
-export const BROKERS = ["trading212", "ibkr"] as const;
+export const BROKERS = ["trading212", "ibkr", "traderepublic"] as const;
 export type BrokerId = (typeof BROKERS)[number];
 
 /** ISO 8601 calendar date, e.g. "2026-03-12". */

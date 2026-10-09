@@ -16,7 +16,7 @@ import { Chip, IconButton } from "./kit";
  */
 export const SOURCE_URL: string =
   (import.meta.env as Record<string, string | undefined>)["VITE_SOURCE_URL"] ??
-  "https://github.com/jaxtothemax/TaxReporter";
+  "https://github.com/jaxtothemax/broker-to-edavki";
 
 /** Dark first; light is one click away. Held in memory like the language. */
 export type Theme = "dark" | "light";

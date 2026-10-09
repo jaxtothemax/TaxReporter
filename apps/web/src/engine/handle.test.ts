@@ -10,6 +10,7 @@ import { describe, expect, it, vi } from "vitest";
 import ibkrXml from "../../../../packages/brokers/test/fixtures/ibkr/flex-activity-2025-2026.xml?raw";
 import t212v3 from "../../../../packages/brokers/test/fixtures/trading212/t212-invest-v3-2025.csv?raw";
 import t212v4 from "../../../../packages/brokers/test/fixtures/trading212/t212-invest-v4-2026.csv?raw";
+import trade from "../../../../packages/brokers/test/fixtures/trade-republic/tr-transactions-2026.csv?raw";
 import { handleRequest, payersOf, taxpayerOf } from "./handle";
 import { LOCKED } from "./lockdown";
 import {
@@ -162,6 +163,36 @@ const CLI_TAXPAYER = { taxNumber: "12345678" };
 const CLI_PAYERS = new Map<string, PayerInfo>([
   [coca.isin, { name: coca.name, address: coca.address, country: "US" }],
 ]);
+
+describe("handleRequest: Trade Republic", () => {
+  it("reads its export as one named account, and writes Doh-KDVP from it", async () => {
+    const tr = [file("tr.csv", trade), file("t212-2026.csv", t212v4)];
+    const reply = await read(tr);
+    const summary = reply.files.find((f) => f.broker === "traderepublic");
+    expect(summary?.status).toBe("read");
+    // Its account is named, so it raises no account question.
+    expect(summary?.unnamedAccount).toBe(false);
+    // Its own history is whole: Doh-KDVP from it alone.
+    const prepared = await handleRequest(
+      {
+        ...base,
+        id: 7,
+        kind: "prepare",
+        files: [file("tr.csv", trade)],
+        taxpayer,
+        payers: [],
+      },
+      loadRates,
+    );
+    if (prepared.kind !== "prepare") throw new Error(prepared.kind);
+    expect(isReply(delivered(prepared))).toBe(true);
+    const apple = prepared.preview.securities.find(
+      (s) => s.isin === "US0378331005",
+    );
+    expect(apple?.brokers).toEqual(["traderepublic"]);
+    expect(prepared.kdvp.xml).toContain("US0378331005");
+  });
+});
 
 describe("handleRequest: prepare", () => {
   it("writes the XML the command line writes for the same files and details", async () => {

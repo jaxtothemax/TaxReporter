@@ -1,10 +1,9 @@
 # 12. Interactive Brokers Flex Query XML import
 
 **Date:** 2026-10-08
-**Status:** Proposed
+**Status:** Accepted (2026-10-09)
 
-> **Implementation status (2026-10-08):** built on branch `feat/ibkr-adapter`, not yet on
-> `main`, in `packages/brokers/src/{xml,ibkr,adapter}.ts` with core changes in
+> **Implementation status (2026-10-09):** on `main`, not yet in a release, in `packages/brokers/src/{xml,ibkr,adapter}.ts` with core changes in
 > `packages/core/src/{ledger,keys,fifo,validate,diagnostics,limits}.ts`. Tested only against
 > the synthetic statement in `packages/brokers/test/fixtures/ibkr/`; no real export has been
 > read yet.
@@ -100,7 +99,9 @@ below were made from the threat model and the research, and are open to review.
 ## On Acceptance
 
 <!-- Complete when this ADR's Status moves to Accepted — not before. -->
-- [ ] Open issues naming this ADR re-read against the settled decision:
-      `python3 scripts/adr-accepted-issue-sweep.py --adr 0012`
-- [ ] Any issue carrying pre-ADR scope rewritten — **title and body** — led by a
-      dated correction note. Record the count here, **including zero**.
+- [x] Open issues naming this ADR re-read against the settled decision:
+      `python3 scripts/adr-accepted-issue-sweep.py --adr 0012` (2026-10-09): 0 flagged. The
+      script matches only the spelling `ADR-0012`, so the issues that write `ADR 0012` were
+      no open issue names it.
+- [x] Any issue carrying pre-ADR scope rewritten — **title and body** — led by a
+      dated correction note. Count: **0**.

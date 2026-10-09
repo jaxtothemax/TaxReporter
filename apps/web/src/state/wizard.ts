@@ -214,7 +214,10 @@ export function isValidTaxNumber(value: string): boolean {
   return /^\d{8}$/.test(normalizeTaxNumber(value));
 }
 
-/** Trading 212 exports CSV and IBKR Flex Queries XML; nothing else is read. */
+/**
+ * Trading 212 and Trade Republic export CSV, IBKR Flex Queries XML; nothing
+ * else is read.
+ */
 export function isSupportedFile(name: string): boolean {
   return /\.(csv|xml)$/i.test(name);
 }

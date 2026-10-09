@@ -28,7 +28,11 @@ export interface Messages {
     readonly themeLight: string;
     readonly crashed: string;
   };
-  readonly brokers: { readonly trading212: string; readonly ibkr: string };
+  readonly brokers: {
+    readonly trading212: string;
+    readonly ibkr: string;
+    readonly traderepublic: string;
+  };
   readonly start: {
     readonly eyebrow: string;
     readonly title: string;
@@ -280,7 +284,11 @@ export const en: Messages = {
     crashed:
       "Something went wrong showing this step. Nothing was sent anywhere. Go back, or start over.",
   },
-  brokers: { trading212: "Trading 212", ibkr: "Interactive Brokers" },
+  brokers: {
+    trading212: "Trading 212",
+    ibkr: "Interactive Brokers",
+    traderepublic: "Trade Republic",
+  },
   start: {
     eyebrow: "Preview with demo data",
     title: "Doh-KDVP and Doh-Div from your broker's exports",
@@ -300,7 +308,7 @@ export const en: Messages = {
     steps: [
       {
         title: "Add your exports",
-        body: "Trading 212 CSV and Interactive Brokers Flex Query XML first. Add every year back to your oldest open purchase.",
+        body: "Trading 212 and Trade Republic CSV and Interactive Brokers Flex Query XML first. Add every year back to your oldest open purchase.",
       },
       {
         title: "Check your details",
@@ -323,7 +331,7 @@ export const en: Messages = {
     brokersTitle: "Brokers",
     brokersNowLabel: "Being built for v0.1",
     brokersNextLabel: "Planned after v0.1",
-    brokersNextNames: ["eToro", "Revolut", "Robinhood", "DEGIRO"],
+    brokersNextNames: ["eToro", "XTB", "DEGIRO", "Revolut"],
     brokersOthers: "and others",
   },
   stepper: {
@@ -346,7 +354,7 @@ export const en: Messages = {
     taxYear: (year) => `Tax year ${year}`,
     dropTitle: "Drop files here",
     dropBody:
-      "CSV from Trading 212, XML from an Interactive Brokers Flex Query",
+      "CSV from Trading 212 or Trade Republic, XML from an Interactive Brokers Flex Query",
     chooseButton: "Choose files",
     demoButton: "Use demo files",
     listTitle: "Added files",
@@ -621,7 +629,11 @@ export const sl: Messages = {
     crashed:
       "Pri prikazu tega koraka je šlo nekaj narobe. Nič ni bilo nikamor poslano. Vrnite se ali začnite znova.",
   },
-  brokers: { trading212: "Trading 212", ibkr: "Interactive Brokers" },
+  brokers: {
+    trading212: "Trading 212",
+    ibkr: "Interactive Brokers",
+    traderepublic: "Trade Republic",
+  },
   start: {
     eyebrow: "Predogled z demo podatki",
     title: "Doh-KDVP in Doh-Div iz izvozov vašega borznega posrednika",
@@ -641,7 +653,7 @@ export const sl: Messages = {
     steps: [
       {
         title: "Dodajte izvoze",
-        body: "Najprej CSV iz Trading 212 in XML iz poročila Flex Query pri Interactive Brokers. Dodajte vsa leta do najstarejšega odprtega nakupa.",
+        body: "Najprej CSV iz Trading 212 in Trade Republic ter XML iz poročila Flex Query pri Interactive Brokers. Dodajte vsa leta do najstarejšega odprtega nakupa.",
       },
       {
         title: "Preverite podatke",
@@ -664,7 +676,7 @@ export const sl: Messages = {
     brokersTitle: "Borzni posredniki",
     brokersNowLabel: "V izdelavi za v0.1",
     brokersNextLabel: "Načrtovano po v0.1",
-    brokersNextNames: ["eToro", "Revolut", "Robinhood", "DEGIRO"],
+    brokersNextNames: ["eToro", "XTB", "DEGIRO", "Revolut"],
     brokersOthers: "in drugi",
   },
   stepper: {
@@ -687,7 +699,7 @@ export const sl: Messages = {
     taxYear: (year) => `Davčno leto ${year}`,
     dropTitle: "Spustite datoteke sem",
     dropBody:
-      "CSV iz Trading 212, XML iz poročila Flex Query pri Interactive Brokers",
+      "CSV iz Trading 212 ali Trade Republic, XML iz poročila Flex Query pri Interactive Brokers",
     chooseButton: "Izberi datoteke",
     demoButton: "Uporabi demo datoteke",
     listTitle: "Dodane datoteke",

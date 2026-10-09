@@ -35,6 +35,13 @@ export interface FindingWords {
   readonly unreadable: Readonly<Record<UnreadableReason, string>>;
   readonly rateErrors: Readonly<Record<RateError, string>>;
   readonly brokers: Readonly<Record<string, string>>;
+  /**
+   * Actions an adapter names in its own words rather than the export's, as
+   * "FOREIGN_CURRENCY_TRADE" or IBKR's "shortSale"; a word followed by an
+   * export's code ("corporateAction FI") is worded and keeps the code. An
+   * export's own token, as BENEFITS_SAVEBACK, is shown as written.
+   */
+  readonly actions: Readonly<Record<string, string>>;
   /** A Flex Query section, as Interactive Brokers' own screens name it. */
   readonly sections: Readonly<
     Record<DiagnosticParams["summaryOnly"]["section"], string>
@@ -251,7 +258,7 @@ export const findingsEn: FindingMessages = {
   diagnosticsTruncated: (p) =>
     `More findings for this file are not shown (${p.dropped}).`,
   unknownFormat: () =>
-    "TaxReporter does not recognize this export. It reads Trading 212 history CSV and Interactive Brokers Activity Flex Query XML for now; more brokers are coming.",
+    "TaxReporter does not recognize this export. It reads Trading 212 history CSV, Trade Republic transaction export CSV and Interactive Brokers Activity Flex Query XML for now; more brokers are coming.",
   ambiguousFormat: () =>
     "This export matches more than one known format, so it is not read.",
   derivativesNotSupported: (p) =>
@@ -262,6 +269,8 @@ export const findingsEn: FindingMessages = {
     `${p.broker}: a row's action, “${p.action}”, is one TaxReporter does not know. It is not guessed at; please report it.`,
   unsupportedAction: (p) =>
     `${p.broker}: “${p.action}” rows are not supported yet, because their tax treatment is not settled. The return waits rather than guessing.`,
+  unconfirmedAction: (p) =>
+    `${p.broker}: “${p.action}” rows cannot be read yet: what this export's amounts mean on them is not yet confirmed against a real statement. The return waits rather than guessing; an anonymized export with such a row would settle it.`,
   invalidTime: () => "A row's date and time cannot be read.",
   dateMovedToLjubljana: (p) =>
     `A transaction at ${p.utcDate} in UTC fell on ${p.date} in Ljubljana. Slovenian dates are used.`,
@@ -445,7 +454,23 @@ export const wordsEn: FindingWords = {
       "the date is after the rates TaxReporter carries; update TaxReporter",
     noRate: "Banka Slovenije published none for that day",
   },
-  brokers: { trading212: "Trading 212", ibkr: "Interactive Brokers" },
+  brokers: {
+    trading212: "Trading 212",
+    ibkr: "Interactive Brokers",
+    traderepublic: "Trade Republic",
+  },
+  actions: {
+    FOREIGN_CURRENCY_TRADE: "trades in a foreign currency",
+    shortSale: "short sales",
+    isinChange: "corporate actions that change an ISIN",
+    returnOfCapital: "returns of capital",
+    capitalGainDistribution: "capital gain distributions",
+    interestDistribution: "interest distributions",
+    partnershipDistribution: "partnership distributions",
+    nonDividendDistribution: "non-dividend distributions",
+    corporateAction: "corporate action",
+    notes: "trades marked",
+  },
   sections: {
     Trades: "Trades",
     CashTransactions: "Cash Transactions",
@@ -627,7 +652,7 @@ export const findingsSl: FindingMessages = {
   diagnosticsTruncated: (p) =>
     `Nadaljnjih ugotovitev za to datoteko (${p.dropped}) ni prikazanih.`,
   unknownFormat: () =>
-    "TaxReporter tega izvoza ne prepozna. Zaenkrat bere zgodovino Trading 212 v obliki CSV in poročila Activity Flex Query pri Interactive Brokers v obliki XML; drugi posredniki prihajajo.",
+    "TaxReporter tega izvoza ne prepozna. Zaenkrat bere zgodovino Trading 212 v obliki CSV, izvoz transakcij Trade Republic v obliki CSV in poročila Activity Flex Query pri Interactive Brokers v obliki XML; drugi posredniki prihajajo.",
   ambiguousFormat: () => "Izvoz ustreza več znanim oblikam, zato ni prebran.",
   derivativesNotSupported: (p) =>
     `${p.broker}: izvoz je iz računa CFD ali drugih izvedenih finančnih instrumentov. Ti se prijavijo na obrazcu D-IFI, ki ga TaxReporter še ne pripravlja.`,
@@ -637,6 +662,8 @@ export const findingsSl: FindingMessages = {
     `${p.broker}: dejanja vrstice, »${p.action}«, TaxReporter ne pozna. Ne ugiba; sporočite ga.`,
   unsupportedAction: (p) =>
     `${p.broker}: vrstice »${p.action}« še niso podprte, ker njihova davčna obravnava ni urejena. Napoved počaka, namesto da bi ugibala.`,
+  unconfirmedAction: (p) =>
+    `${p.broker}: vrstic »${p.action}« še ni mogoče prebrati: pomen zneskov v njih v tem izvozu še ni potrjen na resničnem izpisku. Napoved počaka, namesto da bi ugibala; anonimiziran izvoz s takšno vrstico bi to razrešil.`,
   invalidTime: () => "Datuma in ure v vrstici ni mogoče prebrati.",
   dateMovedToLjubljana: (p) =>
     `Transakcija ob ${p.utcDate} po UTC je bila v Ljubljani ${p.date}. Uporabljeni so slovenski datumi.`,
@@ -830,7 +857,23 @@ export const wordsSl: FindingWords = {
       "je datum po tečajih, ki jih ima TaxReporter; posodobite TaxReporter",
     noRate: "ga Banka Slovenije za ta dan ni objavila",
   },
-  brokers: { trading212: "Trading 212", ibkr: "Interactive Brokers" },
+  brokers: {
+    trading212: "Trading 212",
+    ibkr: "Interactive Brokers",
+    traderepublic: "Trade Republic",
+  },
+  actions: {
+    FOREIGN_CURRENCY_TRADE: "posli v tuji valuti",
+    shortSale: "prodaje na kratko",
+    isinChange: "korporacijska dejanja, ki spremenijo ISIN",
+    returnOfCapital: "vračila kapitala",
+    capitalGainDistribution: "izplačila kapitalskih dobičkov",
+    interestDistribution: "izplačila obresti",
+    partnershipDistribution: "izplačila komanditnih družb",
+    nonDividendDistribution: "izplačila, ki niso dividende",
+    corporateAction: "korporacijsko dejanje",
+    notes: "posli z oznako",
+  },
   // Interactive Brokers' screens are not in Slovenian: their own names.
   sections: {
     Trades: "Trades",

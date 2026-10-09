@@ -5,7 +5,7 @@ description: How you can help TaxReporter, from reporting a broker format change
 
 TaxReporter is built in the open, and you do not need to be a tax expert to help. Most
 contributions are bug reports, broker support, test files and documentation. The full
-contributor guide is [CONTRIBUTING.md](https://github.com/jaxtothemax/TaxReporter/blob/main/CONTRIBUTING.md)
+contributor guide is [CONTRIBUTING.md](https://github.com/jaxtothemax/broker-to-edavki/blob/main/CONTRIBUTING.md)
 on GitHub; this page is a short overview.
 
 :::caution[Never share real data]
@@ -17,7 +17,7 @@ file, and never paste your tax number, account numbers or other personal details
 
 Brokers change their export formats without notice. If an export stops working, or looks
 different from what TaxReporter expects,
-[open an issue](https://github.com/jaxtothemax/TaxReporter/issues/new/choose) and:
+[open an issue](https://github.com/jaxtothemax/broker-to-edavki/issues/new/choose) and:
 
 1. Name the broker, the export type (for example "Trading 212 → History → Export CSV") and the
    date you exported it.
@@ -40,14 +40,14 @@ adapter needs:
 - a short research note on where the format is documented and which fields can be trusted.
 
 The details are under
-[Adding a broker adapter](https://github.com/jaxtothemax/TaxReporter/blob/main/CONTRIBUTING.md#adding-a-broker-adapter)
+[Adding a broker adapter](https://github.com/jaxtothemax/broker-to-edavki/blob/main/CONTRIBUTING.md#adding-a-broker-adapter)
 in CONTRIBUTING.md. The [roadmap](/roadmap/#planned) lists the brokers people have asked for.
 
 ## Check the tax rules
 
 Every rule TaxReporter applies is backed by a primary source: the law, FURS's instructions and
 schemas, or Banka Slovenije. The sources are collected in the research notes in
-[`docs/research/`](https://github.com/jaxtothemax/TaxReporter/tree/main/docs/research) on
+[`docs/research/`](https://github.com/jaxtothemax/broker-to-edavki/tree/main/docs/research) on
 GitHub, and a change to how any figure is calculated needs a primary source cited there. If
 you know Slovenian tax rules well, reviewing those notes is one of the most useful things you
 can do.
@@ -55,7 +55,7 @@ can do.
 ## Improve these pages
 
 This site is written in Markdown in
-[`website/src/content/docs/`](https://github.com/jaxtothemax/TaxReporter/tree/main/website/src/content/docs),
+[`website/src/content/docs/`](https://github.com/jaxtothemax/broker-to-edavki/tree/main/website/src/content/docs),
 and every page has an **Edit page** link at the bottom. To preview a change on your own
 computer (Node.js 22.12 or newer):
 
@@ -74,4 +74,4 @@ A few rules keep the pages accurate:
 ## License
 
 TaxReporter is free software under the
-[GNU Affero General Public License v3.0 or later](https://github.com/jaxtothemax/TaxReporter/blob/main/LICENSE).
+[GNU Affero General Public License v3.0 or later](https://github.com/jaxtothemax/broker-to-edavki/blob/main/LICENSE).

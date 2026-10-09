@@ -4,8 +4,8 @@ description: What your broker files contain, why TaxReporter will process them o
 ---
 
 Broker statements and tax returns are some of the most personal data you have. TaxReporter is
-designed so that this data never leaves your device. TaxReporter is not usable yet, so this
-page describes how it is being built.
+designed so that this data never leaves your device. TaxReporter has no release yet, so this
+page describes how it is being built. You can [run it from source](/guides/run-from-source/) to try it, as a draft to check.
 
 ## What your files contain
 
@@ -30,9 +30,9 @@ you to upload them.
   command-line tool will work the same way on your computer.
 - **No accounts, no analytics, no telemetry.** There will be nothing to sign up for, and the
   app will not report how you use it.
-- **Almost no network requests.** Apart from loading the app itself, the app will download
-  the project's copy of the exchange rates. That file is the same for everyone and contains
-  nothing about you. The only other request will be the optional AI check described below,
+- **Almost no network requests.** The app will include Banka Slovenije's exchange rates, which
+  are the same for everyone and contain nothing about you, so loading the app will be the only
+  request it needs. The only other request will be the optional AI check described below,
   and only if you turn it on. The code that reads your files will never use the network.
 - **Nothing saved behind your back.** What you load will stay in memory while the app is open.
   Nothing will be stored unless you choose to save or download a file.
@@ -75,7 +75,7 @@ code, send data somewhere, or write a wrong value into the XML, please report it
 
 Use GitHub's private vulnerability reporting: open the repository's **Security** tab and choose
 **Report a vulnerability**, or go straight to
-[the reporting form](https://github.com/jaxtothemax/TaxReporter/security/advisories/new). Only
+[the reporting form](https://github.com/jaxtothemax/broker-to-edavki/security/advisories/new). Only
 you and the maintainers can see the report. Please include the steps to reproduce the problem,
 and use made-up data instead of your real files.
 

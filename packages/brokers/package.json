@@ -2,7 +2,7 @@
   "name": "@taxreporter/brokers",
   "version": "0.0.0",
   "private": true,
-  "description": "TaxReporter broker adapters registry (Trading 212 and IBKR first).",
+  "description": "TaxReporter broker adapters registry (Trading 212, IBKR and Trade Republic first).",
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "sideEffects": false,

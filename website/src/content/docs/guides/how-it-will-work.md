@@ -1,12 +1,12 @@
 ---
 title: How it will work
-description: The planned steps from a broker export to a submitted return in eDavki. None of these steps work yet.
+description: The planned steps from a broker export to a submitted return in eDavki, before the first release.
 ---
 
 :::note[Planned, not built yet]
 This page describes how TaxReporter is meant to work once the first version (v0.1) is ready.
-None of it works yet, and details may change while the app is being built. The
-[roadmap](/roadmap/) shows the current status.
+There is no release yet, and details may change while the app is being built. You can [run it from source](/guides/run-from-source/) to try it, as a draft to check.
+The [roadmap](/roadmap/) shows the current status.
 :::
 
 The short version: you export your history from your broker, open the files in TaxReporter,
@@ -21,6 +21,9 @@ that will be:
 - **Trading 212:** the CSV export of your account history.
 - **Interactive Brokers (IBKR):** a Flex Query report. These pages will list exactly which
   sections and fields to turn on.
+- **Trade Republic:** the transaction export (CSV), with all transactions. Its dividends, and
+  trades with a foreign currency leg, will be read once a real export confirms how it writes
+  them; until then such a row will stop both returns, with the reason.
 
 Export your **whole history**, from the day you opened the account, not only the tax year.
 Each sale is matched against your earliest purchases of the same security first ("first in,
@@ -47,6 +50,8 @@ them in the file. They stay on your device as well.
 Trading 212 exports do not say which account they come from. If you add more than one,
 TaxReporter will ask whether they are from one account (it assumes so until you say otherwise),
 so that overlapping exports of one account are read once and separate accounts are all counted.
+Every Trade Republic export will be taken for your one Trade Republic account, so add only
+your own: one person's files per session.
 
 For Doh-Div, eDavki needs the name, address and country of every company or fund that paid you
 a dividend. TaxReporter will fill in the name and the country from your export where it can,
@@ -109,6 +114,6 @@ expected to be Monday 1 March 2027. Check the date FURS announces before relying
 - **File or sign anything for you.** Only you can submit your return in eDavki.
 - **Cover every return at first.** The first version will handle Doh-KDVP and Doh-Div only.
   Interest (Doh-Obr) and derivatives such as options and CFDs (D-IFI) are planned for later.
-- **Cover every broker at first.** The first version will support Trading 212 and IBKR. The
-  [roadmap](/roadmap/#planned) lists the brokers planned next.
+- **Cover every broker at first.** The first version will support Trading 212, IBKR and Trade
+  Republic. The [roadmap](/roadmap/#planned) lists the brokers planned next.
 - **Guess.** When TaxReporter does not understand something in your export, it will tell you.
