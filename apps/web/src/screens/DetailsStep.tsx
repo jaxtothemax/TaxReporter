@@ -101,6 +101,15 @@ function Field({
   );
 }
 
+/**
+ * The longest text the XML takes in an element (furs/common.ts,
+ * MAX_TEXT_LENGTH) and in the post code, which its schema caps at 12. A
+ * field cannot take more than its element, so a long value never reaches
+ * the writer to be refused there.
+ */
+const TEXT_LIMIT = 255;
+const POST_CODE_LIMIT = 12;
+
 /** FURS writes Greece as EL; the display names know it as GR. */
 const countryName = (code: string, locale: Locale) =>
   formatCountry(code === "EL" ? "GR" : code, locale);
@@ -195,6 +204,7 @@ function PayerFields({
           value={draft.name}
           onChange={set("name")}
           autoComplete="off"
+          maxLength={TEXT_LIMIT}
           wide
         />
         <Field
@@ -203,6 +213,7 @@ function PayerFields({
           value={draft.address}
           onChange={set("address")}
           autoComplete="off"
+          maxLength={TEXT_LIMIT}
           wide
         />
         <CountrySelect
@@ -211,14 +222,28 @@ function PayerFields({
           value={draft.country}
           onChange={set("country")}
         />
-        <Field
-          inputId={id("id")}
-          label={t.details.payerId}
-          value={draft.id}
-          onChange={set("id")}
-          help={t.details.payerIdHelp}
-          autoComplete="off"
-        />
+        {draft.country === "SI" ? (
+          <Field
+            inputId={id("id")}
+            label={t.details.payerTaxNumber}
+            value={draft.id}
+            onChange={set("id")}
+            help={t.details.payerTaxNumberHelp}
+            inputMode="numeric"
+            autoComplete="off"
+            maxLength={9}
+          />
+        ) : (
+          <Field
+            inputId={id("id")}
+            label={t.details.payerId}
+            value={draft.id}
+            onChange={set("id")}
+            help={t.details.payerIdHelp}
+            autoComplete="off"
+            maxLength={TEXT_LIMIT}
+          />
+        )}
         {prompt.isinCountry === "" ? (
           <CountrySelect
             inputId={id("sourceCountry")}
@@ -361,6 +386,7 @@ export function DetailsStep({
                 value={details.name}
                 onChange={set("name")}
                 autoComplete="name"
+                maxLength={TEXT_LIMIT}
               />
               <Field
                 inputId="details-address"
@@ -368,6 +394,7 @@ export function DetailsStep({
                 value={details.address}
                 onChange={set("address")}
                 autoComplete="street-address"
+                maxLength={TEXT_LIMIT}
                 wide
               />
               <Field
@@ -377,6 +404,7 @@ export function DetailsStep({
                 onChange={set("postCode")}
                 inputMode="numeric"
                 autoComplete="postal-code"
+                maxLength={POST_CODE_LIMIT}
               />
               <Field
                 inputId="details-city"
@@ -384,6 +412,7 @@ export function DetailsStep({
                 value={details.city}
                 onChange={set("city")}
                 autoComplete="address-level2"
+                maxLength={TEXT_LIMIT}
               />
               <Field
                 inputId="details-email"
@@ -393,6 +422,7 @@ export function DetailsStep({
                 help={t.details.emailHelp}
                 inputMode="email"
                 autoComplete="email"
+                maxLength={TEXT_LIMIT}
                 wide
               />
             </div>

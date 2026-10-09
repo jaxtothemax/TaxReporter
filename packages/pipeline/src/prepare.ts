@@ -152,16 +152,26 @@ export function readExports(input: ReadInput): ReadExports {
   const groups = new Map(
     [...seen.keys()].sort(compareText).map((id, i) => [id, i + 1]),
   );
-  // Once the session holds more events than it may, the rest of the files
-  // are left unread: the ledger refuses the session anyway.
+  // Once the session holds more events, or more bytes, than it may, the
+  // rest of the files are left unread, and the session is refused: a
+  // return without a file's rows would be wrong, not short. The events
+  // are refused by the ledger, the bytes here.
   const imports: ReadExports["imports"][number][] = [];
   const notRead: string[] = [];
   let events = 0;
+  let size = 0;
+  let overBudget = false;
   for (const { file, fileId, bytes } of distinct) {
+    if (overBudget || size + bytes.length > LIMITS.sessionBytes) {
+      overBudget = true;
+      notRead.push(file);
+      continue;
+    }
     if (events > LIMITS.eventsPerSession) {
       notRead.push(file);
       continue;
     }
+    size += bytes.length;
     const result = importFile({
       bytes,
       fileId,
@@ -170,6 +180,13 @@ export function readExports(input: ReadInput): ReadExports {
     });
     events += result.events.length;
     imports.push({ file, fileId, result });
+  }
+  if (overBudget) {
+    carried.push(
+      diagnostic("blocking", "sessionTooLarge", {
+        mebibytes: LIMITS.sessionBytes / 1024 / 1024,
+      }),
+    );
   }
   const ledger = validateLedger(
     imports.flatMap((i) => i.result.events),

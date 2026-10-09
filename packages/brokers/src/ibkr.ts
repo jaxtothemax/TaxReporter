@@ -70,6 +70,15 @@ const RECORDS: Readonly<Record<string, readonly string[]>> = {
 };
 
 /**
+ * A section's record names, by an element name from the file: an own key
+ * only, so a section named `constructor` or `toString` is one this reader
+ * does not know, not something every object inherits.
+ */
+function recordsOf(section: string): readonly string[] | undefined {
+  return Object.hasOwn(RECORDS, section) ? RECORDS[section] : undefined;
+}
+
+/**
  * Sections that summarize, value or forecast what the read sections list
  * as transactions, so skipping them leaves no transaction out.
  */
@@ -342,7 +351,7 @@ function read(text: string, context: ReadContext): ImportResult {
           scan.skipping = depth;
           return;
         }
-        if (RECORDS[name] === undefined) {
+        if (recordsOf(name) === undefined) {
           unknown(element);
           return;
         }
@@ -350,7 +359,7 @@ function read(text: string, context: ReadContext): ImportResult {
         return;
       }
       if (depth === 5 && scan.section !== null) {
-        if (!(RECORDS[scan.section] ?? []).includes(name)) {
+        if (!(recordsOf(scan.section) ?? []).includes(name)) {
           unknown(element);
           return;
         }

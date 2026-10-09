@@ -178,6 +178,25 @@ describe("findingText", () => {
   });
 });
 
+describe("formIssue", () => {
+  it("sends the user to the Details step for what they typed, and reports the rest", () => {
+    const issue = (path: string) =>
+      say({
+        severity: "blocking",
+        code: "formIssue",
+        params: { code: "textTooLong", path },
+      });
+    expect(issue("taxpayer.postNumber")).toContain("Check the details there");
+    expect(issue("dividends[2].payer.address")).toContain(
+      "Check the details there",
+    );
+    expect(issue("dividends[2].sourceCountry")).toContain(
+      "Check the details there",
+    );
+    expect(issue("lists[0].rows[3].quantity")).toContain("please report it");
+  });
+});
+
 describe("isFindingCode", () => {
   it("knows the catalog's codes and nothing an object inherits", () => {
     expect(isFindingCode("payerUnknown")).toBe(true);

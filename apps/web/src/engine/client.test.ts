@@ -124,9 +124,11 @@ describe("createWorkerEngine", () => {
       return worker as unknown as Worker;
     });
     expect((await engine.read(args)).kind).toBe("failed");
+    // Three minutes on, a second request: a timer the first had left
+    // behind would end its worker two minutes into it.
+    vi.advanceTimersByTime(3 * 60 * 1000);
     refuse = false;
     const next = engine.read(args);
-    // The first request's timeout would have ended this worker.
     vi.advanceTimersByTime(5 * 60 * 1000 - 1);
     expect(workers[0]?.terminated).toBe(false);
     workers[0]?.reply(readReply(2));

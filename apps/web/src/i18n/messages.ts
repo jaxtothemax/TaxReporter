@@ -139,6 +139,8 @@ export interface Messages {
     readonly payerCountry: string;
     readonly payerId: string;
     readonly payerIdHelp: string;
+    readonly payerTaxNumber: string;
+    readonly payerTaxNumberHelp: string;
     readonly sourceCountry: string;
     readonly sourceCountryHelp: string;
     readonly countryChoose: string;
@@ -199,8 +201,10 @@ export interface Messages {
     readonly rate: (rate: string, currency: string) => string;
     readonly rateList: (date: string) => string;
     readonly rateFixed: string;
+    readonly rateMonthly: (month: string) => string;
     readonly rateInEur: string;
     readonly source: (file: string, row: string) => string;
+    readonly sourceIn: (file: string, part: string, row: string) => string;
     readonly colPayer: string;
     readonly colCountry: string;
     readonly colGross: string;
@@ -433,6 +437,9 @@ export const en: Messages = {
     payerName: "Payer's name",
     payerAddress: "Payer's address",
     payerCountry: "Payer's country",
+    payerTaxNumber: "Payer's tax number",
+    payerTaxNumberHelp:
+      "A Slovenian payer is named by its 8-digit tax number, which Doh-Div needs.",
     payerId: "Payer's tax ID (optional)",
     payerIdHelp:
       "Left empty, the ISIN is written in its place, which eDavki accepts.",
@@ -502,8 +509,10 @@ export const en: Messages = {
     rate: (rate, currency) => `1 EUR = ${rate} ${currency}`,
     rateList: (date) => `BSI list of ${date}`,
     rateFixed: "Fixed euro conversion rate",
+    rateMonthly: (month) => `BSI monthly list of ${month}`,
     rateInEur: "Already in EUR",
     source: (file, row) => `${file}, row ${row}`,
+    sourceIn: (file, part, row) => `${file}, ${part}, row ${row}`,
     colPayer: "Payer",
     colCountry: "Country",
     colGross: "Gross",
@@ -786,6 +795,9 @@ export const sl: Messages = {
     payerName: "Ime izplačevalca",
     payerAddress: "Naslov izplačevalca",
     payerCountry: "Država izplačevalca",
+    payerTaxNumber: "Davčna številka izplačevalca",
+    payerTaxNumberHelp:
+      "Slovenskega izplačevalca določa njegova 8-mestna davčna številka, ki jo Doh-Div potrebuje.",
     payerId: "Davčna številka izplačevalca (neobvezno)",
     payerIdHelp:
       "Če polje pustite prazno, je namesto nje vpisana koda ISIN, kar eDavki sprejmejo.",
@@ -862,8 +874,10 @@ export const sl: Messages = {
     rate: (rate, currency) => `1 EUR = ${rate} ${currency}`,
     rateList: (date) => `tečajnica BS z dne ${date}`,
     rateFixed: "Nepreklicno menjalno razmerje za evro",
+    rateMonthly: (month) => `mesečna tečajnica BS za ${month}`,
     rateInEur: "Že v EUR",
     source: (file, row) => `${file}, vrstica ${row}`,
+    sourceIn: (file, part, row) => `${file}, ${part}, vrstica ${row}`,
     colPayer: "Izplačevalec",
     colCountry: "Država",
     colGross: "Bruto",

@@ -361,6 +361,55 @@ describe("App", () => {
     );
   });
 
+  it("names each download itself, whatever the engine's reply holds", () => {
+    const renamed = {
+      ...prepared,
+      kdvp: { ...prepared.kdvp, fileName: "evil.html" },
+    } as typeof prepared;
+    const html = text(render(preparedState(read, renamed, { type: "next" })));
+    expect(html).toContain("Doh_KDVP_2026.xml");
+    expect(html).not.toContain("evil.html");
+  });
+
+  it("keeps the account question, focus and all, while the answer is read", () => {
+    const answered = ownState(read, {
+      type: "setAccounts",
+      accounts: "separate",
+    });
+    // Read again, so the question's reading is the last one, kept.
+    expect(answered.reading.status).toBe("idle");
+    const html = render(answered);
+    const radios =
+      html.match(/<input type="radio" name="trading212-accounts"[^>]*>/g) ?? [];
+    expect(radios).toHaveLength(2);
+    expect(radios[1]).toContain("checked");
+    // The files stay shown as read, not as being read.
+    expect(text(html)).toContain("Trading 212, 6 Jan 2026");
+  });
+
+  it("caps the problems shown under a file and for the files together", () => {
+    const problem = (row: number) => ({
+      severity: "blocking" as const,
+      code: "duplicateKeyInFile" as const,
+      params: {},
+      source: { file: 0, row },
+    });
+    const many: ReadReply = {
+      ...read,
+      files: [
+        {
+          ...(read.files[0] as ReadReply["files"][number]),
+          findings: Array.from({ length: 5 }, (_, i) => problem(i + 1)),
+        },
+        ...read.files.slice(1),
+      ],
+      findings: Array.from({ length: 25 }, (_, i) => problem(i + 100)),
+    };
+    const html = text(render(ownState(many)));
+    expect(html).toContain("2 more notes are not shown.");
+    expect(html).toContain("5 more notes are not shown.");
+  });
+
   it("points out the demo's warning above the review tabs", () => {
     const html = text(render(screens[3]?.[1] ?? demo, "en"));
     expect(html).toContain("2 notes need your attention before you download.");

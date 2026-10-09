@@ -4,6 +4,7 @@ import { ArrowsLeftRightIcon } from "@phosphor-icons/react";
 import {
   formatDate,
   formatEur,
+  formatMonthYear,
   formatPercent,
   formatRate,
   isNegative,
@@ -54,9 +55,17 @@ export function Eur({
  * replaced, its fixed conversion rate, which no daily list publishes.
  */
 function rateSource(rate: RateProvenance, locale: Locale, t: Messages): string {
-  return rate.source === "euro-changeover"
-    ? t.review.rateFixed
-    : t.review.rateList(formatDate(rate.listDate, locale));
+  switch (rate.source) {
+    case "euro-changeover":
+      return t.review.rateFixed;
+    case "bsi-monthly":
+      // A currency the daily list lacks: the month's list, not a day's.
+      return t.review.rateMonthly(
+        formatMonthYear(rate.listDate.slice(0, 7), locale),
+      );
+    case "bsi-daily":
+      return t.review.rateList(formatDate(rate.listDate, locale));
+  }
 }
 
 /** "1 EUR = 1,1547 USD" with the BSI list it came from, or "Already in EUR". */
@@ -94,7 +103,9 @@ export function SourceText({ source }: { readonly source: SourceRef }) {
   const { t } = useI18n();
   return (
     <span className="mono muted small">
-      {t.review.source(source.file, String(source.row))}
+      {source.part === undefined
+        ? t.review.source(source.file, String(source.row))
+        : t.review.sourceIn(source.file, source.part, String(source.row))}
     </span>
   );
 }

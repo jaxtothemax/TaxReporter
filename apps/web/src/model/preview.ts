@@ -38,8 +38,14 @@ export interface RateProvenance {
 export interface SourceRef {
   /** The name the file was added under, unique within the session. */
   readonly file: string;
-  /** 1-based row (CSV) or record (XML) number in that file. */
+  /** 1-based row (CSV), or record within its section (XML), in that file. */
   readonly row: number;
+  /**
+   * The section the row is in, where a file numbers rows per section: an
+   * IBKR statement's "Trades" or "CashTransactions" (the adapter's own
+   * names, never file text).
+   */
+  readonly part?: string;
 }
 
 /** One row of a Doh-KDVP inventory list (popisni list). */
@@ -136,7 +142,11 @@ export interface Finding {
   readonly code: DiagnosticCode;
   readonly params: Readonly<Record<string, FindingParam>>;
   /** Where in the user's files: the file's position in the request, and the row. */
-  readonly source?: { readonly file: number; readonly row: number };
+  readonly source?: {
+    readonly file: number;
+    readonly row: number;
+    readonly part?: string;
+  };
 }
 
 export interface ImportedFile {

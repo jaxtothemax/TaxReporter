@@ -110,6 +110,15 @@ export interface WizardState {
   readonly payers: Readonly<Record<string, PayerDraft>>;
   readonly reading: Reading;
   readonly preparing: Preparing;
+  /**
+   * The last reading of these very files, kept while the account answer
+   * has them read again: the screen goes on showing what it knew, and the
+   * question being answered stays where it is, focus and all.
+   */
+  readonly lastRead: {
+    readonly fileIds: readonly string[];
+    readonly reply: ReadReply;
+  } | null;
   /** Set when the user tried to move on past a step that still has errors. */
   readonly showErrors: boolean;
   /** Files left out of the last addition because the list was full. */
@@ -187,6 +196,7 @@ export const initialWizardState: WizardState = {
   payers: {},
   reading: IDLE,
   preparing: IDLE,
+  lastRead: null,
   showErrors: false,
   notAdded: 0,
 };
@@ -259,22 +269,33 @@ function refusals(
 }
 
 /** The engine's summary of a file, once the latest reading names it. */
+/**
+ * The reading the screen shows: the latest, or while the same files are
+ * read again for the account answer, the one before it.
+ */
+export function shownRead(
+  state: WizardState,
+): { readonly fileIds: readonly string[]; readonly reply: ReadReply } | null {
+  return state.reading.status === "read" ? state.reading : state.lastRead;
+}
+
 export function summaryOf(
   state: WizardState,
   id: string,
 ): FileSummary | undefined {
-  if (state.reading.status !== "read") return undefined;
-  const position = state.reading.fileIds.indexOf(id);
-  return position < 0 ? undefined : state.reading.reply.files[position];
+  const shown = shownRead(state);
+  if (shown === null) return undefined;
+  const position = shown.fileIds.indexOf(id);
+  return position < 0 ? undefined : shown.reply.files[position];
 }
 
 /** Whether to ask if the Trading 212 files are one account: two or more. */
 export function asksAccounts(state: WizardState): boolean {
-  if (state.reading.status !== "read") return false;
+  const shown = shownRead(state);
+  if (shown === null) return false;
   return (
-    state.reading.reply.files.filter(
-      (f) => f.status === "read" && f.unnamedAccount,
-    ).length >= 2
+    shown.reply.files.filter((f) => f.status === "read" && f.unnamedAccount)
+      .length >= 2
   );
 }
 
@@ -297,7 +318,9 @@ export function isPayerIncomplete(
     draft.name.trim() === "" ||
     draft.address.trim() === "" ||
     draft.country === "" ||
-    (isinCountry === "" && draft.sourceCountry === "")
+    (isinCountry === "" && draft.sourceCountry === "") ||
+    // A Slovenian payer is named by its tax number, which Doh-Div needs.
+    (draft.country === "SI" && !isValidTaxNumber(draft.id))
   );
 }
 
@@ -385,7 +408,7 @@ function neighbor(screen: Screen, offset: 1 | -1): Screen {
 
 /** Anything that changes what the engine would read starts it over. */
 function filesChanged(state: WizardState): WizardState {
-  return { ...state, reading: IDLE, preparing: IDLE };
+  return { ...state, reading: IDLE, preparing: IDLE, lastRead: null };
 }
 
 /** New payers get their details preset from the export; typed ones stay. */
@@ -460,9 +483,16 @@ export function wizardReducer(
         : filesChanged({ ...state, files, notAdded: 0 });
     }
     case "setAccounts":
+      // The same files, read again: what was shown of them stays shown.
       return action.accounts === state.accounts
         ? state
-        : filesChanged({ ...state, accounts: action.accounts });
+        : {
+            ...state,
+            accounts: action.accounts,
+            reading: IDLE,
+            preparing: IDLE,
+            lastRead: shownRead(state),
+          };
     case "setDetail":
       return {
         ...state,
@@ -502,6 +532,7 @@ export function wizardReducer(
       return {
         ...state,
         reading: { status: "read", request, fileIds, reply: action.reply },
+        lastRead: null,
         payers: presetPayers(state.payers, action.reply),
       };
     }

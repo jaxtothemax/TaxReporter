@@ -67,27 +67,34 @@ and are open to review.
    review opens, with the taxpayer and payer details, and returns the review's figures and
    both forms' XML. Each request carries every file's bytes: the worker keeps nothing between
    requests, so there is no cache to go stale and a reply is a function of its request. A
-   newer request makes any older one stale, so the worker still busy with it is ended rather
-   than left to hold a second copy of every file. A reply carries at most 500 findings,
-   blocking ones first, and counts the rest; whether a form is withheld is decided over all of
-   them.
+   newer request makes any older one stale: one still waiting for its files' bytes is never
+   sent, and the worker still busy with one is ended rather than left to hold a second copy
+   of every file. A reply carries at most 500 findings, blocking ones first, and counts the
+   rest; whether a form is withheld is decided over all of them.
 6. **Files are bounded before a byte is read, then stay in memory.** A file that is not CSV
    or XML, is larger than `LIMITS.fileBytes`, or would take the session past
    `LIMITS.sessionBytes` is refused unread, and no more than `LIMITS.filesPerSession` files
    are listed. The bytes of the rest are read with `File.arrayBuffer()` when the engine first
    needs them and live only in the page's memory, as long as the tab does; nothing is written
    to storage. Because a reload loses them, the page asks before unloading while own files are
-   loaded. Removing a file, choosing the demo or starting over drops its bytes.
+   loaded. Removing a file, choosing the demo or starting over drops its bytes. The pipeline
+   holds the session to `LIMITS.sessionBytes` as well, for both apps: past it a file is not
+   read, and a blocking finding (`sessionTooLarge`) withholds both returns.
 7. **The account question is asked where it arises.** With two or more Trading 212 files,
    whose exports do not name their account, the Files step asks whether they come from one
-   account, preset to one (ADR 0011 §4); changing the answer re-reads in place. Interactive
-   Brokers files name their accounts and are never asked about.
+   account, preset to one (ADR 0011 §4); changing the answer re-reads in place, the question
+   and the files staying on screen, and focus where it was, until the new reading is in.
+   Interactive Brokers files name their accounts and are never asked about.
 8. **Payers are asked for, never looked up.** Doh-Div needs each payer's name, address and
    country (research 02 §3). The Details step lists every security that paid a dividend in
    the tax year, with the payer's name preset to the security's name in the export and the
    country to the one its ISIN names, where FURS lists it; the address, and the payer's ID if
-   the user knows it, are typed in. Nothing is fetched to fill them: a lookup would tell a
-   server which securities the user holds. A shipped payer directory may preset more later.
+   the user knows it, are typed in; a Slovenian payer's 8-digit tax number is required, as
+   Doh-Div names it by that. Each field takes no more than its XML element does, pasted
+   characters the writer refuses are dropped, and what still breaks a form's rule is said as
+   something to correct on the Details step, not a fault to report. Nothing is fetched to fill
+   them: a lookup would tell a server which securities the user holds. A shipped payer
+   directory may preset more later.
 9. **A blocking finding stops the form it bears on, not both.** A missing payer address
    withholds Doh-Div and leaves Doh-KDVP ready; a finding from reading the files, which can
    bear on either, withholds both. The review lets the user continue while either form can be

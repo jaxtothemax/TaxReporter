@@ -16,6 +16,7 @@ import {
 import type { RateTable } from "@taxreporter/fx";
 import { buildReturns, readExports } from "@taxreporter/pipeline";
 
+import { plainText } from "../i18n/text";
 import {
   PROTOCOL_VERSION,
   type EngineReply,
@@ -34,8 +35,12 @@ import {
   toPreview,
 } from "./toPreview";
 
-/** Text as typed, on one line: runs of white space become one space. */
-const tidy = (text: string) => text.replace(/\s+/g, " ").trim();
+/**
+ * Text as typed, as a form takes it: on one line, with no character the
+ * writer refuses (control, format and separator characters, as pasted
+ * from elsewhere), runs of space as one.
+ */
+const tidy = (text: string) => plainText(text).replace(/\s+/g, " ").trim();
 
 /** The taxpayer as the forms take it: what was left empty is left out. */
 export function taxpayerOf(details: TaxpayerDetails): Taxpayer {
@@ -73,6 +78,9 @@ export function payersOf(
     const country = payer.country;
     if (name === "" || address === "" || !isFursCountry(country)) continue;
     const id = tidy(payer.id);
+    // Without its tax number, a Slovenian payer is one Doh-Div still needs
+    // (`payerUnknown`), not a form the writer would refuse.
+    if (country === "SI" && !isTaxNumber(id.replace(/\s+/g, ""))) continue;
     const source = payer.sourceCountry;
     payers.set(payer.isin, {
       name,
@@ -82,9 +90,7 @@ export function payersOf(
       ...(id === ""
         ? {}
         : country === "SI"
-          ? isTaxNumber(id)
-            ? { taxNumber: id }
-            : {}
+          ? { taxNumber: id.replace(/\s+/g, "") }
           : { identificationNumber: id }),
       ...(isFursCountry(source) ? { sourceCountry: source } : {}),
     });

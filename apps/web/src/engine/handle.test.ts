@@ -5,7 +5,7 @@
  */
 import { writeDohDiv, writeDohKdvp } from "@taxreporter/furs";
 import { prepareReturns } from "@taxreporter/pipeline";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import ibkrXml from "../../../../packages/brokers/test/fixtures/ibkr/flex-activity-2025-2026.xml?raw";
 import t212v3 from "../../../../packages/brokers/test/fixtures/trading212/t212-invest-v3-2025.csv?raw";
@@ -219,6 +219,102 @@ describe("handleRequest: prepare", () => {
   });
 });
 
+describe("handleRequest: what reaches the page", () => {
+  const header = t212v4.split("\n")[0] ?? "";
+
+  it("carries at most 500 findings about the files together", async () => {
+    // Forty exports of one account, each the same day with another trade:
+    // every pair overlaps and disagrees, 780 findings in all.
+    const exports = Array.from({ length: 40 }, (_, i) =>
+      file(
+        `part-${String(i)}.csv`,
+        [
+          header,
+          `Market buy,2026-01-06 14:31:02+00:00,US1912161007,KO,"Coca-Cola",,EOF${String(i)},${String(i + 1)}.0000000000,69.5000000000,USD,1.17250000,,,59.28,"EUR",,,,,,`,
+        ].join("\n"),
+      ),
+    );
+    const reply = await read(exports);
+    expect(reply.findings).toHaveLength(500);
+    expect(reply.omittedFindings).toBe(780 - 500);
+  });
+
+  it("carries at most 500 findings, and counts the rest", async () => {
+    // A row of an action no adapter knows, 600 times: a finding each.
+    const rows = Array.from(
+      { length: 600 },
+      (_, i) =>
+        `Mystery,2026-01-06 14:31:02+00:00,,,,,ID${String(i)},,,,,,,1.00,"EUR",,,,,,`,
+    );
+    const flood = file("flood.csv", [header, ...rows].join("\n"));
+    const reply = await read([flood]);
+    expect(reply.files[0]?.findings).toHaveLength(500);
+    const prepared = await handleRequest(
+      { ...base, id: 3, kind: "prepare", files: [flood], taxpayer, payers: [] },
+      loadRates,
+    );
+    if (prepared.kind !== "prepare") throw new Error(prepared.kind);
+    expect(prepared.preview.findings).toHaveLength(500);
+    expect(prepared.preview.omittedFindings).toBeGreaterThanOrEqual(100);
+    // Withheld over every finding, not only the ones carried.
+    expect(prepared.kdvp.blocking).toBeGreaterThan(500);
+  });
+
+  it("names a dividend's payer without what would display as something else", async () => {
+    // Every row of the security, its dividend's included.
+    const spoofed = t212v4.replaceAll('"Coca-Cola"', '"Coca\u202eCola\u200b"');
+    expect(spoofed).not.toContain('"Coca-Cola"');
+    const prepared = await handleRequest(
+      {
+        ...base,
+        id: 4,
+        kind: "prepare",
+        files: [file("t212.csv", spoofed)],
+        taxpayer,
+        payers: [],
+      },
+      loadRates,
+    );
+    if (prepared.kind !== "prepare") throw new Error(prepared.kind);
+    const payers = prepared.preview.dividends.map((d) => d.payer);
+    expect(payers.length).toBeGreaterThan(0);
+    expect(payers.every((name) => !/[\u200b\u202e]/u.test(name))).toBe(true);
+  });
+});
+
+describe("handleRequest: no request leaves the engine", () => {
+  it("reads and prepares with every network API watching, and none is used", async () => {
+    // The spec's check (docs/spec/v0.1.md, the browser app): nothing the
+    // engine does during an import reaches for the network. Each API is
+    // replaced by one that records a call and refuses it.
+    const calls: string[] = [];
+    const refuse = (name: string) =>
+      function refused(): never {
+        calls.push(name);
+        throw new Error("No request may leave the engine");
+      };
+    for (const name of [
+      "fetch",
+      "XMLHttpRequest",
+      "WebSocket",
+      "EventSource",
+      "importScripts",
+    ]) {
+      vi.stubGlobal(name, refuse(name));
+    }
+    const reply = await handleRequest(
+      { ...base, id: 5, kind: "read", files },
+      loadRates,
+    );
+    const prepared = await handleRequest(
+      { ...base, id: 6, kind: "prepare", files, taxpayer, payers: [coca] },
+      loadRates,
+    );
+    expect([reply.kind, prepared.kind]).toEqual(["read", "prepare"]);
+    expect(calls).toEqual([]);
+  });
+});
+
 describe("taxpayerOf and payersOf", () => {
   it("leave out what was not typed, and keep spaces out of the tax number", () => {
     expect(taxpayerOf(taxpayer)).toEqual({
@@ -239,11 +335,23 @@ describe("taxpayerOf and payersOf", () => {
       { ...coca, isin: "D", country: "SI", id: "12345678" },
       { ...coca, isin: "E", country: "SI", id: "not a number" },
       { ...coca, isin: "F", sourceCountry: "KY" },
+      { ...coca, isin: "G", country: "SI", id: " 1234 5678 " },
+      { ...coca, isin: "H", name: "Coca\u200b-Cola\u202e\tCompany" },
     ]);
-    expect([...payers.keys()]).toEqual(["US1912161007", "C", "D", "E", "F"]);
+    // A Slovenian payer without its tax number is one Doh-Div still needs.
+    expect([...payers.keys()]).toEqual([
+      "US1912161007",
+      "C",
+      "D",
+      "F",
+      "G",
+      "H",
+    ]);
     expect(payers.get("C")?.identificationNumber).toBe("58-0628465");
     expect(payers.get("D")).toMatchObject({ taxNumber: "12345678" });
-    expect(payers.get("E")?.taxNumber).toBeUndefined();
+    expect(payers.get("G")).toMatchObject({ taxNumber: "12345678" });
+    // Pasted characters the writer would refuse are gone.
+    expect(payers.get("H")?.name).toBe("Coca -Cola Company");
     expect(payers.get("F")?.sourceCountry).toBe("KY");
   });
 });

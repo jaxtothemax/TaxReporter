@@ -610,6 +610,17 @@ describe("labelsOf", () => {
       "export.csv (2) (2)",
     ]);
   });
+
+  it("shows the characters a name hides, as the command line does", () => {
+    const state = run(
+      { type: "startOwn" },
+      {
+        type: "addFiles",
+        files: [file("file-1", "statement\u202ecsv.exe.csv")],
+      },
+    );
+    expect(labelsOf(state.files).get("file-1")).toBe("statement?csv.exe.csv");
+  });
 });
 
 describe("navigation", () => {

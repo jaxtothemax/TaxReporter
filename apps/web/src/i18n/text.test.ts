@@ -46,6 +46,8 @@ describe("isTicker", () => {
     for (const symbol of [
       "",
       "MSFT (US5949181045)",
+      // An ISIN of another security, which would read as its ticker.
+      "US5949181045",
       " AAPL",
       "A".repeat(17),
       "AAPL\u202e",

@@ -34,6 +34,7 @@ import {
   blockingReason,
   isSupportedFile,
   labelsOf,
+  shownRead,
   summaryOf,
   type AddedFile,
   type WizardState,
@@ -233,18 +234,19 @@ export function FilesStep({
   const hasOwnFiles = state.files.some((f) => f.kind === "own");
   const labels = labelsOf(state.files);
   const { reading } = state;
+  // What the screen shows: the latest reading, or the one before it while
+  // the same files are read again for the account answer.
+  const shown = shownRead(state);
   const context: FindingContext = {
     locale,
-    symbols: reading.status === "read" ? reading.reply.symbols : {},
+    symbols: shown?.reply.symbols ?? {},
     fileName: (position) => {
-      const id =
-        reading.status === "idle" ? undefined : reading.fileIds[position];
+      const id = shown?.fileIds[position];
       const label = id === undefined ? undefined : labels.get(id);
       return label ?? t.review.unnamedFile;
     },
   };
-  const together =
-    reading.status === "read" ? blockingOf(reading.reply.findings) : [];
+  const together = shown === null ? [] : blockingOf(shown.reply.findings);
   const reason = blockingReason(state, "files");
   const error = !state.showErrors
     ? null

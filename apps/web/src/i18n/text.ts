@@ -29,5 +29,8 @@ export function printableName(name: string): string {
  * spells out an ISIN of its own, is not shown at all.
  */
 export function isTicker(symbol: string): boolean {
-  return /^[\p{L}\p{N}][\p{L}\p{N}.:/_ -]{0,15}$/u.test(symbol);
+  return (
+    /^[\p{L}\p{N}][\p{L}\p{N}.:/_ -]{0,15}$/u.test(symbol) &&
+    !/^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(symbol)
+  );
 }

@@ -306,6 +306,34 @@ describe("RateText", () => {
   });
 });
 
+describe("RateText and SourceText", () => {
+  it("names the monthly list a currency the daily list lacks is converted at", () => {
+    const html = text(
+      render(
+        <RateText
+          rate={{
+            currency: "TWD",
+            rate: "35.12",
+            listDate: "2026-02-01",
+            source: "bsi-monthly",
+          }}
+        />,
+      ),
+    );
+    expect(html).toContain("BSI monthly list of February 2026");
+    expect(html).not.toContain("BSI list of");
+  });
+
+  it("says which section of a statement a row is in", () => {
+    const html = text(
+      render(
+        <SourceText source={{ file: "ibkr.xml", row: 3, part: "Trades" }} />,
+      ),
+    );
+    expect(html).toContain("ibkr.xml, Trades, row 3");
+  });
+});
+
 describe("DownloadStep notes", () => {
   const returns = {
     kdvp: { fileName: "Doh_KDVP_2026.xml", xml: "<x/>", blocking: 0 },

@@ -73,6 +73,13 @@ function positionOf(index: FileIndex, fileId: FileId): number {
 const nameOf = (index: FileIndex, fileId: FileId) =>
   index.names[positionOf(index, fileId)] ?? "";
 
+/**
+ * The section a source row is in, where the file numbers rows per section
+ * (an IBKR statement), so "row 3" says which row 3 it is.
+ */
+const partOf = (source: { readonly part?: string }) =>
+  source.part === undefined ? {} : { part: source.part };
+
 const isUntrusted = (value: unknown): value is { untrusted: string } =>
   typeof value === "object" &&
   value !== null &&
@@ -103,6 +110,7 @@ export function toFinding(d: Diagnostic, index: FileIndex): Finding {
           source: {
             file: positionOf(index, d.source.fileId),
             row: d.source.row,
+            ...partOf(d.source),
           },
         }),
   };
@@ -181,7 +189,11 @@ function toRow(
       row.kind === "purchase" ? row.unitCostEur : row.unitValueEur,
     ),
     broker: brokerId(built.broker),
-    source: { file: nameOf(index, built.source.fileId), row: built.source.row },
+    source: {
+      file: nameOf(index, built.source.fileId),
+      row: built.source.row,
+      ...partOf(built.source),
+    },
     ...(built.splitFactor === undefined || last === undefined
       ? {}
       : { splitAdjusted: { ratio: ratioOf(built.splitFactor), date: last } }),
@@ -255,7 +267,11 @@ function toDividend(
     creditEur: cents(d.credit.credit),
     treatyRate: d.treatyRate === null ? null : d.treatyRate.toString(),
     broker: brokerId(d.broker),
-    source: { file: nameOf(index, d.source.fileId), row: d.source.row },
+    source: {
+      file: nameOf(index, d.source.fileId),
+      row: d.source.row,
+      ...partOf(d.source),
+    },
   };
 }
 

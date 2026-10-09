@@ -264,6 +264,18 @@ describe("statements it refuses rather than guesses", () => {
     expect(
       blocking(read(statement('<NewSection><Row a="1"/></NewSection>'))),
     ).toEqual(["unknownElement"]);
+    // Names every object inherits are sections like any other unknown one.
+    for (const name of [
+      "constructor",
+      "toString",
+      "__proto__",
+      "hasOwnProperty",
+    ]) {
+      expect(
+        blocking(read(statement(`<${name}><Trade a="1"/></${name}>`))),
+        name,
+      ).toEqual(["unknownElement"]);
+    }
     expect(
       blocking(
         read(

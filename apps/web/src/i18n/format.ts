@@ -201,6 +201,20 @@ export function formatMonth(
   }).format(date);
 }
 
+/** A month with its year, "February 2026" or "februar 2026". */
+export function formatMonthYear(month: string, locale: Locale): string {
+  const match = ISO_MONTH.exec(month);
+  if (match === null) {
+    throw new RangeError("Not an ISO month");
+  }
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, 1));
+  return new Intl.DateTimeFormat(TAG[locale], {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(date);
+}
+
 /** A country name for an ISO 3166-1 alpha-2 code, in the UI language. */
 export function formatCountry(code: string, locale: Locale): string {
   return (

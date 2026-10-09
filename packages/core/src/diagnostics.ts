@@ -156,6 +156,11 @@ export type FileRefusal =
 export interface DiagnosticParams {
   // The ledger (core)
   tooManyEvents: { readonly limit: number };
+  /**
+   * The files together are larger than one session reads
+   * (LIMITS.sessionBytes, in MiB): the rest are not read, so no return is.
+   */
+  sessionTooLarge: { readonly mebibytes: number };
   unknownEvent: None;
   invalidTrade: MaybeWhere;
   invalidSplit: MaybeWhere;

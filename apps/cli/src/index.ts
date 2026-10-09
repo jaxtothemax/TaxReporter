@@ -362,7 +362,7 @@ export function main(
   }
   for (const file of prepared.notRead) {
     refused.push(
-      `${file} was not read: the files hold more events than one run takes`,
+      `${file} was not read: the files hold more than one run takes`,
     );
   }
   // A finding without a source that both forms raise (one rate noted by

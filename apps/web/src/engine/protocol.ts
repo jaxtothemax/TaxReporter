@@ -179,6 +179,10 @@ function isParam(v: unknown): v is FindingParam {
   );
 }
 
+/** A section name, absent where the file numbers rows throughout. */
+const isPart = (v: unknown): boolean =>
+  v === undefined || (isString(v) && /^[A-Za-z]{1,40}$/.test(v));
+
 export function isFinding(v: unknown): v is Finding {
   if (!isRecord(v)) return false;
   const { severity, code, params, source } = v;
@@ -189,7 +193,10 @@ export function isFinding(v: unknown): v is Finding {
     isRecord(params) &&
     Object.values(params).every(isParam) &&
     (source === undefined ||
-      (isRecord(source) && isCount(source["file"]) && isCount(source["row"])))
+      (isRecord(source) &&
+        isCount(source["file"]) &&
+        isCount(source["row"]) &&
+        isPart(source["part"])))
   );
 }
 
@@ -260,7 +267,7 @@ const isRate = (v: unknown): v is RateProvenance | null =>
     RATE_SOURCES.has(v["source"] as string));
 
 const isSource = (v: unknown): boolean =>
-  isRecord(v) && isString(v["file"]) && isCount(v["row"]);
+  isRecord(v) && isString(v["file"]) && isCount(v["row"]) && isPart(v["part"]);
 
 const isBucket = (v: unknown): boolean =>
   (HOLDING_BUCKETS as readonly unknown[]).includes(v);

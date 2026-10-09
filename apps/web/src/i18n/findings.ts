@@ -64,6 +64,15 @@ function at(
     : `${where.join(", ")}: ${sentence}`;
 }
 
+/**
+ * Whether a form's rule broke on something typed on the Details step: the
+ * taxpayer's details, a payer's, an income's country. That is the user's
+ * to correct, not a fault to report. Paths come from the builders, never
+ * from a file.
+ */
+const typedField = (path: string) =>
+  /^taxpayer\.|\.payer\.|\.sourceCountry$/.test(path);
+
 const REPORT_EN =
   "This is TaxReporter's fault, not your file's: please report it, without attaching the file.";
 
@@ -71,6 +80,8 @@ export const findingsEn: FindingMessages = {
   // The ledger
   tooManyEvents: (p) =>
     `Your files hold more than ${p.limit} transactions, more than TaxReporter reads in one go. Add fewer files at a time.`,
+  sessionTooLarge: (p) =>
+    `Your files together come to more than ${p.mebibytes} MiB, far more than any taxpayer's exports, so not all of them are read and no return is written. Leave out any file that is not a broker export.`,
   unknownEvent: () => `A transaction could not be used. ${REPORT_EN}`,
   invalidTrade: (p) => at(p, `a trade could not be used. ${REPORT_EN}`),
   invalidSplit: (p) => at(p, `a split could not be used. ${REPORT_EN}`),
@@ -172,7 +183,9 @@ export const findingsEn: FindingMessages = {
       `a quantity rounds to zero at the form's 8 decimal places and is left out.`,
     ),
   formIssue: (p) =>
-    `The return would break a rule eDavki enforces (${p.code} at ${p.path}). ${REPORT_EN}`,
+    typedField(p.path)
+      ? `Something typed on the Details step is not what eDavki accepts (${p.code} at ${p.path}). Check the details there, then continue again.`
+      : `The return would break a rule eDavki enforces (${p.code} at ${p.path}). ${REPORT_EN}`,
   // The Doh-Div builder
   withholdingWithoutDividend: (p) =>
     at(p, `tax was withheld, but your files have no dividend it belongs to.`),
@@ -387,6 +400,8 @@ export const findingsSl: FindingMessages = {
   // The ledger
   tooManyEvents: (p) =>
     `Datoteke vsebujejo več kot ${p.limit} transakcij, kar je več, kot jih TaxReporter prebere naenkrat. Dodajte manj datotek hkrati.`,
+  sessionTooLarge: (p) =>
+    `Datoteke skupaj presegajo ${p.mebibytes} MiB, precej več kot izvozi katerega koli zavezanca, zato niso prebrane vse in napoved ni zapisana. Izpustite datoteke, ki niso izvozi posrednikov.`,
   unknownEvent: () => `Transakcije ni bilo mogoče uporabiti. ${REPORT_SL}`,
   invalidTrade: (p) => at(p, `posla ni bilo mogoče uporabiti. ${REPORT_SL}`),
   invalidSplit: (p) =>
@@ -490,7 +505,9 @@ export const findingsSl: FindingMessages = {
       `količina se pri 8 decimalnih mestih zaokroži na nič in je izpuščena.`,
     ),
   formIssue: (p) =>
-    `Napoved bi kršila pravilo, ki ga uveljavljajo eDavki (${p.code}, ${p.path}). ${REPORT_SL}`,
+    typedField(p.path)
+      ? `Nečesa, kar je vpisano v koraku s podatki, eDavki ne sprejmejo (${p.code}, ${p.path}). Preverite podatke tam in nato nadaljujte znova.`
+      : `Napoved bi kršila pravilo, ki ga uveljavljajo eDavki (${p.code}, ${p.path}). ${REPORT_SL}`,
   // The Doh-Div builder
   withholdingWithoutDividend: (p) =>
     at(

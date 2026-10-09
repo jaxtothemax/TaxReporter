@@ -12,11 +12,7 @@ import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { demoPreview } from "./demo/demoPreview";
 import { createWorkerEngine, type Engine } from "./engine/client";
 import type { BuiltReturns } from "./engine/demoReturns";
-import {
-  PROTOCOL_VERSION,
-  type FailedReply,
-  type RequestFile,
-} from "./engine/protocol";
+import { createRunner } from "./engine/runner";
 import type { Locale } from "./i18n/format";
 import { I18nProvider, useI18n } from "./i18n/i18n";
 import { DetailsStep } from "./screens/DetailsStep";
@@ -50,9 +46,6 @@ import { Stepper } from "./ui/Stepper";
 const writeDemoReturns = () =>
   import("./engine/demoReturns").then((engine) => engine.buildDemoReturns());
 
-/** What a request that never reached the engine settles as. */
-const FAILED: FailedReply = { v: PROTOCOL_VERSION, id: 0, kind: "failed" };
-
 /** Where the review of the user's own files stands. */
 function reviewStatus(state: WizardState): "ready" | "preparing" | "failed" {
   if (state.mode === "demo") return "ready";
@@ -84,8 +77,10 @@ function Frame({
   const handles = useRef(new Map<string, File>());
   const bytes = useRef(new Map<string, Promise<ArrayBuffer>>());
   const nextFile = useRef(1);
-  const nextRequest = useRef(1);
   const labels = labelsOf(state.files);
+  // The runner asks for labels when a request starts, after this render.
+  const latestLabels = useRef(labels);
+  latestLabels.current = labels;
   const prepared =
     state.mode === "own" && state.preparing.status === "prepared"
       ? state.preparing.reply
@@ -156,50 +151,38 @@ function Frame({
     };
   }, [holdsOwnFiles]);
 
-  /** The bytes of a listed file, read once, when first asked for. */
-  function bytesOf(id: string): Promise<ArrayBuffer> {
-    const read = bytes.current.get(id);
-    if (read !== undefined) return read;
-    const file = handles.current.get(id);
-    if (file === undefined) {
-      return Promise.reject(new Error("A file without its bytes"));
-    }
-    const content = file.arrayBuffer();
-    bytes.current.set(id, content);
-    return content;
-  }
-
-  /** The request's files, by id, named by their labels. */
-  async function requestFiles(
-    fileIds: readonly string[],
-  ): Promise<RequestFile[]> {
-    return Promise.all(
-      fileIds.map(async (id) => ({
-        name: labels.get(id) ?? id,
-        bytes: await bytesOf(id),
-      })),
-    );
-  }
+  // One runner for the app's life: it numbers requests across both kinds,
+  // so a read started after a preparation makes the preparation stale.
+  const [runner] = useState(() =>
+    createRunner({
+      engine,
+      bytesOf: (id) => {
+        const read = bytes.current.get(id);
+        if (read !== undefined) return read;
+        const file = handles.current.get(id);
+        if (file === undefined) {
+          return Promise.reject(new Error("A file without its bytes"));
+        }
+        const content = file.arrayBuffer();
+        bytes.current.set(id, content);
+        return content;
+      },
+      labelOf: (id) => latestLabels.current.get(id) ?? id,
+      dispatch,
+    }),
+  );
 
   // Read the own files again whenever what the engine would read changed:
   // every such change sets the reading back to idle.
   useEffect(() => {
-    const { reading } = state;
     const readable = readableFiles(state);
-    if (state.mode !== "own" || reading.status !== "idle") return;
+    if (state.mode !== "own" || state.reading.status !== "idle") return;
     if (readable.length === 0) return;
-    const request = nextRequest.current;
-    nextRequest.current += 1;
-    const fileIds = readable.map((f) => f.id);
-    dispatch({ type: "readStarted", request, fileIds });
-    void requestFiles(fileIds)
-      .then((files) =>
-        engine.read({ files, accounts: state.accounts, taxYear: TAX_YEAR }),
-      )
-      .catch(() => FAILED)
-      .then((reply) => {
-        dispatch({ type: "readDone", request, reply });
-      });
+    runner.read(
+      readable.map((f) => f.id),
+      state.accounts,
+      TAX_YEAR,
+    );
   });
 
   // The review of own files is prepared when it opens, from what is entered;
@@ -208,24 +191,13 @@ function Frame({
     const { preparing, reading } = state;
     if (state.mode !== "own" || state.screen !== "review") return;
     if (preparing.status !== "idle" || reading.status !== "read") return;
-    const request = nextRequest.current;
-    nextRequest.current += 1;
-    const { fileIds } = reading;
-    dispatch({ type: "prepareStarted", request, fileIds });
-    void requestFiles(fileIds)
-      .then((files) =>
-        engine.prepare({
-          files,
-          accounts: state.accounts,
-          taxYear: TAX_YEAR,
-          taxpayer: state.details,
-          payers: payerDetails(state),
-        }),
-      )
-      .catch(() => FAILED)
-      .then((reply) => {
-        dispatch({ type: "prepareDone", request, reply });
-      });
+    runner.prepare(
+      reading.fileIds,
+      state.accounts,
+      TAX_YEAR,
+      state.details,
+      payerDetails(state),
+    );
   });
 
   const addFiles = (chosen: readonly File[]) => {

@@ -73,6 +73,9 @@ export function NotesPanel({
                         source={{
                           file: fileName(d.source.file),
                           row: d.source.row,
+                          ...(d.source.part === undefined
+                            ? {}
+                            : { part: d.source.part }),
                         }}
                       />
                     </>
