@@ -34,10 +34,17 @@ import {
   SecurityMark,
 } from "../../ui/kit";
 
+/**
+ * What names a security on the screen: its ticker, or its ISIN where the
+ * export gave no ticker fit to show (engine/toPreview.ts).
+ */
+const labelOf = (security: SecurityResult) =>
+  security.symbol === "" ? security.isin : security.symbol;
+
 function InventoryTable({ security }: { readonly security: SecurityResult }) {
   const { locale, t } = useI18n();
   return (
-    <DataTable caption={`${security.symbol}: ${t.review.rowsTitle}`}>
+    <DataTable caption={`${labelOf(security)}: ${t.review.rowsTitle}`}>
       <thead>
         <tr>
           <th scope="col">{t.review.colDate}</th>
@@ -111,7 +118,7 @@ function InventoryTable({ security }: { readonly security: SecurityResult }) {
 function LotsTable({ security }: { readonly security: SecurityResult }) {
   const { locale, t } = useI18n();
   return (
-    <DataTable caption={`${security.symbol}: ${t.review.lotsTitle}`}>
+    <DataTable caption={`${labelOf(security)}: ${t.review.lotsTitle}`}>
       <thead>
         <tr>
           <th scope="col">{t.review.colBought}</th>
@@ -174,12 +181,12 @@ function SecurityItem({ security }: { readonly security: SecurityResult }) {
           className="visually-hidden"
           aria-hidden
         >
-          {t.review.showDetails(security.symbol)}
+          {t.review.showDetails(labelOf(security))}
         </span>
         <span className="security-id">
           <SecurityMark isin={security.isin} symbol={security.symbol} />
           <span className="security-names">
-            <span className="security-symbol">{security.symbol}</span>
+            <span className="security-symbol">{labelOf(security)}</span>
             <span className="security-name">{security.name}</span>
           </span>
         </span>

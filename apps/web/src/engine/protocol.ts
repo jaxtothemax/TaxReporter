@@ -9,7 +9,7 @@
  * they are complete: every field the screens read is checked for its shape
  * (decimals, dates, ISINs, closed lists), so a reply that passes renders.
  */
-import { isIsin } from "@taxreporter/core";
+import { isIsin, isIsoDate } from "@taxreporter/core";
 import type { AccountChoice } from "@taxreporter/pipeline";
 
 import { isFindingCode } from "../i18n/present";
@@ -202,12 +202,13 @@ export function isFinding(v: unknown): v is Finding {
 
 // The shapes the formatters accept: a plain decimal, an ISO date.
 const PLAIN_DECIMAL = /^-?\d{1,40}(\.\d{1,40})?$/;
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-const MONTH = /^\d{4}-\d{2}$/;
+/** A month of a year: the formatters would roll "2026-13" into 2027. */
+const MONTH = /^\d{4}-(?:0[1-9]|1[0-2])$/;
 
 const isDecimal = (v: unknown): v is string =>
   isString(v) && PLAIN_DECIMAL.test(v);
-const isDate = (v: unknown): v is string => isString(v) && ISO_DATE.test(v);
+/** A real calendar date, which the formatters would otherwise roll over. */
+const isDate = (v: unknown): v is string => isString(v) && isIsoDate(v);
 const isDateOrNull = (v: unknown): v is string | null =>
   v === null || isDate(v);
 const isAnIsin = (v: unknown): v is string => isString(v) && isIsin(v);

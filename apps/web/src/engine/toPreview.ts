@@ -221,8 +221,8 @@ function toSecurity(
   const rows = built.rows.map((row) => toRow(row, list.isin, splits, index));
   return {
     isin: list.isin,
-    symbol: list.ticker ?? "",
-    name: list.name,
+    symbol: tickerOf(list.ticker),
+    name: plainText(list.name),
     brokers: BROKERS.filter((b) => rows.some((row) => row.broker === b)),
     rows,
     lots: lots.map(toLot),

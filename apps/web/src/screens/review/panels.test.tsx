@@ -334,10 +334,39 @@ describe("RateText and SourceText", () => {
   });
 });
 
+describe("GainsPanel without a ticker", () => {
+  it("names a security by its ISIN where the export gave no ticker to show", () => {
+    const [first] = demoPreview.securities;
+    if (first === undefined) throw new Error("the demo sells nothing");
+    const html = text(
+      render(
+        <GainsPanel
+          securities={[{ ...first, symbol: "" }]}
+          estimate={demoPreview.gainsEstimate}
+        />,
+      ),
+    );
+    expect(html).toContain(`${first.isin}: ${en.review.rowsTitle}`);
+    expect(html).toContain(`${first.isin}: ${en.review.lotsTitle}`);
+    // No caption left with an empty name before its colon.
+    expect(html).not.toContain(` : ${en.review.rowsTitle}`);
+  });
+});
+
 describe("DownloadStep notes", () => {
   const returns = {
-    kdvp: { fileName: "Doh_KDVP_2026.xml", xml: "<x/>", blocking: 0 },
-    div: { fileName: "Doh_Div_2026.xml", xml: "<y/>", blocking: 0 },
+    kdvp: {
+      fileName: "Doh_KDVP_2026.xml",
+      xml: "<x/>",
+      blocking: 0,
+      needed: true,
+    },
+    div: {
+      fileName: "Doh_Div_2026.xml",
+      xml: "<y/>",
+      blocking: 0,
+      needed: true,
+    },
   };
   const step = (demo: boolean) =>
     text(
@@ -356,6 +385,63 @@ describe("DownloadStep notes", () => {
     expect(step(true)).toContain(
       "These files hold the demo's made-up trades".replace("'", "&#x27;"),
     );
+  });
+
+  it("names a withheld return that has no row to show (ADR 0013 §9)", () => {
+    // A sale whose purchase is in an export not added: Doh-KDVP is needed
+    // but withheld before it has a list; Doh-Div is ready.
+    const withheld = text(
+      render(
+        <DownloadStep
+          preview={{ ...demoPreview, securities: [] }}
+          demo={false}
+          returns={{
+            ...returns,
+            kdvp: { ...returns.kdvp, xml: null, blocking: 2 },
+          }}
+          onBack={() => undefined}
+          onRestart={() => undefined}
+        />,
+      ),
+    );
+    expect(withheld).toContain("Download Doh-KDVP");
+    expect(withheld).toContain(en.download.kdvpNone);
+    expect(withheld).toContain(
+      "Not written: 2 problems in the review must be fixed first.",
+    );
+    expect(withheld).toContain("Download Doh-Div");
+    // The same for Doh-Div withheld with no payment.
+    const noPayments = text(
+      render(
+        <DownloadStep
+          preview={{ ...demoPreview, dividends: [] }}
+          demo={false}
+          returns={{
+            ...returns,
+            div: { ...returns.div, xml: null, blocking: 1 },
+          }}
+          onBack={() => undefined}
+          onRestart={() => undefined}
+        />,
+      ),
+    );
+    expect(noPayments).toContain(en.download.divNone);
+    // A form the year does not need still gets no card.
+    const unneeded = text(
+      render(
+        <DownloadStep
+          preview={{ ...demoPreview, dividends: [] }}
+          demo={false}
+          returns={{
+            ...returns,
+            div: { ...returns.div, xml: null, needed: false },
+          }}
+          onBack={() => undefined}
+          onRestart={() => undefined}
+        />,
+      ),
+    );
+    expect(unneeded).not.toContain("Download Doh-Div");
   });
 
   it("asks the user to check their own returns, and gives no demo warning", () => {
@@ -410,6 +496,7 @@ describe("FormCard", () => {
       fileName: "Doh_KDVP_2026.xml",
       xml: "<Envelope/>",
       blocking: 0,
+      needed: true,
     });
     expect(html).toMatch(/<button[^>]*>[^]*?Download Doh-KDVP/);
     expect(html).not.toContain("aria-disabled");
@@ -421,6 +508,7 @@ describe("FormCard", () => {
       fileName: "Doh_KDVP_2026.xml",
       xml: null,
       blocking: 2,
+      needed: true,
     });
     expect(html).toContain('aria-describedby="kdvp-not-written"');
     expect(text(html)).toContain(

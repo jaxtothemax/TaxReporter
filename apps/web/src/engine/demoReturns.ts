@@ -31,6 +31,12 @@ export interface BuiltForm {
   readonly xml: string | null;
   /** How many blocking findings withhold it. */
   readonly blocking: number;
+  /**
+   * Whether the year has anything to file on it: rows, or a finding that
+   * withholds it. A needed form is named on the download step even when it
+   * has no rows to show (ADR 0013 §9).
+   */
+  readonly needed: boolean;
 }
 
 export interface BuiltReturns {
@@ -59,16 +65,20 @@ export function demoReturns(rates: RateTable): BuiltReturns {
     rates,
     payers: DEMO_PAYERS,
   });
+  const kdvpBlocking = fromLedger + kdvp.diagnostics.filter(isBlocking).length;
+  const divBlocking = fromLedger + div.diagnostics.filter(isBlocking).length;
   return {
     kdvp: {
       fileName: `Doh_KDVP_${year}.xml`,
       xml: kdvp.form === null ? null : writeDohKdvp(kdvp.form),
-      blocking: fromLedger + kdvp.diagnostics.filter(isBlocking).length,
+      blocking: kdvpBlocking,
+      needed: kdvp.lists.length > 0 || kdvpBlocking > 0,
     },
     div: {
       fileName: `Doh_Div_${year}.xml`,
       xml: div.form === null ? null : writeDohDiv(div.form),
-      blocking: fromLedger + div.diagnostics.filter(isBlocking).length,
+      blocking: divBlocking,
+      needed: div.dividends.length > 0 || divBlocking > 0,
     },
   };
 }

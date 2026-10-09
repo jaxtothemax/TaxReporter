@@ -163,6 +163,46 @@ describe("createWorkerEngine", () => {
   });
 });
 
+describe("createWorkerEngine, unless told otherwise", () => {
+  it("starts its worker from the blob: bootstrap, never from the engine's own URL", () => {
+    // A worker from its own URL would take its policy from response headers,
+    // which GitHub Pages never sends (ADR 0013 §3).
+    vi.useFakeTimers();
+    const started: unknown[] = [];
+    vi.stubGlobal(
+      "Worker",
+      class {
+        onmessage = null;
+        onerror = null;
+        onmessageerror = null;
+        constructor(url: string, options: unknown) {
+          started.push([url, options]);
+        }
+        postMessage(): void {
+          // The test never answers.
+        }
+        terminate(): void {
+          // Nothing to end.
+        }
+      },
+    );
+    vi.stubGlobal("location", { href: "https://app.example/app/" });
+    vi.spyOn(URL, "createObjectURL").mockReturnValue(
+      "blob:https://app.example/2",
+    );
+    vi.spyOn(URL, "revokeObjectURL").mockReturnValue();
+    try {
+      void createWorkerEngine().read(args);
+      expect(started).toEqual([
+        ["blob:https://app.example/2", { type: "module" }],
+      ]);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+    }
+  });
+});
+
 describe("startEngineWorker", () => {
   it("starts the engine from a blob: bootstrap, so the page's policy applies", async () => {
     const started: { url: string; options: unknown }[] = [];

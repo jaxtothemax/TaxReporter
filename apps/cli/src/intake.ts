@@ -34,7 +34,12 @@ export function printable(name: string): string {
 }
 
 export type IntakeRefusal =
-  "unreadable" | "notAFile" | "tooLarge" | "changedWhileReading";
+  | "unreadable"
+  | "notAFile"
+  | "tooLarge"
+  | "changedWhileReading"
+  /** Past the bytes the session may still take: measured, never read. */
+  | "overSession";
 
 export type Intake =
   | { readonly ok: true; readonly name: string; readonly bytes: Uint8Array }
@@ -45,11 +50,18 @@ export type Intake =
     };
 
 /**
- * Reads one file's bytes. The name returned is the file's base name, never
- * its path, which can hold the user's own name: it is for the screen only.
+ * Reads one file's bytes, if they fit in `room`: the bytes the session may
+ * still take. A file past it is measured and never read; with no room left
+ * at all (`room` below zero), it is not even opened. The name returned is
+ * the file's base name, never its path, which can hold the user's own
+ * name: it is for the screen only.
  */
-export function readExport(path: string): Intake {
+export function readExport(
+  path: string,
+  room = Number.POSITIVE_INFINITY,
+): Intake {
   const name = printable(basename(path));
+  if (room < 0) return { ok: false, name, reason: "overSession" };
   let fd: number;
   try {
     fd = openSync(path, OPEN_FLAGS);
@@ -62,6 +74,7 @@ export function readExport(path: string): Intake {
     if (stat.size > MAX_FILE_BYTES) {
       return { ok: false, name, reason: "tooLarge" };
     }
+    if (stat.size > room) return { ok: false, name, reason: "overSession" };
     // One byte more than the size said, to catch a file that grows.
     const buffer = new Uint8Array(stat.size + 1);
     let length = 0;

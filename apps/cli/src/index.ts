@@ -86,6 +86,7 @@ const REFUSAL: Readonly<Record<IntakeRefusal | FileRefusal, string>> = {
   notAFile: "is not a regular file",
   tooLarge: `is larger than any broker export (over ${String(LIMITS.fileBytes / 1024 / 1024)} MiB)`,
   changedWhileReading: "changed while it was being read",
+  overSession: `was not read: the files together are larger than one run takes (over ${String(LIMITS.sessionBytes / 1024 / 1024)} MiB)`,
   zip: "is a ZIP or XLSX file; export CSV from your broker",
   spreadsheet: "is an old Excel file; export CSV from your broker",
   pdf: "is a PDF; export CSV from your broker",
@@ -316,7 +317,17 @@ export function main(
     payers = read;
   }
 
-  const intakes = positionals.map(readExport);
+  // The session's bytes are bounded before they are read, as the web app
+  // bounds them (ADR 0013 §6): a file that would take them past
+  // LIMITS.sessionBytes is not read, nor is any file after it, and the run
+  // then writes nothing, as for any file refused.
+  let room = LIMITS.sessionBytes;
+  const intakes = positionals.map((file) => {
+    const intake = readExport(file, room);
+    if (intake.ok) room -= intake.bytes.length;
+    else if (intake.reason === "overSession") room = -1;
+    return intake;
+  });
   const names = uniqueLabels(intakes.map((i) => i.name));
   const refused = intakes.flatMap((intake, i) =>
     intake.ok ? [] : [`${names[i] ?? intake.name} ${REFUSAL[intake.reason]}`],

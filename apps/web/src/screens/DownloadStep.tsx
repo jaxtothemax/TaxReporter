@@ -3,8 +3,10 @@
  * writers as the command line's (ADR 0011, ADR 0013): the demo's when this
  * step opens, the user's own already with the review. They are saved on the
  * user's device. A button that cannot save yet stays visible, disabled, with
- * the reason next to it. A form with nothing in it gets no card: there is
- * nothing to file.
+ * the reason next to it. A form the year does not need gets no card: there
+ * is nothing to file. One it needs gets a card even when a finding withholds
+ * it before it has a row to show, so that no return goes missing where the
+ * files are saved (ADR 0013 §9).
  */
 import {
   ArrowCounterClockwiseIcon,
@@ -155,23 +157,33 @@ export function DownloadStep({
   const returns = writing.status === "ready" ? writing.returns : null;
   const deadline = formatDate(filingDeadline(preview.taxYear), locale);
   const year = String(preview.taxYear);
+  const lists = preview.securities.length;
+  const payments = preview.dividends.length;
   const forms = [
-    preview.securities.length === 0 ? null : (
+    lists === 0 && returns?.kdvp.needed !== true ? null : (
       <FormCard
         key="kdvp"
         id="kdvp"
         form={t.download.kdvpTitle}
-        body={plural(preview.securities.length, locale, t.download.kdvpBody)}
+        body={
+          lists === 0
+            ? t.download.kdvpNone
+            : plural(lists, locale, t.download.kdvpBody)
+        }
         fileName={`Doh_KDVP_${year}.xml`}
         built={returns?.kdvp ?? null}
       />
     ),
-    preview.dividends.length === 0 ? null : (
+    payments === 0 && returns?.div.needed !== true ? null : (
       <FormCard
         key="div"
         id="div"
         form={t.download.divTitle}
-        body={plural(preview.dividends.length, locale, t.download.divBody)}
+        body={
+          payments === 0
+            ? t.download.divNone
+            : plural(payments, locale, t.download.divBody)
+        }
         fileName={`Doh_Div_${year}.xml`}
         built={returns?.div ?? null}
       />

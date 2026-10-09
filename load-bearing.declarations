@@ -103,3 +103,11 @@ why:  The only place a file's bytes leave memory once the user removes it, swaps
 path: apps/web/src/App.tsx
 call: window.addEventListener("beforeunload", ask);
 why:  The only warning before a reload or a closed tab loses the user's files (ADR 0013 §6). Delete it and they vanish without a word; the screen tests render without effects and cannot see it.
+
+path: apps/web/src/App.tsx
+call: <ErrorBoundary
+why:  The only boundary around the screens: without it a render error blanks the whole app, and the user's files and answers go with it. The screen tests render on the server, where a boundary never catches, so deleting it leaves every test green.
+
+path: apps/web/vite.config.ts
+call: "worker-src 'self' blob:",
+why:  The only grant for the engine's blob: bootstrap, which makes the worker inherit the page's policy (ADR 0013 §3). Drop blob: and every test and build stays green while the deployed app can no longer start its engine, so no file of the user's is read.

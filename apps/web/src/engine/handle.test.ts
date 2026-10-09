@@ -3,7 +3,7 @@
  * gets back for a read and for a prepared return, and that the XML is the
  * very XML the command line writes for the same files (ADR 0013 §1).
  */
-import { writeDohDiv, writeDohKdvp } from "@taxreporter/furs";
+import { writeDohDiv, writeDohKdvp, type PayerInfo } from "@taxreporter/furs";
 import { prepareReturns } from "@taxreporter/pipeline";
 import { describe, expect, it, vi } from "vitest";
 
@@ -11,6 +11,7 @@ import ibkrXml from "../../../../packages/brokers/test/fixtures/ibkr/flex-activi
 import t212v3 from "../../../../packages/brokers/test/fixtures/trading212/t212-invest-v3-2025.csv?raw";
 import t212v4 from "../../../../packages/brokers/test/fixtures/trading212/t212-invest-v4-2026.csv?raw";
 import { handleRequest, payersOf, taxpayerOf } from "./handle";
+import { LOCKED } from "./lockdown";
 import {
   isReply,
   PROTOCOL_VERSION,
@@ -151,18 +152,48 @@ describe("handleRequest: read", () => {
   });
 });
 
+/**
+ * What the command line hands the pipeline for `--tax-number 12345678` and a
+ * `--payers` file with Coca-Cola's entry (apps/cli/src/index.ts). Its own
+ * test proves it writes exactly this pipeline's XML for these inputs, and
+ * this one that the engine does, so the two apps meet here (ADR 0013 §1).
+ */
+const CLI_TAXPAYER = { taxNumber: "12345678" };
+const CLI_PAYERS = new Map<string, PayerInfo>([
+  [coca.isin, { name: coca.name, address: coca.address, country: "US" }],
+]);
+
 describe("handleRequest: prepare", () => {
-  it("writes the XML the command line writes for the same files", async () => {
-    const reply = await prepare();
+  it("writes the XML the command line writes for the same files and details", async () => {
+    // A tax number alone: the details the command line takes.
+    const bare: TaxpayerDetails = {
+      ...taxpayer,
+      name: "",
+      address: "",
+      postCode: "",
+      city: "",
+    };
+    const reply = await handleRequest(
+      {
+        ...base,
+        id: 2,
+        kind: "prepare",
+        files,
+        taxpayer: bare,
+        payers: [coca],
+      },
+      loadRates,
+    );
+    if (reply.kind !== "prepare") throw new Error(reply.kind);
     const cli = prepareReturns({
       files: files.map((f) => ({
         name: f.name,
         bytes: new Uint8Array(f.bytes),
       })),
       taxYear: 2026,
-      taxpayer: taxpayerOf(taxpayer),
+      taxpayer: CLI_TAXPAYER,
       rates: await loadRates(),
-      payers: payersOf([coca]),
+      payers: CLI_PAYERS,
     });
     if (cli.kdvp.form === null || cli.div.form === null) {
       throw new Error("the CLI wrote no form");
@@ -170,8 +201,15 @@ describe("handleRequest: prepare", () => {
     expect(reply.kdvp.xml).toBe(writeDohKdvp(cli.kdvp.form));
     expect(reply.div.xml).toBe(writeDohDiv(cli.div.form));
     expect([reply.kdvp.blocking, reply.div.blocking]).toEqual([0, 0]);
-    expect(reply.kdvp.xml).toContain("<edp:taxNumber>12345678</");
     expect(isReply(delivered(reply))).toBe(true);
+  });
+
+  it("writes the details the user gave into both returns", async () => {
+    const reply = await prepare();
+    for (const xml of [reply.kdvp.xml, reply.div.xml]) {
+      expect(xml).toContain("<edp:taxNumber>12345678</");
+      expect(xml).toContain("Ana Novak");
+    }
   });
 
   it("shows the review the figures the forms hold", async () => {
@@ -260,9 +298,13 @@ describe("handleRequest: what reaches the page", () => {
     expect(prepared.kdvp.blocking).toBeGreaterThan(500);
   });
 
-  it("names a dividend's payer without what would display as something else", async () => {
-    // Every row of the security, its dividend's included.
-    const spoofed = t212v4.replaceAll('"Coca-Cola"', '"Coca\u202eCola\u200b"');
+  it("names a security on every tab without what would display as something else", async () => {
+    // Every row of the security, its sale and its dividend included: a name
+    // with controls in it, and a ticker that names another security.
+    const spoofed = t212v4.replaceAll(
+      ',KO,"Coca-Cola"',
+      ',KO (AAPL),"Coca\u202eCola\u200b"',
+    );
     expect(spoofed).not.toContain('"Coca-Cola"');
     const prepared = await handleRequest(
       {
@@ -279,39 +321,62 @@ describe("handleRequest: what reaches the page", () => {
     const payers = prepared.preview.dividends.map((d) => d.payer);
     expect(payers.length).toBeGreaterThan(0);
     expect(payers.every((name) => !/[\u200b\u202e]/u.test(name))).toBe(true);
+    const coke = prepared.preview.dividends.filter(
+      (d) => d.isin === "US1912161007",
+    );
+    expect(coke.map((d) => d.symbol)).toEqual(coke.map(() => ""));
+    // The Gains tab too, where the sale shows.
+    const sold = prepared.preview.securities.find(
+      (s) => s.isin === "US1912161007",
+    );
+    expect(sold?.symbol).toBe("");
+    expect(sold?.name).toMatch(/^Coca\s*Cola$/);
   });
 });
 
 describe("handleRequest: no request leaves the engine", () => {
-  it("reads and prepares with every network API watching, and none is used", async () => {
+  it("reads and prepares with every locked API watching, and none is touched", async () => {
     // The spec's check (docs/spec/v0.1.md, the browser app): nothing the
-    // engine does during an import reaches for the network. Each API is
-    // replaced by one that records a call and refuses it.
-    const calls: string[] = [];
-    const refuse = (name: string) =>
-      function refused(): never {
-        calls.push(name);
-        throw new Error("No request may leave the engine");
-      };
-    for (const name of [
-      "fetch",
-      "XMLHttpRequest",
-      "WebSocket",
-      "EventSource",
-      "importScripts",
-    ]) {
-      vi.stubGlobal(name, refuse(name));
+    // engine does during an import reaches for the network or for storage.
+    // Every name the worker locks (lockdown.ts) is replaced by one that
+    // records any use of it, a call, a construction or a property read,
+    // and refuses it. In Node: the browser's own check is a follow-up.
+    const touched: string[] = [];
+    const watching = (name: string): unknown =>
+      new Proxy(
+        function locked() {
+          // Never runs: every use is trapped.
+        },
+        {
+          get(_target, key) {
+            touched.push(`${name}.${String(key)}`);
+            throw new Error("No request may leave the engine");
+          },
+          apply() {
+            touched.push(name);
+            throw new Error("No request may leave the engine");
+          },
+          construct() {
+            touched.push(`new ${name}`);
+            throw new Error("No request may leave the engine");
+          },
+        },
+      );
+    try {
+      for (const name of LOCKED) vi.stubGlobal(name, watching(name));
+      const reply = await handleRequest(
+        { ...base, id: 5, kind: "read", files },
+        loadRates,
+      );
+      const prepared = await handleRequest(
+        { ...base, id: 6, kind: "prepare", files, taxpayer, payers: [coca] },
+        loadRates,
+      );
+      expect([reply.kind, prepared.kind]).toEqual(["read", "prepare"]);
+      expect(touched).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
     }
-    const reply = await handleRequest(
-      { ...base, id: 5, kind: "read", files },
-      loadRates,
-    );
-    const prepared = await handleRequest(
-      { ...base, id: 6, kind: "prepare", files, taxpayer, payers: [coca] },
-      loadRates,
-    );
-    expect([reply.kind, prepared.kind]).toEqual(["read", "prepare"]);
-    expect(calls).toEqual([]);
   });
 });
 

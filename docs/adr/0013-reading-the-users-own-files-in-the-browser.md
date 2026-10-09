@@ -69,8 +69,9 @@ and are open to review.
    requests, so there is no cache to go stale and a reply is a function of its request. A
    newer request makes any older one stale: one still waiting for its files' bytes is never
    sent, and the worker still busy with one is ended rather than left to hold a second copy
-   of every file. A reply carries at most 500 findings, blocking ones first, and counts the
-   rest; whether a form is withheld is decided over all of them.
+   of every file. A reply carries at most 500 findings about the files together and at most
+   500 for each file, blocking ones first, and counts the rest; whether a form is withheld is
+   decided over all of them.
 6. **Files are bounded before a byte is read, then stay in memory.** A file that is not CSV
    or XML, is larger than `LIMITS.fileBytes`, or would take the session past
    `LIMITS.sessionBytes` is refused unread, and no more than `LIMITS.filesPerSession` files

@@ -7,11 +7,13 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { LIMITS } from "@taxreporter/core";
+import { writeDohDiv, writeDohKdvp } from "@taxreporter/furs";
 import { RateTable } from "@taxreporter/fx";
+import { prepareReturns } from "@taxreporter/pipeline";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { main, type Io } from "./index.js";
@@ -151,6 +153,58 @@ describe("taxreporter", () => {
     for (const file of ["Doh_KDVP_2026.xml", "Doh_Div_2026.xml"]) {
       expect(readFileSync(join(out, file), "utf8")).toMatch(/^<\?xml/);
     }
+  });
+
+  it("writes exactly the shared pipeline's XML, as the web app does for the same files", () => {
+    const dir = scratch();
+    const out = join(dir, "out");
+    const exports = [
+      ...history,
+      path("packages/brokers/test/fixtures/ibkr/flex-activity-2025-2026.xml"),
+    ];
+    const result = run([
+      ...exports,
+      "--year",
+      "2026",
+      "--tax-number",
+      "12345678",
+      "--out",
+      out,
+      "--payers",
+      payersFile(dir),
+    ]);
+    expect(result.code).toBe(0);
+    // What the web app's engine hands the pipeline for the same files, a
+    // tax number alone and Coca-Cola's payer: its test proves the engine
+    // writes this XML too (apps/web/src/engine/handle.test.ts, ADR 0013 §1).
+    const expected = prepareReturns({
+      files: exports.map((file) => ({
+        name: basename(file),
+        bytes: readFileSync(file),
+      })),
+      taxYear: 2026,
+      taxpayer: { taxNumber: "12345678" },
+      rates,
+      payers: new Map([
+        [
+          "US1912161007",
+          {
+            name: "The Coca-Cola Company",
+            address: "One Coca-Cola Plaza, Atlanta, GA 30313, United States",
+            country: "US",
+          },
+        ],
+      ]),
+    });
+    if (expected.kdvp.form === null || expected.div.form === null) {
+      throw new Error("the pipeline wrote no form");
+    }
+    expect(readFileSync(join(out, "Doh_KDVP_2026.xml"), "utf8")).toBe(
+      writeDohKdvp(expected.kdvp.form),
+    );
+    expect(readFileSync(join(out, "Doh_Div_2026.xml"), "utf8")).toBe(
+      writeDohDiv(expected.div.form),
+    );
   });
 
   it("writes Doh-KDVP but holds Doh-Div back while a payer is unknown", () => {

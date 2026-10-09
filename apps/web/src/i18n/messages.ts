@@ -240,8 +240,12 @@ export interface Messages {
     readonly notWrittenChip: string;
     readonly kdvpTitle: string;
     readonly kdvpBody: PluralForms;
+    /** A withheld Doh-KDVP with no list to count. */
+    readonly kdvpNone: string;
     readonly divTitle: string;
     readonly divBody: PluralForms;
+    /** A withheld Doh-Div with no payment to count. */
+    readonly divNone: string;
     readonly downloadButton: (form: string) => string;
     readonly preparing: string;
     readonly demoFiles: string;
@@ -564,11 +568,13 @@ export const en: Messages = {
       one: "Gains from selling securities: {n} inventory list.",
       other: "Gains from selling securities: {n} inventory lists.",
     },
+    kdvpNone: "Gains from selling securities: no inventory list could be made.",
     divTitle: "Doh-Div",
     divBody: {
       one: "Dividends: {n} payment.",
       other: "Dividends: {n} payments.",
     },
+    divNone: "Dividends: no payment could be listed.",
     downloadButton: (form) => `Download ${form}`,
     preparing:
       "Writing the files from the trades and dividends, at Banka Slovenije rates.",
@@ -935,6 +941,8 @@ export const sl: Messages = {
       few: "Dobiček od odsvojitve vrednostnih papirjev: {n} popisni listi.",
       other: "Dobiček od odsvojitve vrednostnih papirjev: {n} popisnih listov.",
     },
+    kdvpNone:
+      "Dobiček od odsvojitve vrednostnih papirjev: popisnega lista ni bilo mogoče sestaviti.",
     divTitle: "Doh-Div",
     divBody: {
       one: "Dividende: {n} izplačilo.",
@@ -942,6 +950,7 @@ export const sl: Messages = {
       few: "Dividende: {n} izplačila.",
       other: "Dividende: {n} izplačil.",
     },
+    divNone: "Dividende: nobenega izplačila ni bilo mogoče navesti.",
     downloadButton: (form) => `Prenesi ${form}`,
     preparing:
       "Datoteke nastajajo iz poslov in dividend, po tečajih Banke Slovenije.",

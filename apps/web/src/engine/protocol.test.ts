@@ -156,11 +156,18 @@ describe("isReply on the review", () => {
       throw new Error("the fixtures have a sale and a dividend");
     }
     const [row] = security.rows;
-    if (row === undefined) throw new Error("a sale has rows");
+    const [lot] = security.lots;
+    const [file] = preview.files;
+    const rate = dividend.rate;
+    if (row === undefined || lot === undefined || file === undefined) {
+      throw new Error("a sale has rows and lots, and a file was read");
+    }
+    if (rate === null) throw new Error("a dollar dividend has a rate");
     const broken = [
       // A value the formatters would throw on, a date that is none.
       { ...preview, gainsTotals: { ...preview.gainsTotals, gainEur: "1e3" } },
       { ...preview, dividends: [{ ...dividend, date: "1. 4. 2026" }] },
+      { ...preview, dividends: [{ ...dividend, date: "2026-02-30" }] },
       { ...preview, dividends: [{ ...dividend, grossEur: { amount: "1" } }] },
       // A row from another kind of list, a broker the screens cannot name.
       {
@@ -179,9 +186,45 @@ describe("isReply on the review", () => {
         },
       },
       { ...preview, omittedFindings: -1 },
+      // Every list and record the screens read, each checked in full.
+      { ...preview, files: [{ ...file, rowsRead: -1 }] },
+      { ...preview, findings: [{ severity: "fatal", code: "x", params: {} }] },
+      { ...preview, dividendsByMonth: [{ month: "2026-13", grossEur: "1" }] },
+      {
+        ...preview,
+        dividends: [{ ...dividend, rate: { ...rate, source: "ecb" } }],
+      },
+      {
+        ...preview,
+        securities: [{ ...security, lots: [{ ...lot, bucket: "forever" }] }],
+      },
+      { ...preview, dividends: [{ ...dividend, treatyRate: "15%" }] },
+      {
+        ...preview,
+        dividends: [{ ...dividend, source: { file: 1, row: 2 } }],
+      },
+      {
+        ...preview,
+        securities: [
+          {
+            ...security,
+            rows: [{ ...row, splitAdjusted: { ratio: 2, date: "2026-01-01" } }],
+          },
+        ],
+      },
     ];
-    for (const bad of broken) {
-      expect(isReply({ ...prepared, preview: bad })).toBe(false);
+    for (const [at, bad] of broken.entries()) {
+      expect(isReply({ ...prepared, preview: bad }), `case ${String(at)}`).toBe(
+        false,
+      );
+    }
+    // And the reply around the review.
+    for (const [at, bad] of [
+      { ...prepared, files: [{ name: "a.csv" }] },
+      { ...prepared, kdvp: { ...prepared.kdvp, xml: 1 } },
+      { ...prepared, div: { ...prepared.div, needed: "yes" } },
+    ].entries()) {
+      expect(isReply(bad), `reply case ${String(at)}`).toBe(false);
     }
   });
 });

@@ -83,7 +83,10 @@ export interface ReadExports {
     readonly file: string;
     readonly with: string;
   }[];
-  /** Files left unread once the session held more events than it may. */
+  /**
+   * Files left unread once the session held more events, or more bytes,
+   * than it may: the session is then refused (`sessionTooLarge` for bytes).
+   */
   readonly notRead: readonly string[];
   /** Every event, checked, and every finding from reading the files. */
   readonly ledger: ValidatedLedger;
