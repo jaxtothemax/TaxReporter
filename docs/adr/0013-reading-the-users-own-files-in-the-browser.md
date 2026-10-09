@@ -73,7 +73,8 @@ and are open to review.
    500 for each file, blocking ones first, and counts the rest; whether a form is withheld is
    decided over all of them.
 6. **Files are bounded before a byte is read, then stay in memory.** A file that is not CSV
-   or XML, is larger than `LIMITS.fileBytes`, or would take the session past
+   or XML (or, once ADR 0014's first adapter ships, XLSX), is larger than `LIMITS.fileBytes`,
+   or would take the session past
    `LIMITS.sessionBytes` is refused unread, and no more than `LIMITS.filesPerSession` files
    are listed. The bytes of the rest are read with `File.arrayBuffer()` when the engine first
    needs them and live only in the page's memory, as long as the tab does; nothing is written

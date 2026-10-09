@@ -49,10 +49,12 @@ We will change the import contract as follows, before the IBKR adapter is built.
    1. **Byte cap.**
    2. **Magic-byte sniff:**
       - refused with their own message: ZIP and XLSX (until an XLSX adapter exists), legacy
-        XLS, PDF, gzip, UTF-16 and UTF-32;
+        XLS, PDF, gzip, UTF-16 and UTF-32; ADR 0014 (Proposed, 2026-10-09) detects a ZIP
+        before this sniff and opens it as the XLSX family, refusing any other ZIP as before;
       - refused outright: any NUL byte.
    3. **Fatal UTF-8 decoding.**
-   4. **Family by content:** XML when the first non-blank character is `<`, else CSV.
+   4. **Family by content:** XML when the first non-blank character is `<`, else CSV (and,
+      with ADR 0014, XLSX for a ZIP holding a SpreadsheetML workbook).
    5. **Exactly one matching adapter**, or the file is refused.
 
    The file's extension is only a hint. Byte-identical files collapse at intake: the caller
