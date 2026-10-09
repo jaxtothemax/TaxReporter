@@ -11,20 +11,21 @@ every rule below holds in both.
 
 One accent (emerald). Status colors carry meaning and are used for nothing else.
 
-| Token                                                                | Usage                                                                    |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `--bg`, `--surface`, `--surface-2`, `--surface-3`, `--surface-hover` | Page, cards, nested panels, fills, hover                                 |
-| `--border`, `--border-strong`                                        | Hairlines and stronger separators (decorative, not component boundaries) |
-| `--field-border`                                                     | The boundary of an input: 3:1 against the card                           |
-| `--text`, `--text-2`, `--text-3`                                     | Primary, secondary, tertiary text (all pass 4.5:1 on every surface)      |
-| `--accent`, `--accent-hover`, `--on-accent`                          | Primary button fill and its label                                        |
-| `--accent-text`, `--accent-soft`, `--accent-line`                    | Emerald text, tinted fill, tinted border                                 |
-| `--loss`, `--loss-soft`                                              | Signed amounts below zero only                                           |
-| `--danger`, `--danger-soft`, `--danger-line`                         | Errors and blocking states                                               |
-| `--warn`, `--warn-text`, `--warn-soft`, `--warn-line`                | Warnings and the demo banner                                             |
-| `--focus`                                                            | Every focus ring                                                         |
-| `--seg-active`, `--on-seg-active`                                    | The inverted selected segment of a pill control (tabs, language)         |
-| `--chart-0` … `--chart-3`                                            | Data fills; never text                                                   |
+| Token                                                                     | Usage                                                                                        |
+| ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `--bg`, `--surface`, `--surface-2`, `--surface-3`, `--surface-hover`      | Page, cards, nested panels, fills, hover                                                     |
+| `--border`, `--border-strong`                                             | Hairlines and stronger separators (decorative, not component boundaries)                     |
+| `--field-border`                                                          | The boundary of an input: 3:1 against the card                                               |
+| `--text`, `--text-2`, `--text-3`                                          | Primary, secondary, tertiary text (all pass 4.5:1 on every surface)                          |
+| `--accent`, `--accent-hover`, `--on-accent`                               | Primary button fill and its label                                                            |
+| `--accent-text`, `--accent-soft`, `--accent-line`                         | Emerald text, tinted fill, tinted border                                                     |
+| `--loss`, `--loss-soft`                                                   | Signed amounts below zero only                                                               |
+| `--danger`, `--danger-soft`, `--danger-line`                              | Errors and blocking states                                                                   |
+| `--warn`, `--warn-text`, `--warn-soft`, `--warn-line`                     | Warnings and the demo banner                                                                 |
+| `--focus`                                                                 | Every focus ring                                                                             |
+| `--seg-active`, `--on-seg-active`                                         | The inverted selected segment of a pill control (tabs, language)                             |
+| `--chart-0` … `--chart-3`                                                 | Data fills; never text                                                                       |
+| `--tour-dim`, `--tour-frame`, `--tour-line`, `--tour-halo`, `--tour-ring` | The guided tour's overlay only: dim, frame round the lit card, lines and their casing, rings |
 
 - Never write a raw color in a component rule. Add a token to both theme blocks.
 - `--loss` is for money, `--danger` for errors: do not swap them.
@@ -60,22 +61,41 @@ below 12px.
 
 ## Components (use these, do not hand-roll)
 
-| Need                       | Use                                                                                                                                                  |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Any button                 | `Button` (`primary` / `secondary` / `ghost`, `sm` / `md` / `lg`). One primary per area.                                                              |
-| Icon-only button           | `IconButton` (label required; it is also the tooltip)                                                                                                |
-| Short label or status pill | `Chip` (`neutral` / `accent` / `warn`; `sm` in rows, `md` on its own line, icon first). In a flex column, wrap it in a `<p>` so it does not stretch. |
-| Gain or loss               | `DeltaPill` (sign and arrow, not color alone)                                                                                                        |
-| Headline euro amount       | `Amount` (muted cents; one string for screen readers)                                                                                                |
-| Callout                    | `Note` (`neutral` / `warn` / `danger`, optional `action`). The only callout recipe.                                                                  |
-| Table                      | `DataTable` (caption, named focusable scroll region)                                                                                                 |
-| Tabs                       | `Tabs` (WAI-ARIA, roving tabindex; all panels rendered, inactive ones `hidden`)                                                                      |
-| Security or payer mark     | `Ticker` (`labelled` where the symbol is not written next to it)                                                                                     |
-| Icon in a tile             | `.icon-tile` with `-sm` / `-lg` and `.is-danger`                                                                                                     |
-| Charts                     | `StackBar`, `MonthBars`, `CompareBars`: bars are `aria-hidden`, every figure is in text                                                              |
+| Need                          | Use                                                                                                                                                                                           |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Any button                    | `Button` (`primary` / `secondary` / `ghost`, `sm` / `md` / `lg`). One primary per area.                                                                                                       |
+| Icon-only button              | `IconButton` (label required; it is also the tooltip)                                                                                                                                         |
+| Short label or status pill    | `Chip` (`neutral` / `accent` / `warn`; `sm` in rows, `md` on its own line, icon first). In a flex column, wrap it in a `<p>` so it does not stretch.                                          |
+| Gain or loss                  | `DeltaPill` (sign and arrow, not color alone)                                                                                                                                                 |
+| Headline euro amount          | `Amount` (muted cents; one string for screen readers)                                                                                                                                         |
+| Callout                       | `Note` (`neutral` / `warn` / `danger`, optional `action`). The only callout recipe.                                                                                                           |
+| Table                         | `DataTable` (caption, named focusable scroll region)                                                                                                                                          |
+| Tabs                          | `Tabs` (WAI-ARIA, roving tabindex; all panels rendered, inactive ones `hidden`)                                                                                                               |
+| Security or payer mark        | `Ticker` (`labelled` where the symbol is not written next to it)                                                                                                                              |
+| Icon in a tile                | `.icon-tile` with `-sm` / `-lg` and `.is-danger`                                                                                                                                              |
+| Charts                        | `StackBar`, `MonthBars`, `CompareBars`: bars are `aria-hidden`, every figure is in text                                                                                                       |
+| Overlay over the page         | The guided tour's `<dialog>` (`src/tour/TourLayer.tsx`), the app's only modal layer: `showModal()`, its `close` event the one way out. Reuse it for the AI check's consent dialog (ADR 0008). |
+| Explanation beside an element | `.tour-note`, in the tour's overlay only. An in-flow callout stays `Note`.                                                                                                                    |
 
 An action that is not available yet uses `aria-disabled` and an `aria-describedby`
 explanation, not `disabled`, so keyboard users can reach it and hear why.
+
+## Explainer anchors and the guided tour (ADR 0016)
+
+- An element an explanation points at carries `explain(name, key?)` from
+  `src/explain/anchors.ts` (the kit's `Chip`, `DeltaPill`, `Note` and `DataTable` take an
+  `explain` prop). Never find a tour target by class or id. A repeated element is keyed
+  (a security by ISIN, a row by kind and date). `src/tour/tour.test.tsx` fails when an
+  anchor a stop names is missing from the screen it shows.
+- Positions reach the page only through React's `style` prop or a CSSOM property write.
+  Never a style attribute in markup, `setAttribute("style")`, `cssText` or a `<style>`
+  element: the production CSP (`style-src 'self'`) blocks them, and the same test greps
+  the app for them. A fixed container holding fixed children takes no `transform`,
+  `filter` or `backdrop-filter`, which would make it their containing block.
+- Measure only after the `.screen` / `.tab-panel` entrance animation has finished.
+- Tour motion: 160, 200 and 240ms fades, a 220ms progress transition and two 900ms ring
+  pulses, all inside `prefers-reduced-motion: no-preference`. In forced-colors mode the
+  tour draws no dim: a `Highlight` frame and `CanvasText` lines and rings.
 
 ## Focus
 

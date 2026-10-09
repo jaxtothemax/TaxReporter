@@ -3,9 +3,11 @@
 **Date:** 2026-10-09
 **Status:** Proposed
 
-> **Implementation status (2026-10-09):** being built on branch `feat/27-guided-tour` (#27),
-> not yet on `main`. Built so far: the tour's reducer (`apps/web/src/tour/machine.ts`) and
-> the review's view held by the app frame (`ReviewView` in `apps/web/src/screens/ReviewStep.tsx`).
+> **Implementation status (2026-10-09):** built on branch `feat/27-guided-tour` (#27), not
+> yet on `main`: `apps/web/src/explain/anchors.ts`, `apps/web/src/tour/` (`machine.ts`,
+> `layout.ts`, `script.ts`, `TourLayer.tsx`), the anchors on the five screens, the review's
+> view held by the app frame (`ReviewView`), and the browser tests in
+> `apps/web/e2e/tour.spec.ts`.
 
 ## Context
 
@@ -42,12 +44,21 @@ at a time on a phone; and the demo data stays as it is (#26).
    wizard's state is never changed. Exiting removes the override, so the user's screen,
    tab and rows come back by construction rather than by replaying a snapshot. The
    review's tab and open securities are held by the app frame (`ReviewView`) for this.
+   While the tour runs the page gets room below its end (`.app.is-touring`), so a card
+   near the end of a short screen can still be scrolled clear of the dock; the room goes
+   when the tour does, before the scroll is given back.
 3. **One modal layer.** A single `<dialog>` opened with `showModal()` for the tour's
    lifetime: the top layer clears the sticky header, the rest of the page is inert, and
    Escape closes it natively. Its `close` event is the only way out: Skip, Escape and
    Finish all end there, and the restore (scroll positions, then focus) runs from it. While
    the tour runs it owns scroll and focus; the app's own move of focus to a new screen's
-   heading waits.
+   heading waits (WebKit lets that focus land behind the modal, then drops it to the body).
+   When the dialog opens, Next has focus (`autofocus`), so Enter goes on; Skip is first in
+   the DOM and Tab order. Focus goes back to a named element, never to whatever had it: the
+   heading of the screen the demo opened on, or the banner button that replayed the tour
+   (WebKit does not focus a button on a click). That element is focused just before the
+   dialog opens, because WebKit gives focus back to it on close after the app's own
+   restore. The tab title keeps following the user's screen, not the stop shown.
 4. **Elements are named by explainer anchors.** A screen marks each element an
    explanation can point at with a `data-explain` attribute from one typed helper
    (`explain/anchors.ts`). The name is `explain`, not `tour`: the same anchors are meant
