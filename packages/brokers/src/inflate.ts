@@ -326,6 +326,8 @@ export function inflate(input: Uint8Array, size: number): Uint8Array {
     if (last === 1) break;
   }
   // The final byte's unused bits are padding; a whole byte more is not.
+  // Stricter than Node's zlib, which stops at the final block and ignores
+  // what follows: a ZIP entry holds its stream and nothing else.
   if (stream.pos !== input.length) throw new InflateError("trailing");
   if (stream.outpos !== size) throw new InflateError("size");
   return stream.out;

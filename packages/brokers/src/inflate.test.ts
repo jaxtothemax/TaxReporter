@@ -282,6 +282,44 @@ describe("inflate: one refusal per rule", () => {
     expect(refusal(w.done(), 0)).toBe("codeLengths");
   });
 
+  /**
+   * One dynamic block decoding to "AAAA": a literal "A", then a copy of 3 at
+   * distance 1. Its literal/length code is complete ("A" 1 bit, end of
+   * block and length 3 two bits each); its distance code has the one
+   * distance symbol 0, at `distanceLength` bits.
+   */
+  function loneDistance(distanceLength: 1 | 2): Uint8Array {
+    // Code-length code: 18 one bit (code 0); 1 and 2 two bits (10, 11).
+    const w = dynamicHeader(
+      258,
+      1,
+      [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 2],
+    );
+    const one = () => w.code(0b10, 2);
+    const two = () => w.code(0b11, 2);
+    w.code(0, 1).write(65 - 11, 7); // zero, 65 times: symbols 0-64
+    one(); // "A", 65
+    w.code(0, 1).write(138 - 11, 7); // zero, 138 times
+    w.code(0, 1).write(52 - 11, 7); // zero, 52 times: up to 255
+    two(); // end of block, 256
+    two(); // length 3, 257
+    if (distanceLength === 1) one();
+    else two();
+    // "A" (0), length 3 (11), distance 1 (0 or 00), end of block (10).
+    w.code(0, 1).code(0b11, 2).code(0, distanceLength).code(0b10, 2);
+    return w.done();
+  }
+
+  it("takes a lone one-bit code, the one incomplete code zlib takes", () => {
+    const stream = loneDistance(1);
+    expect(Array.from(inflateRawSync(stream))).toEqual([65, 65, 65, 65]);
+    expect(Array.from(inflate(stream, 4))).toEqual([65, 65, 65, 65]);
+    // A lone code of two bits is incomplete otherwise; zlib refuses it too.
+    const twoBits = loneDistance(2);
+    expect(() => inflateRawSync(twoBits)).toThrow();
+    expect(refusal(twoBits, 4)).toBe("codeLengths");
+  });
+
   it("keeps a run made to be large inside its budget", () => {
     // One literal, then copies of length 258 at distance 1: a bomb that
     // would decode to far more than declared stops at the declared size.
@@ -298,16 +336,29 @@ describe("inflate: one refusal per rule", () => {
   });
 
   it("decodes a worst case at a large size in seconds", () => {
-    // Literals only, nine-bit fixed codes: the most work per output byte.
+    // Literals only: zlib stores noise of every byte value as stored blocks,
+    // so this noise draws from 64 values, and Huffman codes it in dynamic
+    // blocks, a code to decode for every byte.
     const size = 8 * 1024 * 1024;
-    const data = noise(size, 3);
-    const deflated = deflateRawSync(data, {
+    const literals = deflateRawSync(noise(size, 3, 64), {
       strategy: constants.Z_HUFFMAN_ONLY,
     });
+    // And a sheet's text, copies and literals in dynamic blocks.
+    const sheet = sheetLike(60_000).subarray(0, size);
+    const copies = deflateRawSync(sheet, { level: 9 });
+    for (const deflated of [literals, copies]) {
+      // BTYPE, bits 1 and 2 of the first byte: 2 is a dynamic block.
+      expect(((deflated[0] ?? 0) >> 1) & 3).toBe(2);
+    }
+    // Compressing the input takes zlib a while; only decoding is timed.
     const started = Date.now();
-    expect(inflate(deflated, size).length).toBe(size);
+    const fromLiterals = inflate(literals, size);
+    const fromCopies = inflate(copies, sheet.length);
+    // About a tenth of a second on a laptop: the bound is for slow CI.
     expect(Date.now() - started).toBeLessThan(10_000);
-  });
+    expect(fromLiterals.length).toBe(size);
+    expect(Buffer.compare(fromCopies, sheet)).toBe(0);
+  }, 60_000);
 });
 
 describe("crc32", () => {
