@@ -16,7 +16,8 @@ Excel*, attributes the limit to IEEE 754 double precision, which other spreadshe
 **The cell's text is a decimal spelling of that double.** In SpreadsheetML (ECMA-376,
 ISO/IEC 29500-1), a numeric cell's `<v>` holds the number as text. A writer spells the double
 one of three ways: the shortest spelling that reads back as the same double, 17 significant
-digits, or the double's exact value. So 2.631579, stored as a double, can arrive as `2.631579` or, from a 17-digit writer, as
+digits, or the double's exact value, which can run to hundreds of digits and is refused past 64
+characters. So 2.631579, stored as a double, can arrive as `2.631579` or, from a 17-digit writer, as
 `2.6315789999999998`. And a sum the producing program computed in binary arrives as what it
 computed: 0.1 + 0.2 as `0.30000000000000004`, which is not the double nearest 0.3.
 
@@ -64,7 +65,10 @@ read: the stored value is the value.
 In SpreadsheetML the choice is the `date1904` attribute of `workbookPr` in `workbook.xml`
 (ISO/IEC 29500-1:2008 §18.2.28), an XML Schema boolean (`1`, `true`, `0` or `false`); absent,
 it is false, the 1900 system. The same serial is a
-date 1,462 days apart in the two systems, so the attribute must be read, never assumed.
+date 1,462 days apart in the two systems, so the attribute must be read, never assumed. The
+same element carries `dateCompatibility`, which, set to false, selects a 1900 date base other
+than the one Excel uses (inference from its name and clause; not checked against Excel). No
+broker export is known to set it, and the reader refuses it rather than interpret it.
 
 **The 1900 system counts a day that never was** [H]. SpreadsheetML on the 1900 base treats
 1900 as a leap year, for compatibility with Lotus 1-2-3, so serial 60 is 29 February 1900.

@@ -798,6 +798,17 @@ describe("openWorkbook: what Excel and TaxReporter could read differently", () =
       code(one('<row><c t="inlineStr"><is><t>a</t></is><v>1</v></c></row>')),
     ).toBe("xlsxCellType");
     expect(code(one("<row><c><v>1<x/></v></c></row>"))).toBe("xlsxStructure");
+    // A second value or inline string: neither one wins.
+    expect(code(one("<row><c><v>1</v><v>2</v></c></row>"))).toBe(
+      "xlsxStructure",
+    );
+    expect(
+      code(
+        one(
+          '<row><c t="inlineStr"><is><t>a</t></is><is><t>b</t></is></c></row>',
+        ),
+      ),
+    ).toBe("xlsxStructure");
   });
 
   it("holds a value to Excel's limit on a cell at its value, however split", () => {
@@ -881,6 +892,83 @@ describe("openWorkbook: what Excel and TaxReporter could read differently", () =
     expect(book.rows(1).rows.map((r) => r.row)).toEqual([1, 2]);
   });
 
+  it("refuses text whose edge spaces Excel would read without xml:space", () => {
+    for (const si of [
+      "<t> Apple </t>",
+      "<r><t>Buy</t></r><r><t> </t></r>",
+      "<t>a </t>",
+    ]) {
+      expect(
+        code(one('<row><c t="s"><v>0</v></c></row>', { strings: [si] })),
+        si,
+      ).toBe("xlsxText");
+    }
+    expect(
+      code(one('<row><c t="inlineStr"><is><t>\tA</t></is></c></row>')),
+    ).toBe("xlsxText");
+    // With it, the spaces are text.
+    expect(
+      cells(
+        open(
+          one('<row><c t="s"><v>0</v></c></row>', {
+            strings: ['<t xml:space="preserve"> Apple </t>'],
+          }),
+        ),
+      ),
+    ).toEqual(["A1=string: Apple "]);
+  });
+
+  it("refuses Markup Compatibility that would process what it skips", () => {
+    const wrapped = (attributes: string) =>
+      one("", {
+        edit: editing("xl/workbook.xml", (t) =>
+          t
+            .replace(
+              `<workbook xmlns="${MAIN}"`,
+              `<workbook xmlns="${MAIN}" xmlns:mc="${MC_NS}" xmlns:foo="urn:foo" mc:Ignorable="foo" ${attributes}`,
+            )
+            .replace(
+              "<bookViews>",
+              '<foo:wrap><workbookPr date1904="1"/></foo:wrap><bookViews>',
+            ),
+        ),
+      });
+    expect(code(wrapped('mc:ProcessContent="foo:wrap"'))).toBe("xlsxWorkbook");
+    expect(code(wrapped('mc:MustUnderstand="foo"'))).toBe("xlsxWorkbook");
+    // Ignorable alone, as Excel writes it, passes.
+    expect(code(wrapped(""))).toBe("none");
+    expect(
+      code({
+        sheets: [
+          {
+            name: "A",
+            before: `<cols><mc:AlternateContent xmlns:mc="${MC_NS}"><mc:Choice Requires="x"><col min="1" max="1" hidden="1"/></mc:Choice></mc:AlternateContent></cols>`,
+          },
+        ],
+      }),
+    ).toBe("xlsxStructure");
+  });
+
+  it("refuses a 1900 date base other than Excel's", () => {
+    for (const value of ["0", "false"]) {
+      expect(
+        code(one("", { properties: `dateCompatibility="${value}"` })),
+        value,
+      ).toBe("xlsxWorkbook");
+    }
+    expect(code(one("", { properties: 'dateCompatibility="1"' }))).toBe("none");
+  });
+
+  it("marks every sheet hidden when the workbook's window is", () => {
+    const book = open({
+      sheets: [{ name: "A" }, { name: "B" }],
+      edit: editing("xl/workbook.xml", (t) =>
+        t.replace("<workbookView/>", '<workbookView visibility="hidden"/>'),
+      ),
+    });
+    expect(book.sheets.map((s) => s.hidden)).toEqual([true, true]);
+  });
+
   it("reads exactly one sheetData", () => {
     const sheet = (xml: string) => ({
       sheets: [{ name: "A" }],
@@ -932,6 +1020,18 @@ describe("openWorkbook: what Excel and TaxReporter could read differently", () =
           {
             name: "A",
             before: '<sheetFormatPr defaultRowHeight="15" zeroHeight="1"/>',
+            data: "<row><c><v>1</v></c></row>",
+          },
+        ],
+      }),
+    ).toBe(true);
+    expect(
+      hides({
+        sheets: [
+          {
+            name: "A",
+            before:
+              '<sheetFormatPr defaultRowHeight="15" defaultColWidth="0"/>',
             data: "<row><c><v>1</v></c></row>",
           },
         ],
@@ -1004,8 +1104,18 @@ describe("openWorkbook: nothing before it is needed", () => {
         },
       ],
       edit: (parts) => {
-        parts.set("docProps/core.xml", `<x>${canary}</x>`);
-        parts.set("customXml/item1.xml", `<x>${canary}</x>`);
+        // Every kind of part the reader never reads.
+        for (const name of [
+          "docProps/core.xml",
+          "docProps/app.xml",
+          "customXml/item1.xml",
+          "xl/styles.xml",
+          "xl/theme/theme1.xml",
+          "xl/comments1.xml",
+          "xl/externalLinks/externalLink1.xml",
+        ]) {
+          parts.set(name, `<x>${canary}</x>`);
+        }
         editing("xl/workbook.xml", (text) =>
           text.replace(
             "</sheets>",

@@ -88,7 +88,12 @@ skips rather than refuses (decision 4).
      is text;
    - a string is one `t`, or runs of at most one `t` each, and nothing stands inside a `t` or
      a `v`; each `t` is unescaped on its own, as Excel decodes it, and a string or a value
-     is held to `LIMITS.xlsxCellLength` whatever it is split into;
+     is held to `LIMITS.xlsxCellLength` whatever it is split into; a `t` with white space at
+     its edge and no `xml:space="preserve"`, which writers set where they mean the space, is
+     refused, as a consumer may keep or drop it;
+   - Markup Compatibility's `mc:ProcessContent` and `mc:MustUnderstand`, which would make a
+     consumer process or require what the reader skips, are refused in every part read;
+     `mc:Ignorable`, which Excel writes, passes;
    - outside them, an `mc:AlternateContent` whose Choice or Fallback holds SpreadsheetML's own
      elements is refused, as a consumer applying it would read another workbook (another date
      system, a second `sheetData`); Excel's extensions there are skipped. A worksheet has
@@ -140,8 +145,9 @@ skips rather than refuses (decision 4).
    - Any other sheet blocks (`unknownSheet`, naming its position), so a sheet a broker adds
      can never drop rows unseen.
    - A hidden sheet an adapter reads blocks (`hiddenSheet`); hidden rows or columns in one
-     (hidden, of zero height or width, or rows hidden by default) raise a warning
-     (`hiddenCells`), as the user cannot see what is read. Merged cells, whose values past
+     (hidden, of zero height or width, or rows hidden or columns of no width by default)
+     raise a warning (`hiddenCells`), as the user cannot see what is read; a hidden workbook
+     window hides every sheet. Merged cells, whose values past
      the first Excel does not show, are not detected yet.
    - A sheet's rows reach the adapter as `book.rows(position)`, and the adapter receives the
      `Workbook`, never the file's bytes: a test checks that only the workbook module imports
@@ -164,7 +170,8 @@ skips rather than refuses (decision 4).
 8. **Numbers: a number cell's exact text, rounded once to 15 significant digits** (research 09
    §1), ties away from zero (`halfUp`, as `Decimal` rounds):
    - a decimal of at most 15 significant digits, stored as a double and written in any
-     spelling (shortest, 17-digit or exact), lies within about 2e-16 of it, relative, while
+     spelling of at most 64 characters (the shortest, 17 digits or 40; a double's full exact
+     value can run longer, and is refused), lies within about 2e-16 of it, relative, while
      the nearest 15-digit rounding boundary is at least 5e-16 away: rounding gives the decimal
      back, and also absorbs small arithmetic error (`0.1 + 0.2` written as
      `0.30000000000000004` reads as `0.3`);
@@ -182,7 +189,8 @@ skips rather than refuses (decision 4).
      Every later step stays exact.
 9. **Dates: serials, exactly as stored, in the workbook's own system** (research 09 §2):
    - `date1904` is read from `workbookPr`: `1` or `true` for the 1904 system, `0`, `false` or
-     no attribute for the 1900 system; anything else is refused;
+     no attribute for the 1900 system; anything else is refused. `dateCompatibility`, which
+     can select another 1900 date base, is refused unless absent, `1` or `true`;
    - in the 1900 system, serials below 61 are refused (60 is the 29 February 1900 that never
      was), and in both, serials past 31 December 9999 (2958465 in the 1900 system);
    - the serial's exact text, never rounded to 15 digits, gives the time of day: snapped to
@@ -204,7 +212,8 @@ skips rather than refuses (decision 4).
 11. **Dispatch.** One routine that requires exactly one matching adapter serves every
     family, in place of the copies `adapter.ts` had. `importFile` hands a ZIP to the XLSX
     family, and the sniff keeps refusing ZIP wherever no workbook can be, as in the command
-    line's payers file. The outcomes:
+    line's payers file. The ZIP reader's structural rules come first, for any ZIP, so a
+    damaged or unusual ZIP is unreadable even when it holds no workbook. The outcomes:
     - a damaged archive or part: `unreadableFile`, with the reason and, where there is one,
       the sheet's position, row and column, never a part name, a sheet name or a value
       (line numbers mean nothing in parts of one line);
@@ -219,9 +228,11 @@ skips rather than refuses (decision 4).
     list like IBKR's sections) and its row as Excel numbers it. The web app accepts `.xlsx`
     files once an XLSX adapter ships.
 12. **Privacy.** Account IDs go only into `accountScope`. The test suite plants a name in
-    every part never read, and in skipped elements of the parts that are read (`x15ac:absPath`,
-    which holds a Windows user's path, and banner rows like XTB's): the PII canaries. It
-    checks that none reaches a finding or a key.
+    every kind of part never read (document properties, custom XML, styles, themes,
+    comments, external links), and in skipped elements of the parts that are read
+    (`x15ac:absPath`, which holds a Windows user's path, and a sheet's header and footer):
+    the PII canaries. It checks that none reaches a finding or what the reader returns; the
+    banner rows of a broker's sheet join them with that broker's adapter.
 
 ## Consequences
 

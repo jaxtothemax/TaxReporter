@@ -68,6 +68,8 @@ describe("scanXml", () => {
       ["<A>text</A>", "text"],
       ['<A xmlns="urn:x"/>', "name"],
       ['<x:A xmlns:x="urn:x"/>', "name"],
+      ["<x:A/>", "name"],
+      ['<A x:b="1"/>', "name"],
       ["<Ä/>", "name"],
       ['<A b="1" b="2"/>', "duplicateAttribute"],
       ['<A b="1"c="2"/>', "attributeSyntax"],

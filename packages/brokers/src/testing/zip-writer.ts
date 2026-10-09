@@ -20,6 +20,8 @@ export interface Part {
   readonly rawName?: Uint8Array;
   /** The DEFLATE stream as written, where the test makes its own. */
   readonly deflated?: Uint8Array;
+  /** The local header's name, where it should differ from the directory's. */
+  readonly localName?: Uint8Array;
 }
 
 export interface Options {
@@ -82,7 +84,9 @@ export function makeZip(
     local.setUint16(26, name.length, true);
     local.setUint16(28, extra.length, true);
     options.local?.(index, local);
-    const record = [new Uint8Array(local.buffer), name, extra, data];
+    const localName = part.localName ?? name;
+    local.setUint16(26, localName.length, true);
+    const record = [new Uint8Array(local.buffer), localName, extra, data];
     if (part.descriptor !== undefined) {
       const d = new DataView(
         new ArrayBuffer(part.descriptor === "signed" ? 16 : 12),

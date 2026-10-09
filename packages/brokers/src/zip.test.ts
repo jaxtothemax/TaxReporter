@@ -191,12 +191,21 @@ describe("openZip: one refusal per rule", () => {
       "zipExtra",
     ],
     [
-      "a local header naming another file",
+      "a local header with another method",
       makeZip(workbook, {
         local: (i, l) => {
           if (i === 1) l.setUint16(8, 0, true);
         },
       }),
+      "zipHeader",
+    ],
+    [
+      "a local header naming another file",
+      makeZip(
+        workbook.map((part, i) =>
+          i === 1 ? { ...part, localName: encode("xl/other.xml") } : part,
+        ),
+      ),
       "zipHeader",
     ],
     [

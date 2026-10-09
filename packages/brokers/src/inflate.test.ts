@@ -239,12 +239,56 @@ describe("inflate: one refusal per rule", () => {
   }
 
   it("refuses more length or distance codes than RFC 1951 has", () => {
-    expect(refusal(dynamicHeader(287, 1, [0, 0, 0, 1]).done(), 0)).toBe(
+    // A complete code-length code (16 and 18 at one bit), so that only
+    // the counts can be what is refused.
+    expect(refusal(dynamicHeader(287, 1, [1, 0, 1, 0]).done(), 0)).toBe(
       "codeLengths",
     );
-    expect(refusal(dynamicHeader(257, 31, [0, 0, 0, 1]).done(), 0)).toBe(
+    expect(refusal(dynamicHeader(257, 31, [1, 0, 1, 0]).done(), 0)).toBe(
       "codeLengths",
     );
+    // A stream valid in every other way: 31 distance codes, all unused,
+    // and a block of nothing but its end. Without the count's own check
+    // it would decode to nothing.
+    const w = dynamicHeader(
+      257,
+      31,
+      [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+    );
+    w.code(1, 1).write(127, 7); // zero, 138 times
+    w.code(1, 1).write(107, 7); // zero, 118 times: up to 255
+    w.code(0, 1); // end of block, one bit
+    w.code(1, 1).write(20, 7); // zero, 31 times: every distance code
+    w.code(0, 1); // the block: its end
+    expect(refusal(w.done(), 0)).toBe("codeLengths");
+  });
+
+  it("refuses a repeat past the list's end, with an end-of-block code before it", () => {
+    // Code-length code: 1 (code 0) and 18 (code 1), one bit each.
+    const w = dynamicHeader(
+      257,
+      1,
+      [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+    );
+    w.code(1, 1).write(127, 7); // zero, 138 times
+    w.code(1, 1).write(107, 7); // zero, 118 times: up to 255
+    w.code(0, 1); // end of block, one bit
+    w.code(1, 1).write(0, 7); // zero, 11 times: past 258
+    expect(refusal(w.done(), 0)).toBe("codeLengths");
+  });
+
+  it("refuses an incomplete literal/length code other than a lone one-bit code", () => {
+    // Code-length code: 18 (code 0), then 0 and 2 (codes 10, 11).
+    const w = dynamicHeader(
+      257,
+      1,
+      [0, 0, 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2],
+    );
+    w.code(0, 1).write(127, 7); // zero, 138 times
+    w.code(0, 1).write(107, 7); // zero, 118 times: up to 255
+    w.code(0b11, 2); // end of block, two bits: alone, incomplete
+    w.code(0b10, 2); // no distance code
+    expect(refusal(w.done(), 0)).toBe("codeLengths");
   });
 
   it("refuses an incomplete or over-subscribed code-length code", () => {

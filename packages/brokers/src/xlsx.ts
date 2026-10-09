@@ -117,6 +117,10 @@ export interface Workbook extends WorkbookInfo {
 const MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
 /** Markup Compatibility: content Excel may apply in place of what follows. */
 const MC = "http://schemas.openxmlformats.org/markup-compatibility/2006";
+/** Its attributes that make a consumer process or require what it skips. */
+const MC_DIRECTIVES = [`{${MC}}ProcessContent`, `{${MC}}MustUnderstand`];
+/** `xml:space`, by its resolved name. */
+const XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space";
 const RELATIONSHIPS =
   "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 const PACKAGE_RELATIONSHIPS =
@@ -279,10 +283,12 @@ function stringParts(
     runText: false,
     written: 0,
     length: 0,
+    preserve: false,
   };
-  const startPiece = (depth: number): Step => {
+  const startPiece = (e: XmlElement): Step => {
     state.piece = [];
-    state.pieceDepth = depth;
+    state.pieceDepth = e.depth;
+    state.preserve = e.attributes.get(XML_SPACE) === "preserve";
     return "enter";
   };
   return {
@@ -295,7 +301,7 @@ function stringParts(
         if (e.local === "rPh" || e.local === "phoneticPr") return "skip";
         if (e.local === "t" && !state.direct && state.runs === 0) {
           state.direct = true;
-          return startPiece(e.depth);
+          return startPiece(e);
         }
         if (e.local === "r" && !state.direct) {
           state.runs += 1;
@@ -306,14 +312,26 @@ function stringParts(
         if (e.local === "rPr") return "skip";
         if (e.local === "t" && !state.runText) {
           state.runText = true;
-          return startPiece(e.depth);
+          return startPiece(e);
         }
       }
       return fail("xlsxStructure");
     },
     close(depth) {
       if (state.piece === null || depth !== state.pieceDepth) return;
-      const decoded = unescape(state.piece.join(""));
+      const written = state.piece.join("");
+      // Space at the edge of a `t` is kept only under xml:space="preserve",
+      // which every writer sets where it means it; without it a consumer
+      // may drop it, so the text is refused rather than read either way.
+      if (
+        !state.preserve &&
+        written !== "" &&
+        (isSpace(written.charCodeAt(0)) ||
+          isSpace(written.charCodeAt(written.length - 1)))
+      ) {
+        return fail("xlsxText");
+      }
+      const decoded = unescape(written);
       if (decoded === null) return fail("xlsxText");
       state.length += decoded.length;
       if (state.length > LIMITS.xlsxCellLength) fail("xlsxText");
@@ -356,6 +374,9 @@ function visitor(reader: Reader, refuse: () => never): XmlVisitor {
   return {
     open(element) {
       if (skipping !== 0) return;
+      // A consumer that applies Markup Compatibility would read content
+      // these name, which the reader skips (ADR 0014 §4).
+      if (MC_DIRECTIVES.some((name) => element.attributes.has(name))) refuse();
       if (reader.open(element) === "skip") skipping = element.depth;
     },
     close(_name, depth) {
@@ -590,6 +611,10 @@ function readWorkbookPart(
     sheets: false,
     /** The depth of an mc:AlternateContent being read; 0 outside one. */
     alternate: 0,
+    /** The part of the workbook being read. */
+    section: null as "sheets" | "views" | null,
+    /** A workbook window hidden: every sheet is out of sight. */
+    hiddenWindow: false,
   };
   const refuse = (sheet = 0): never => {
     throw new XlsxError("xlsxWorkbook", sheet);
@@ -614,12 +639,37 @@ function readWorkbookPart(
             // An XML Schema boolean (research 09 §2).
             if (value === "1" || value === "true") seen.date1904 = true;
             else if (value !== "0" && value !== "false") refuse();
+            // A 1900 date base other than Excel's own is not read on a
+            // guess (research 09 §2).
+            const compatibility = e.attributes.get("dateCompatibility");
+            if (
+              compatibility !== undefined &&
+              compatibility !== "1" &&
+              compatibility !== "true"
+            ) {
+              refuse();
+            }
             return "skip";
           }
           if (is(e, MAIN, "sheets")) {
             if (seen.sheets) refuse();
             seen.sheets = true;
+            seen.section = "sheets";
             return "enter";
+          }
+          if (is(e, MAIN, "bookViews")) {
+            seen.section = "views";
+            return "enter";
+          }
+          return "skip";
+        }
+        if (seen.section === "views") {
+          const visibility = e.attributes.get("visibility");
+          if (
+            is(e, MAIN, "workbookView") &&
+            (visibility === "hidden" || visibility === "veryHidden")
+          ) {
+            seen.hiddenWindow = true;
           }
           return "skip";
         }
@@ -665,12 +715,18 @@ function readWorkbookPart(
       },
       close(depth) {
         if (depth === seen.alternate) seen.alternate = 0;
+        if (depth === 2) seen.section = null;
       },
     },
     budget,
     0,
     "xlsxWorkbook",
   );
+  if (seen.hiddenWindow) {
+    for (const [index, sheet] of sheets.entries()) {
+      sheets[index] = { ...sheet, hidden: true };
+    }
+  }
   if (!seen.sheets) refuse();
   return { sheets, date1904: seen.date1904 };
 }
@@ -819,10 +875,11 @@ function readSheet(
           } else if (is(e, MAIN, "cols")) {
             section = "cols";
           } else {
-            // Rows hidden unless set otherwise.
+            // Rows hidden, or columns of no width, unless set otherwise.
             if (
               is(e, MAIN, "sheetFormatPr") &&
-              truthy(e.attributes.get("zeroHeight"))
+              (truthy(e.attributes.get("zeroHeight")) ||
+                isZero(e.attributes.get("defaultColWidth")))
             ) {
               hiddenCells = true;
             }
@@ -831,7 +888,12 @@ function readSheet(
           return "enter";
         }
         if (section === "cols") {
-          // Columns, read only for whether one is hidden or of no width.
+          // Columns, read only for whether one is hidden or of no width;
+          // one in an alternative is refused, as anywhere outside it.
+          if (is(e, MC, "AlternateContent")) {
+            alternate = e.depth;
+            return "enter";
+          }
           if (
             is(e, MAIN, "col") &&
             (truthy(e.attributes.get("hidden")) ||
