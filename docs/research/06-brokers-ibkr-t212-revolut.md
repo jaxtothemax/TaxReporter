@@ -1,6 +1,6 @@
 # Broker export formats: Interactive Brokers, Trading 212, Revolut
 
-> Researched: 2026-10-07 · Verification: not independently verified · Updated: 2026-10-09 (one real Trading 212 export inspected: the `0E-10` zero, dividend prices to 6 decimals, the V4 header and a takeover's rows, §4.2–§4.4)
+> Researched: 2026-10-07 · Verification: not independently verified · Updated: 2026-10-09 (one real Trading 212 export inspected: the `0E-10` zero, dividend prices to 6 decimals, the V4 header and a takeover's rows, §4.2–§4.4; the takeover's tax rule linked from §4.3)
 >
 > Research for building TaxReporter. It is not tax advice, and FURS publications and the law win over anything written here. Where this page overlaps a verified doc (01–03), the verified doc wins; such places are cross-referenced inline. See the [README](README.md#confidence-and-verification-legend) for the legend.
 
@@ -269,7 +269,7 @@ Seen in one real export, generated in October 2026 for the year 2025 (not commit
 
 **Gross dividend for Doh-Div** = `No. of shares × Price / share + Withholding tax`, when the WHT currency equals the price currency. This is cgt-calc's rule, verified on real exports from 2020 to 2026 (#1203).
 
-**Takeovers paid in shares** appear as a `Market sell` with a price of 0 and a `Total` of 0; the new shares arrive via `Stock distribution`, or not at all. Treat this as a hard error requiring manual input.
+**Takeovers paid in shares** appear as a `Market sell` with a price of 0 and a `Total` of 0; the new shares arrive via `Stock distribution`, or not at all. Treat this as a hard error requiring manual input. The tax rule, a disposal valued at the market price on the date the exchange took effect, is in [04 §9.1](04-si-tax-rules.md#91-takeovers-and-mergers-paid-in-shares).
 
 In the real 2025 export of §4.2, the takeover matched that description, with these details [H]:
 
