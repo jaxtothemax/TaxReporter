@@ -19,6 +19,7 @@ export {
   type ImportRequest,
   type ImportResult,
   type ReadContext,
+  type XlsxAdapter,
 } from "./adapter.js";
 export {
   CSV_LIMITS,

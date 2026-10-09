@@ -59,8 +59,13 @@ describe("importFile's intake", () => {
     }).diagnostics;
 
   it("refuses a disguised file before any adapter reads it", () => {
+    // A ZIP goes to the workbook reader, which finds this one damaged.
     expect(file(bytes(0x50, 0x4b, 0x03, 0x04))).toEqual([
-      { severity: "blocking", code: "fileRefused", params: { reason: "zip" } },
+      {
+        severity: "blocking",
+        code: "unreadableFile",
+        params: { reason: "zipEnd", row: 0 },
+      },
     ]);
     expect(file(bytes(0x41, 0x2c, 0x9a, 0x0a))).toEqual([
       {

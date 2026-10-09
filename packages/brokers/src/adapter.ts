@@ -21,6 +21,12 @@ import { CsvError, readCsv, type CsvTable } from "./csv.js";
 import { ibkr } from "./ibkr.js";
 import { decodeUtf8, sniff } from "./intake.js";
 import { trading212, trading212Cfd } from "./trading212.js";
+import {
+  openWorkbook,
+  XlsxError,
+  type Workbook,
+  type WorkbookInfo,
+} from "./xlsx.js";
 import { peekRoot, XmlError, type XmlElement } from "./xml.js";
 
 /** How far a file reaches for one account it covers. */
@@ -75,6 +81,18 @@ export interface XmlAdapter {
   read(text: string, context: ReadContext): ImportResult;
 }
 
+/**
+ * An adapter for an XLSX workbook (ADR 0014 §6). It chooses by the sheet
+ * list and date system alone, so choosing inflates nothing, and reads the
+ * Workbook, never the file's bytes; an XlsxError it lets through, from a
+ * sheet it asked for, refuses the file.
+ */
+export interface XlsxAdapter {
+  readonly broker: string;
+  matches(book: WorkbookInfo): boolean;
+  read(book: Workbook, context: ReadContext): ImportResult;
+}
+
 /** One file to import. */
 export interface ImportRequest extends ReadContext {
   readonly bytes: Uint8Array;
@@ -112,6 +130,13 @@ export const CSV_ADAPTERS: readonly CsvAdapter[] = Object.freeze([
 /** Every XML adapter; a file must match exactly one of them. */
 export const XML_ADAPTERS: readonly XmlAdapter[] = Object.freeze([ibkr]);
 
+/**
+ * Every XLSX adapter; a workbook must match exactly one of them. None yet:
+ * eToro's comes first (ADR 0014), and until then a workbook is read, and
+ * not recognized.
+ */
+export const XLSX_ADAPTERS: readonly XlsxAdapter[] = Object.freeze([]);
+
 function refused<C extends DiagnosticCode>(
   code: C,
   params: DiagnosticParams[C],
@@ -136,14 +161,31 @@ function looksLikeXml(text: string): boolean {
   return false;
 }
 
+/**
+ * The one adapter of a family that recognizes the file, or the refusal: a
+ * file none recognizes, or more than one does, is never read on a guess.
+ * Every family chooses through here.
+ */
+function exactlyOne<T, A extends { matches(seen: T): boolean }>(
+  adapters: readonly A[],
+  seen: T,
+): A | ImportResult {
+  const matching = adapters.filter((a) => a.matches(seen));
+  const [adapter] = matching;
+  if (adapter === undefined) return refused("unknownFormat", {});
+  if (matching.length > 1) return refused("ambiguousFormat", {});
+  return adapter;
+}
+
+/** Whether `exactlyOne` came back with an adapter. */
+const isAdapter = <A>(chosen: A | ImportResult): chosen is A =>
+  !("events" in (chosen as object));
+
 /** The XML family: the root picks the adapter, which reads the rest. */
 function importXml(text: string, context: ReadContext): ImportResult {
   try {
-    const root = peekRoot(text);
-    const matching = XML_ADAPTERS.filter((a) => a.matches(root));
-    const [adapter] = matching;
-    if (adapter === undefined) return refused("unknownFormat", {});
-    if (matching.length > 1) return refused("ambiguousFormat", {});
+    const adapter = exactlyOne(XML_ADAPTERS, peekRoot(text));
+    if (!isAdapter(adapter)) return adapter;
     return capped(adapter.read(text, context));
   } catch (error) {
     if (!(error instanceof XmlError)) throw error;
@@ -152,19 +194,57 @@ function importXml(text: string, context: ReadContext): ImportResult {
 }
 
 /**
- * Reads one export: the byte cap, the sniff, strict UTF-8, the family by
- * content, then exactly one adapter of that family. A file none recognizes,
- * or more than one does, is refused with a blocking diagnostic, never read
- * on a guess. The caller gives the file's ID (`fileIdOf` its bytes) and
- * keeps its name for the screen.
+ * The XLSX family (ADR 0014 §11): a ZIP opened as a workbook, its sheet
+ * list picking the adapter, which asks for the sheets it reads. A ZIP that
+ * is no workbook, or a workbook of a kind never read, is refused for what
+ * it is; a damaged one names its rule and place.
+ */
+export function importXlsx(
+  bytes: Uint8Array,
+  context: ReadContext,
+  adapters: readonly XlsxAdapter[] = XLSX_ADAPTERS,
+): ImportResult {
+  try {
+    const book = openWorkbook(bytes);
+    if (typeof book === "string") {
+      return refused("fileRefused", { reason: book });
+    }
+    const adapter = exactlyOne(adapters, {
+      sheets: book.sheets,
+      date1904: book.date1904,
+    });
+    if (!isAdapter(adapter)) return adapter;
+    return capped(adapter.read(book, context));
+  } catch (error) {
+    if (!(error instanceof XlsxError)) throw error;
+    return refused("unreadableFile", {
+      reason: error.code,
+      row: error.row,
+      ...(error.sheet === 0 ? {} : { sheet: error.sheet }),
+      ...(error.column === 0 ? {} : { column: error.column }),
+    });
+  }
+}
+
+/**
+ * Reads one export: the byte cap, the sniff, the family by content (XLSX
+ * for a ZIP, else strict UTF-8 text, XML or CSV), then exactly one adapter
+ * of that family. A file none recognizes, or more than one does, is
+ * refused with a blocking diagnostic, never read on a guess. The caller
+ * gives the file's ID (`fileIdOf` its bytes) and keeps its name for the
+ * screen.
  */
 export function importFile(request: ImportRequest): ImportResult {
   const { bytes, fileId, accountGroup } = request;
+  const context = { fileId, accountGroup };
   const refusal = sniff(bytes);
+  // A ZIP is the XLSX family's to open; the sniff still refuses it
+  // wherever no workbook can be, as in the command line's payers file.
+  if (refusal === "zip") return importXlsx(bytes, context);
   if (refusal !== null) return refused("fileRefused", { reason: refusal });
   const text = decodeUtf8(bytes);
   if (text === null) return refused("fileRefused", { reason: "notUtf8" });
-  if (looksLikeXml(text)) return importXml(text, { fileId, accountGroup });
+  if (looksLikeXml(text)) return importXml(text, context);
   let table: CsvTable;
   try {
     table = readCsv(text);
@@ -175,9 +255,7 @@ export function importFile(request: ImportRequest): ImportResult {
       row: error.row,
     });
   }
-  const matching = CSV_ADAPTERS.filter((a) => a.matches(table.header));
-  const [adapter] = matching;
-  if (adapter === undefined) return refused("unknownFormat", {});
-  if (matching.length > 1) return refused("ambiguousFormat", {});
-  return capped(adapter.read(table, { fileId, accountGroup }));
+  const adapter = exactlyOne(CSV_ADAPTERS, table.header);
+  if (!isAdapter(adapter)) return adapter;
+  return capped(adapter.read(table, context));
 }

@@ -7,6 +7,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
+import { crc32 } from "node:zlib";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -45,6 +46,36 @@ function run(args: string[]) {
 }
 
 const scratch = () => mkdtempSync(join(tmpdir(), "taxreporter-"));
+
+/** A ZIP archive of one stored file: the smallest a ZIP can be. */
+function storedZip(name: string, content: Buffer): Buffer {
+  const fileName = Buffer.from(name);
+  const crc = crc32(content);
+  const local = Buffer.alloc(30);
+  local.writeUInt32LE(0x04034b50, 0);
+  local.writeUInt16LE(20, 4);
+  local.writeUInt32LE(crc, 14);
+  local.writeUInt32LE(content.length, 18);
+  local.writeUInt32LE(content.length, 22);
+  local.writeUInt16LE(fileName.length, 26);
+  const central = Buffer.alloc(46);
+  central.writeUInt32LE(0x02014b50, 0);
+  central.writeUInt16LE(20, 4);
+  central.writeUInt16LE(20, 6);
+  central.writeUInt32LE(crc, 16);
+  central.writeUInt32LE(content.length, 20);
+  central.writeUInt32LE(content.length, 24);
+  central.writeUInt16LE(fileName.length, 28);
+  const entry = Buffer.concat([local, fileName, content]);
+  const directory = Buffer.concat([central, fileName]);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(1, 8);
+  end.writeUInt16LE(1, 10);
+  end.writeUInt32LE(directory.length, 12);
+  end.writeUInt32LE(entry.length, 16);
+  return Buffer.concat([entry, directory, end]);
+}
 
 const payersFile = (dir: string) => {
   const file = join(dir, "payers.json");
@@ -474,10 +505,10 @@ describe("taxreporter", () => {
     }
   });
 
-  it("refuses a file that is not a text export, and writes nothing", () => {
+  it("refuses a ZIP that is no workbook, and writes nothing", () => {
     const dir = scratch();
     const zip = join(dir, "export.csv");
-    writeFileSync(zip, Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00]));
+    writeFileSync(zip, storedZip("notes.txt", Buffer.from("hello")));
     const out = join(dir, "out");
     const result = run([
       zip,
@@ -492,6 +523,26 @@ describe("taxreporter", () => {
     expect(result.stdout).toContain(
       "Refused: export.csv is a ZIP archive, not a broker export",
     );
+    expect(existsSync(out)).toBe(false);
+  });
+
+  it("reads a damaged ZIP as the workbook it claims to be, names why not, and writes nothing", () => {
+    const dir = scratch();
+    const zip = join(dir, "export.xlsx");
+    writeFileSync(zip, Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00]));
+    const out = join(dir, "out");
+    const result = run([
+      zip,
+      "--year",
+      "2026",
+      "--tax-number",
+      "12345678",
+      "--out",
+      out,
+    ]);
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain("unreadableFile");
+    expect(result.stdout).toContain("zipEnd");
     expect(existsSync(out)).toBe(false);
   });
 

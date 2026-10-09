@@ -3,10 +3,13 @@
 **Date:** 2026-10-09
 **Status:** Proposed
 
-> **Implementation status (2026-10-09):** being built on branch `feat/xlsx-reader`, not yet on
+> **Implementation status (2026-10-09):** built on branch `feat/xlsx-reader`, not yet on
 > `main`. The DEFLATE decoder and CRC-32 (`packages/brokers/src/{inflate,crc32}.ts`), the ZIP
-> reader (`zip.ts`) and the OOXML profile of the XML scanner (`xml.ts`) are in; the workbook
-> reader and the dispatch are not yet.
+> reader (`zip.ts`), the OOXML profile of the XML scanner (`xml.ts`), the number and serial
+> readers (`xlsx-values.ts`), the workbook reader (`xlsx.ts`) and the dispatch (`adapter.ts`)
+> are in. No XLSX adapter is, so no workbook is recognized yet; the sheet classification of
+> decision 6 lands with the first adapter, eToro's, and the web app does not accept `.xlsx`
+> until then.
 
 ## Context
 
@@ -182,10 +185,10 @@ skips rather than refuses (decision 4).
     and each shared string at their limits, with room for rows and runs) and `xlsxExponent`
     40. `LIMITS.cellLength` counts UTF-16 code units in a CSV cell and code points in an XML
     value.
-11. **Dispatch.** One table of file families (how each is detected, opened, and which
-    adapters it has) and one routine that requires exactly one matching adapter replace the
-    two copies in `adapter.ts`. `importFile` detects a ZIP before the sniff, which keeps
-    refusing ZIP for the command line's payers file. The outcomes:
+11. **Dispatch.** One routine that requires exactly one matching adapter serves every
+    family, in place of the copies `adapter.ts` had. `importFile` hands a ZIP to the XLSX
+    family, and the sniff keeps refusing ZIP wherever no workbook can be, as in the command
+    line's payers file. The outcomes:
     - a damaged archive or part: `unreadableFile`, with the reason and, where there is one,
       the sheet's position, row and column, never a part name, a sheet name or a value
       (line numbers mean nothing in parts of one line);
