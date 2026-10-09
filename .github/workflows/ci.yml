@@ -206,8 +206,11 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: pnpm
-      - run: make install-deps
-      - run: make test-e2e
+      # The image has no make, so these are the commands `make install-deps`
+      # and `make test-e2e` run, spelled out.
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      - run: pnpm --dir apps/web exec playwright test
       # Traces and screenshots of the demo only: the tests never load a real
       # export.
       - if: failure()
