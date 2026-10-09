@@ -61,6 +61,12 @@ updates:
     labels:
       - "dependencies"
     open-pull-requests-limit: 10
+    ignore:
+      # @types/node follows the Node major the project runs on (24 LTS: .nvmrc,
+      # "engines"). A newer major's types accept APIs Node 24 does not have, so
+      # code would typecheck and then fail at run time. Move both together.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   # Docs-site toolchain — website/, its own npm project (Astro Starlight).
   - package-ecosystem: "npm"
@@ -79,3 +85,8 @@ updates:
       - "dependencies"
       - "no-changelog"
     open-pull-requests-limit: 5
+    ignore:
+      # TypeScript 7 cannot be installed here until @astrojs/check accepts it
+      # as a peer (npm fails with ERESOLVE). Remove this when it does: #24.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
