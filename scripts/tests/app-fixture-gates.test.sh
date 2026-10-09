@@ -59,6 +59,12 @@ generate_fixture "$FIX" || { echo "FATAL: could not generate the fixture" >&2; e
 # Hermetic git: no user config, no hooks, no signing.
 export GIT_CONFIG_GLOBAL=/dev/null
 export GIT_CONFIG_SYSTEM=/dev/null
+# No repository but the fixture's. A git hook exports GIT_DIR and its kin to
+# everything it runs, and pre-push runs this script: left set, every `git`
+# below would commit on the branch being pushed and switch its worktree to
+# the fixture's. Clear the variables git itself lists as local to a repo.
+# shellcheck disable=SC2046  # one variable name per word, by design
+unset $(git rev-parse --local-env-vars)
 
 rc=0
 pass() { echo "SELF-TEST OK: $1"; }

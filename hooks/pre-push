@@ -7,6 +7,11 @@
 # Skip with: git push --no-verify
 
 cd "$(git rev-parse --show-toplevel)" || exit 0
+# Git exports GIT_DIR and its kin to a hook. A check that makes a scratch
+# repository would act on this one with them set, so every check runs as it
+# would from a shell in the working tree.
+# shellcheck disable=SC2046  # one variable name per word, by design
+unset $(git rev-parse --local-env-vars)
 
 if make -n pre-push-checks >/dev/null 2>&1; then
     echo "Running pre-push checks..."

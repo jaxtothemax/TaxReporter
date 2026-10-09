@@ -198,7 +198,8 @@ check-app-fixture-gates:  ## Added-files coverage gate passes a real app fixture
 	@# (does not fail) without node, the same absent-tool shape as
 	@# check-added-files-covered. CI's app-fixture-gates job always has both.
 	@if command -v node >/dev/null 2>&1; then \
-		bash scripts/tests/app-fixture-gates.test.sh; \
+		bash scripts/tests/app-fixture-gates.test.sh && \
+		bash scripts/tests/hook-env.test.sh; \
 	else \
 		echo "node not installed — skipping check-app-fixture-gates."; \
 	fi

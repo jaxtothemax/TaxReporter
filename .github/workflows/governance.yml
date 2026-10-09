@@ -437,7 +437,9 @@ jobs:
           WATCH: |
             scripts/check-added-files-covered.mjs
             scripts/tests/app-fixture-gates.test.sh
+            scripts/tests/hook-env.test.sh
             scripts/tests/lib/app-fixture.sh
+            hooks/pre-push
             .github/workflows/governance.yml
         run: |
           if [ "$EVENT" != "pull_request" ]; then echo "run=true" >> "$GITHUB_OUTPUT"; exit 0; fi
@@ -461,6 +463,9 @@ jobs:
           node-version: "20"
       - if: steps.scope.outputs.run == 'true'
         run: bash scripts/tests/app-fixture-gates.test.sh
+      # The gate must stay away from the repository of a hook that runs it.
+      - if: steps.scope.outputs.run == 'true'
+        run: bash scripts/tests/hook-env.test.sh
 
   # `make setup`, `scripts/customize.sh`, `scripts/doctor.sh`, and `/kickoff` are
   # the entire first-run experience for a brand-new clone of this template, and
