@@ -80,6 +80,41 @@ describe("importFile, the XLSX family", () => {
       diagnostic("blocking", "fileRefused", { reason: "macroWorkbook" }),
     ]);
   });
+
+  it("refuses a binary and a Strict workbook for what they are", () => {
+    const binary = makeWorkbook({
+      sheets: [{ name: "A" }],
+      edit: (parts) => {
+        const types = parts.get("[Content_Types].xml") as string;
+        parts.set(
+          "[Content_Types].xml",
+          types.replace(
+            CONTENT_TYPE.workbook,
+            "application/vnd.ms-excel.sheet.binary.macroEnabled.main",
+          ),
+        );
+      },
+    });
+    const strict = makeWorkbook({
+      sheets: [{ name: "A" }],
+      edit: (parts) => {
+        const rels = parts.get("_rels/.rels") as string;
+        parts.set(
+          "_rels/.rels",
+          rels.replace(
+            "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument",
+            "http://purl.oclc.org/ooxml/officeDocument/relationships/officeDocument",
+          ),
+        );
+      },
+    });
+    expect(importFile({ bytes: binary, ...context }).diagnostics).toEqual([
+      diagnostic("blocking", "fileRefused", { reason: "binaryWorkbook" }),
+    ]);
+    expect(importFile({ bytes: strict, ...context }).diagnostics).toEqual([
+      diagnostic("blocking", "fileRefused", { reason: "strictWorkbook" }),
+    ]);
+  });
 });
 
 describe("importXlsx", () => {

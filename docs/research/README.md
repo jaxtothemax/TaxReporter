@@ -18,6 +18,7 @@ The research was done on 2026-10-06 and 2026-10-07 and covers tax years 2025 and
 | 06 | [IBKR, Trading 212, Revolut exports](06-brokers-ibkr-t212-revolut.md) | Flex Query XML, T212 CSV versions, Revolut account and P&L statements: columns, action types, time zones, fees, withholding, splits, pitfalls, and a normalized event model. | not independently verified |
 | 07 | [eToro, Trade Republic, XTB, DEGIRO and other brokers](07-brokers-eu-and-others.md) | Popularity ranking and export formats for the other brokers Slovenians use, CFD-vs-real routing, and domestic brokers that report to FURS themselves. | not independently verified |
 | 08 | [Employee equity plans](08-brokers-equity-plans.md) | Schwab, E\*TRADE / Morgan Stanley, Shareworks, Fidelity, Computershare/EquatePlus and Carta exports, and how RSU/ESPP shares map to Doh-KDVP and Doh-Div. | not independently verified |
+| 09 | [Numbers and dates in XLSX exports](09-xlsx-numbers-and-dates.md) | How a number cell (a binary double) and a date serial are read exactly: 15 significant digits, the 1900 and 1904 date systems, the time of day, and the limits Excel holds a workbook to. The source of ADR 0014's exception to ADR 0006. | not independently verified |
 
 ## Confidence and verification legend
 

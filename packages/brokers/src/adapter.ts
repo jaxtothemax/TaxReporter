@@ -169,24 +169,20 @@ function looksLikeXml(text: string): boolean {
 function exactlyOne<T, A extends { matches(seen: T): boolean }>(
   adapters: readonly A[],
   seen: T,
-): A | ImportResult {
+): { readonly adapter: A } | { readonly refusal: ImportResult } {
   const matching = adapters.filter((a) => a.matches(seen));
   const [adapter] = matching;
-  if (adapter === undefined) return refused("unknownFormat", {});
-  if (matching.length > 1) return refused("ambiguousFormat", {});
-  return adapter;
+  if (adapter === undefined) return { refusal: refused("unknownFormat", {}) };
+  if (matching.length > 1) return { refusal: refused("ambiguousFormat", {}) };
+  return { adapter };
 }
-
-/** Whether `exactlyOne` came back with an adapter. */
-const isAdapter = <A>(chosen: A | ImportResult): chosen is A =>
-  !("events" in (chosen as object));
 
 /** The XML family: the root picks the adapter, which reads the rest. */
 function importXml(text: string, context: ReadContext): ImportResult {
   try {
-    const adapter = exactlyOne(XML_ADAPTERS, peekRoot(text));
-    if (!isAdapter(adapter)) return adapter;
-    return capped(adapter.read(text, context));
+    const chosen = exactlyOne(XML_ADAPTERS, peekRoot(text));
+    if ("refusal" in chosen) return chosen.refusal;
+    return capped(chosen.adapter.read(text, context));
   } catch (error) {
     if (!(error instanceof XmlError)) throw error;
     return refused("unreadableFile", { reason: error.code, row: error.line });
@@ -209,12 +205,12 @@ export function importXlsx(
     if (typeof book === "string") {
       return refused("fileRefused", { reason: book });
     }
-    const adapter = exactlyOne(adapters, {
+    const chosen = exactlyOne(adapters, {
       sheets: book.sheets,
       date1904: book.date1904,
     });
-    if (!isAdapter(adapter)) return adapter;
-    return capped(adapter.read(book, context));
+    if ("refusal" in chosen) return chosen.refusal;
+    return capped(chosen.adapter.read(book, context));
   } catch (error) {
     if (!(error instanceof XlsxError)) throw error;
     return refused("unreadableFile", {
@@ -255,7 +251,7 @@ export function importFile(request: ImportRequest): ImportResult {
       row: error.row,
     });
   }
-  const adapter = exactlyOne(CSV_ADAPTERS, table.header);
-  if (!isAdapter(adapter)) return adapter;
-  return capped(adapter.read(table, context));
+  const chosen = exactlyOne(CSV_ADAPTERS, table.header);
+  if ("refusal" in chosen) return chosen.refusal;
+  return capped(chosen.adapter.read(table, context));
 }

@@ -99,6 +99,16 @@ describe("isFinding", () => {
     expect(isFinding({ ...finding, source: undefined })).toBe(true);
   });
 
+  it("takes a workbook's place: its sheet, row and column, as numbers", () => {
+    expect(
+      isFinding({
+        severity: "blocking",
+        code: "unreadableFile",
+        params: { reason: "xlsxFormula", row: 12, sheet: 2, column: 3 },
+      }),
+    ).toBe(true);
+  });
+
   it("drops an unknown code, severity or parameter shape", () => {
     for (const bad of [
       { ...finding, code: "toString" },

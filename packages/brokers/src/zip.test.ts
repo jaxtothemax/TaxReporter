@@ -279,6 +279,86 @@ describe("openZip: one refusal per rule", () => {
     );
   });
 
+  it("charges every read to one budget, a failed one included", () => {
+    // Two parts that each fit the budget, and not together. Each claims to
+    // inflate to more than it does, so the first read fails, still charged.
+    const half = Math.floor(LIMITS.inflatedBytes / 2) + 1;
+    const archive = openZip(
+      makeZip([
+        { name: "a.xml", content: sheet },
+        { name: "b.xml", content: sheet },
+      ]),
+    );
+    const [a, b] = archive.entries;
+    if (a === undefined || b === undefined) throw new Error("two entries");
+    const claim = (entry: typeof a) => ({ ...entry, size: half });
+    expect(() => archive.read([claim(a)])).toThrow(
+      expect.objectContaining({ code: "zipInflate" }),
+    );
+    expect(() => archive.read([claim(b)])).toThrow(
+      expect.objectContaining({ code: "zipBudget" }),
+    );
+  });
+
+  it("refuses a record signature in the archive comment", () => {
+    const end = new Uint8Array(22);
+    end.set([0x50, 0x4b, 0x05, 0x06]);
+    const comment = new Uint8Array([...end, 0x6a, 0x75, 0x6e, 0x6b]);
+    expect(
+      refusal(makeZip([{ name: "a.xml", content: sheet }], { comment })),
+    ).toBe("zipEnd");
+    // Text that only mentions PK passes.
+    const text = new TextEncoder().encode("PK files");
+    expect(
+      refusal(makeZip([{ name: "a.xml", content: sheet }], { comment: text })),
+    ).toBe("none");
+  });
+
+  it("refuses a name spelled two ways, or a second name for it", () => {
+    for (const name of ["xl/./a.xml", "xl//a.xml", "xl/sheet%31.xml", "a/"]) {
+      const expected = name === "a/" ? "none" : "zipName";
+      expect(refusal(makeZip([{ name, content: sheet }])), name).toBe(expected);
+    }
+    const unicodePath = new Uint8Array([0x75, 0x70, 0x01, 0x00, 0x00]);
+    expect(
+      refusal(makeZip([{ name: "a.xml", content: sheet, extra: unicodePath }])),
+    ).toBe("zipExtra");
+  });
+
+  it("refuses a stored entry with a data descriptor, and a DEFLATE entry larger than stored", () => {
+    expect(
+      refusal(
+        makeZip([
+          { name: "a.xml", content: sheet, method: 0, descriptor: "signed" },
+        ]),
+      ),
+    ).toBe("zipFlags");
+    // "A" after empty stored blocks, 5 bytes each: a valid stream that no
+    // encoder writes past stored size plus 5 bytes a block, plus 64.
+    const padded = (blocks: number) =>
+      makeZip([
+        {
+          name: "a.xml",
+          content: new Uint8Array([0x41]),
+          deflated: new Uint8Array([
+            ...Array.from({ length: blocks }, () => [
+              0, 0, 0, 0xff, 0xff,
+            ]).flat(),
+            0x01,
+            0x01,
+            0x00,
+            0xfe,
+            0xff,
+            0x41,
+          ]),
+        },
+      ]);
+    // 1 + 5 + 64 = 70 bytes at most: 12 blocks make 66, 13 make 71.
+    const fits = openZip(padded(12));
+    expect(Array.from(fits.read(fits.entries)[0] ?? [])).toEqual([0x41]);
+    expect(refusal(padded(13))).toBe("zipInflate");
+  });
+
   it("stays fast on an archive made of end-record signatures", () => {
     const size = 8 * 1024 * 1024;
     const junk = new Uint8Array(size);

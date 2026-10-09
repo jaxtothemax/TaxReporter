@@ -146,7 +146,8 @@ describe("inflate: damaged streams", () => {
       expect(Buffer.from(out).equals(expected ?? Buffer.alloc(0))).toBe(true);
     }
     expect(refused).toBeGreaterThan(0);
-  });
+    // Thousands of zlib runs: under CI's coverage this passes 5 seconds.
+  }, 60_000);
 
   it("refuses a stream cut short anywhere", () => {
     const data = sheetLike(200);

@@ -14,8 +14,13 @@
  * - no ZIP64, no second disk, no encryption; stored or DEFLATE only; only
  *   the general-purpose flags those need;
  * - names of printable ASCII, at most 256 bytes, with no backslash, no
- *   leading slash and no `..` segment, unique without regard to case (as OPC
- *   compares part names); extra fields of at most 1 KiB, never ZIP64's.
+ *   percent sign, no leading slash and no empty, `.` or `..` segment, unique
+ *   without regard to case (as OPC compares part names); extra fields of at
+ *   most 1 KiB, never ZIP64's, nor the Unicode path or comment that give a
+ *   tool a second name;
+ * - no record signature in the archive comment, where a second End of
+ *   Central Directory record could hide from a reader that does not scan
+ *   for it, and a DEFLATE entry no larger than any encoder makes one.
  *
  * Nothing is inflated until asked for, and then only within a budget
  * checked against the declared sizes first (LIMITS.inflatedBytes); each
@@ -70,6 +75,12 @@ const MAX_COMMENT = 0xffff;
 const MAX_NAME_BYTES = 256;
 const MAX_EXTRA_BYTES = 1024;
 const ZIP64_EXTRA_ID = 0x0001;
+/** Info-ZIP's Unicode path and comment fields, a second name for a tool. */
+const UNICODE_EXTRA_IDS: ReadonlySet<number> = new Set([0x7075, 0x6375]);
+/** The second byte pair of each ZIP record signature after "PK". */
+const RECORD_KINDS: ReadonlySet<number> = new Set([
+  0x0201, 0x0403, 0x0605, 0x0606, 0x0706, 0x0807,
+]);
 
 /** Flag bits: 0 encrypted, 6 strong encryption, 13 masked headers. */
 const ENCRYPTION_FLAGS = (1 << 0) | (1 << 6) | (1 << 13);
@@ -108,6 +119,17 @@ function endRecord(bytes: Uint8Array): number {
     found = at;
   }
   if (found === -1) throw new ZipError("zipEnd");
+  // A record signature in the comment would let a reader that takes the
+  // last one, or scans for one, see another archive (ADR 0014 §2).
+  for (let at = found + EOCD_SIZE; at + 4 <= bytes.length; at += 1) {
+    if (
+      bytes[at] === 0x50 &&
+      bytes[at + 1] === 0x4b &&
+      RECORD_KINDS.has(u16(bytes, at + 2))
+    ) {
+      throw new ZipError("zipEnd");
+    }
+  }
   return found;
 }
 
@@ -121,6 +143,7 @@ function checkExtra(bytes: Uint8Array, at: number, length: number): void {
     const id = u16(bytes, pos);
     const size = u16(bytes, pos + 2);
     if (id === ZIP64_EXTRA_ID) throw new ZipError("zip64");
+    if (UNICODE_EXTRA_IDS.has(id)) throw new ZipError("zipExtra");
     pos += 4 + size;
   }
   if (pos !== end) throw new ZipError("zipExtra");
@@ -132,13 +155,19 @@ function entryName(bytes: Uint8Array, at: number, length: number): string {
   let name = "";
   for (let i = 0; i < length; i += 1) {
     const byte = bytes[at + i] as number;
-    // Printable ASCII only: no control character, no byte past 0x7E.
-    if (byte < 0x20 || byte > 0x7e || byte === 0x5c) {
+    // Printable ASCII only: no control character, no byte past 0x7E, no
+    // backslash and no percent-encoding, which a reader may decode.
+    if (byte < 0x20 || byte > 0x7e || byte === 0x5c || byte === 0x25) {
       throw new ZipError("zipName");
     }
     name += String.fromCharCode(byte);
   }
-  if (name.startsWith("/") || name.split("/").includes("..")) {
+  // One spelling per name: a reader that normalizes `xl/./a.xml` or
+  // `xl//a.xml` would see two copies of one part. A folder's own entry
+  // may end with a slash.
+  const segments = name.split("/");
+  if (segments.at(-1) === "" && segments.length > 1) segments.pop();
+  if (segments.some((s) => s === "" || s === "." || s === "..")) {
     throw new ZipError("zipName");
   }
   return name;
@@ -272,6 +301,20 @@ export function openZip(bytes: Uint8Array): ZipArchive {
     if (startDisk !== 0) throw new ZipError("zipDisk");
     if (method === 0 && compressedSize !== size) {
       throw new ZipError("zipStoredSize");
+    }
+    // A stored entry's sizes are known before it is written: a descriptor
+    // after it only gives a second place to state them.
+    if (method === 0 && (flags & DESCRIPTOR_FLAG) !== 0) {
+      throw new ZipError("zipFlags");
+    }
+    // No encoder makes a DEFLATE stream larger than stored blocks would:
+    // 5 bytes a block of 65,535, and a little more. A larger one costs
+    // decoding time the budget, which counts output, does not charge.
+    if (
+      method === 8 &&
+      compressedSize > size + 5 * Math.ceil(size / 65_535) + 64
+    ) {
+      throw new ZipError("zipInflate");
     }
     const nameAt = pos + CENTRAL_SIZE;
     const name = entryName(bytes, nameAt, nameLength);

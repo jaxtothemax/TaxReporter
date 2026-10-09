@@ -18,6 +18,8 @@ export interface Part {
   readonly extra?: Uint8Array;
   /** Bytes of the name as written, where the test needs other bytes. */
   readonly rawName?: Uint8Array;
+  /** The DEFLATE stream as written, where the test makes its own. */
+  readonly deflated?: Uint8Array;
 }
 
 export interface Options {
@@ -62,7 +64,7 @@ export function makeZip(
     const method = part.method ?? 8;
     const data =
       method === 8
-        ? new Uint8Array(deflateRawSync(part.content))
+        ? (part.deflated ?? new Uint8Array(deflateRawSync(part.content)))
         : part.content;
     const crc = crc32(part.content);
     const name = part.rawName ?? encode(part.name);

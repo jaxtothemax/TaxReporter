@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   CONTENT_TYPE,
+  MAIN,
   makeWorkbook,
   RELS,
   type WorkbookSpec,
@@ -692,6 +693,168 @@ describe("openWorkbook: one refusal per rule, with its place", () => {
   });
 });
 
+describe("openWorkbook: what Excel and TaxReporter could read differently", () => {
+  const MC_NS = "http://schemas.openxmlformats.org/markup-compatibility/2006";
+
+  it("keeps white space that is text: a run of one space, a blank string", () => {
+    const book = open(
+      one(
+        '<row><c t="s"><v>0</v></c><c t="inlineStr"><is><t xml:space="preserve">   </t></is></c><c t="inlineStr"><is><t>a<!--x--> <!--y-->b</t></is></c></row>',
+        {
+          strings: [
+            '<r><t>Buy</t></r><r><t xml:space="preserve"> </t></r><r><t>AAPL</t></r>',
+          ],
+        },
+      ),
+    );
+    expect(cells(book)).toEqual([
+      "A1=string:Buy AAPL",
+      "B1=string:   ",
+      "C1=string:a b",
+    ]);
+  });
+
+  it("decodes each piece of text on its own, as Excel does", () => {
+    const book = open(
+      one('<row><c t="s"><v>0</v></c></row>', {
+        strings: ["<r><t>_x00</t></r><r><t>41_</t></r>"],
+      }),
+    );
+    expect(cells(book)).toEqual(["A1=string:_x0041_"]);
+  });
+
+  it("refuses a string built in a way Excel does not build one", () => {
+    for (const si of [
+      "<t>a<t>b</t></t>",
+      "<t>a</t><t>b</t>",
+      "<t>a</t><r><t>b</t></r>",
+      "<r><t>a</t><t>b</t></r>",
+    ]) {
+      expect(code(one("", { strings: [si] })), si).toBe("xlsxStructure");
+    }
+    expect(
+      code(one('<row><c t="inlineStr"><is><t>a</t></is><v>1</v></c></row>')),
+    ).toBe("xlsxCellType");
+    expect(code(one("<row><c><v>1<x/></v></c></row>"))).toBe("xlsxStructure");
+  });
+
+  it("holds an inline string and a value to Excel's limit on a cell", () => {
+    const half = "x".repeat(Math.ceil((LIMITS.xlsxCellLength + 1) / 2));
+    expect(
+      code(
+        one(
+          `<row><c t="inlineStr"><is><r><t>${half}</t></r><r><t>${half}</t></r></is></c></row>`,
+        ),
+      ),
+    ).toBe("xlsxText");
+    expect(
+      code(one(`<row><c t="str"><v>${half}<!-- -->${half}</v></c></row>`)),
+    ).toBe("xlsxText");
+  });
+
+  it("refuses what Markup Compatibility would put in the place of a part's own content", () => {
+    const choice = (inner: string) =>
+      `<mc:AlternateContent xmlns:mc="${MC_NS}"><mc:Choice Requires="x15">${inner}</mc:Choice><mc:Fallback/></mc:AlternateContent>`;
+    expect(
+      code(
+        one("", {
+          edit: editing("xl/workbook.xml", (text) =>
+            text
+              .replace("<workbookPr />", "")
+              .replace(
+                "<bookViews>",
+                `${choice('<workbookPr date1904="1"/>')}<bookViews>`,
+              ),
+          ),
+        }),
+      ),
+    ).toBe("xlsxWorkbook");
+    expect(
+      code({
+        sheets: [
+          {
+            name: "A",
+            data: "<row><c><v>1</v></c></row>",
+            after: choice("<sheetData><row><c><v>2</v></c></row></sheetData>"),
+          },
+        ],
+      }),
+    ).toBe("xlsxStructure");
+    // Excel's own extensions there still pass.
+    expect(
+      code(
+        one("<row><c><v>1</v></c></row>", {
+          edit: editing("xl/workbook.xml", (text) =>
+            text.replace(
+              "</sheets>",
+              `</sheets>${choice('<x15ac:absPath url="C:\\x\\" xmlns:x15ac="http://schemas.microsoft.com/office/spreadsheetml/2010/11/ac"/>')}`,
+            ),
+          ),
+        }),
+      ),
+    ).toBe("none");
+  });
+
+  it("reads exactly one sheetData", () => {
+    const sheet = (xml: string) => ({
+      sheets: [{ name: "A" }],
+      edit: editing("xl/worksheets/sheet1.xml", () => xml),
+    });
+    expect(code(sheet(`<worksheet xmlns="${MAIN}"/>`))).toBe("xlsxStructure");
+    expect(
+      code(
+        sheet(
+          `<worksheet xmlns="${MAIN}"><sheetData/><sheetData><row><c><v>1</v></c></row></sheetData></worksheet>`,
+        ),
+      ),
+    ).toBe("xlsxStructure");
+  });
+
+  it("matches content types by ASCII case alone", () => {
+    // U+212A KELVIN SIGN folds to "k" in Unicode, never in a MIME type.
+    const kelvin = String.fromCharCode(0x212a);
+    const spec = one("<row><c><v>1</v></c></row>", {
+      edit: editing("[Content_Types].xml", (text) =>
+        text.replace(
+          CONTENT_TYPE.worksheet,
+          CONTENT_TYPE.worksheet.replace("k", kelvin),
+        ),
+      ),
+    });
+    expect(code(spec)).toBe("xlsxPackage");
+  });
+
+  it("says a sheet hides cells by a row or column of no size, or hidden by default", () => {
+    const hides = (spec: WorkbookSpec) => open(spec).rows(1).hiddenCells;
+    expect(
+      hides(one('<row r="1" ht="0" customHeight="1"><c><v>1</v></c></row>')),
+    ).toBe(true);
+    expect(
+      hides({
+        sheets: [
+          {
+            name: "A",
+            before: '<cols><col min="1" max="1" width="0"/></cols>',
+            data: "<row><c><v>1</v></c></row>",
+          },
+        ],
+      }),
+    ).toBe(true);
+    expect(
+      hides({
+        sheets: [
+          {
+            name: "A",
+            before: '<sheetFormatPr defaultRowHeight="15" zeroHeight="1"/>',
+            data: "<row><c><v>1</v></c></row>",
+          },
+        ],
+      }),
+    ).toBe(true);
+    expect(hides(one('<row r="1" ht="15"><c><v>1</v></c></row>'))).toBe(false);
+  });
+});
+
 describe("openWorkbook: nothing before it is needed", () => {
   it("inflates a sheet only when its rows are asked for", () => {
     // A sheet whose part fails its checksum opens, and refuses when read.
@@ -788,17 +951,44 @@ describe("openWorkbook: nothing before it is needed", () => {
 });
 
 describe("the choke point", () => {
-  it("is the only way into the ZIP reader and the decoder", () => {
-    const folder = fileURLToPath(new URL(".", import.meta.url));
-    const sources = readdirSync(folder).filter(
-      (name) => name.endsWith(".ts") && !name.endsWith(".test.ts"),
-    );
-    const importers = (module: string) =>
-      sources.filter((name) =>
-        readFileSync(`${folder}${name}`, "utf8").includes(`from "./${module}"`),
+  it("is the only way into the ZIP reader and the decoder, in every package and app", () => {
+    const root = fileURLToPath(new URL("../../../", import.meta.url));
+    const sources: string[] = [];
+    const walk = (folder: string) => {
+      for (const entry of readdirSync(folder, { withFileTypes: true })) {
+        const path = `${folder}/${entry.name}`;
+        if (entry.isDirectory()) {
+          if (entry.name !== "node_modules" && entry.name !== "dist")
+            walk(path);
+        } else if (
+          /\.tsx?$/.test(entry.name) &&
+          !/\.test\.tsx?$/.test(entry.name)
+        ) {
+          sources.push(path);
+        }
+      }
+    };
+    for (const group of ["packages", "apps"]) {
+      for (const name of readdirSync(`${root}${group}`)) {
+        const src = `${root}${group}/${name}/src`;
+        try {
+          walk(src);
+        } catch {
+          // A package without sources.
+        }
+      }
+    }
+    const importers = (module: string) => {
+      const pattern = new RegExp(
+        `(?:from|import)\\s*\\(?\\s*["'][^"']*\\b${module}(?:\\.js)?["']`,
       );
-    expect(importers("zip.js")).toEqual(["xlsx.ts"]);
-    expect(importers("inflate.js")).toEqual(["zip.ts"]);
+      return sources
+        .filter((path) => !path.includes("/src/testing/"))
+        .filter((path) => pattern.test(readFileSync(path, "utf8")))
+        .map((path) => path.slice(path.lastIndexOf("/") + 1));
+    };
+    expect(importers("zip")).toEqual(["xlsx.ts"]);
+    expect(importers("inflate")).toEqual(["zip.ts"]);
   });
 });
 

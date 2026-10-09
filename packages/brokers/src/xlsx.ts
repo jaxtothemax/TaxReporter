@@ -115,6 +115,8 @@ export interface Workbook extends WorkbookInfo {
 }
 
 const MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+/** Markup Compatibility: content Excel may apply in place of what follows. */
+const MC = "http://schemas.openxmlformats.org/markup-compatibility/2006";
 const RELATIONSHIPS =
   "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 const PACKAGE_RELATIONSHIPS =
@@ -223,22 +225,112 @@ function isXmlChar(code: number): boolean {
 }
 
 /**
- * A string's text as Excel shows it: its `_xHHHH_` escapes decoded, as
- * ECMA-376 `ST_Xstring` defines them (`_x005F_` keeps an underscore), and
- * refused if one names no character: a lone surrogate, or a control
- * character XML could not carry either.
+ * A piece of text as Excel shows it: its `_xHHHH_` escapes decoded, as
+ * ECMA-376 `ST_Xstring` defines them (`_x005F_` keeps an underscore); null
+ * if one names no character: a lone surrogate, or a control character XML
+ * could not carry either.
  */
-function unescape(text: string, sheet: number, row = 0, column = 0): string {
+function unescape(text: string): string | null {
   if (!text.includes("_x")) return text;
   const decoded = text.replace(ESCAPE, (_, hex: string) =>
     String.fromCharCode(Number.parseInt(hex, 16)),
   );
   for (let k = 0; k < decoded.length;) {
     const code = decoded.codePointAt(k) as number;
-    if (!isXmlChar(code)) throw new XlsxError("xlsxText", sheet, row, column);
+    if (!isXmlChar(code)) return null;
     k += code > 0xffff ? 2 : 1;
   }
   return decoded;
+}
+
+/** Lower case for the ASCII letters alone: no other letter folds into one. */
+const asciiLower = (text: string) =>
+  text.replace(/[A-Z]+/g, (letters) => letters.toLowerCase());
+
+/** An escape is 7 characters for 1: no string's text is written longer. */
+const MAX_WRITTEN = 7 * LIMITS.xlsxCellLength;
+
+/** What reads the parts of one string: a shared string, an inline one. */
+interface StringParts {
+  open(element: XmlElement): Step;
+  close(depth: number): void;
+  text(value: string, depth: number): void;
+  /** The string, once its root element has closed. */
+  value(): string;
+}
+
+/**
+ * A string's text as Excel builds it (ECMA-376 §18.4): one `t`, or runs
+ * (`r`) of at most one `t` each, their properties skipped; phonetic guides
+ * (`rPh`) are not its text. Nothing stands inside a `t`; each `t` is
+ * unescaped on its own, as Excel decodes it, its white space kept, and the
+ * whole held to LIMITS.xlsxCellLength.
+ */
+function stringParts(
+  root: number,
+  fail: (code: XlsxReason) => never,
+): StringParts {
+  const parts: string[] = [];
+  const state = {
+    piece: null as string[] | null,
+    pieceDepth: 0,
+    direct: false,
+    runs: 0,
+    runText: false,
+    written: 0,
+    length: 0,
+  };
+  const startPiece = (depth: number): Step => {
+    state.piece = [];
+    state.pieceDepth = depth;
+    return "enter";
+  };
+  return {
+    open(e) {
+      if (state.piece !== null || e.namespace !== MAIN) {
+        return fail("xlsxStructure");
+      }
+      const level = e.depth - root;
+      if (level === 1) {
+        if (e.local === "rPh" || e.local === "phoneticPr") return "skip";
+        if (e.local === "t" && !state.direct && state.runs === 0) {
+          state.direct = true;
+          return startPiece(e.depth);
+        }
+        if (e.local === "r" && !state.direct) {
+          state.runs += 1;
+          state.runText = false;
+          return "enter";
+        }
+      } else if (level === 2) {
+        if (e.local === "rPr") return "skip";
+        if (e.local === "t" && !state.runText) {
+          state.runText = true;
+          return startPiece(e.depth);
+        }
+      }
+      return fail("xlsxStructure");
+    },
+    close(depth) {
+      if (state.piece === null || depth !== state.pieceDepth) return;
+      const decoded = unescape(state.piece.join(""));
+      if (decoded === null) return fail("xlsxText");
+      state.length += decoded.length;
+      if (state.length > LIMITS.xlsxCellLength) fail("xlsxText");
+      parts.push(decoded);
+      state.piece = null;
+    },
+    text(value, depth) {
+      if (state.piece === null || depth !== state.pieceDepth) {
+        if (!isBlank(value)) fail("xlsxStructure");
+        return;
+      }
+      state.written += value.length;
+      if (state.written > MAX_WRITTEN) fail("xlsxText");
+      state.piece.push(value);
+    },
+    value: () => parts.join(""),
+  };
 }
 
 /**
@@ -250,7 +342,10 @@ type Step = "enter" | "skip";
 interface Reader {
   open(element: XmlElement): Step;
   close?(depth: number): void;
-  /** Text inside an element entered; white space alone never reaches it. */
+  /**
+   * Text inside an element entered, white space alone included; without
+   * this, white space passes and any other text is refused.
+   */
   text?(value: string, depth: number): void;
 }
 
@@ -271,16 +366,36 @@ function visitor(reader: Reader, refuse: () => never): XmlVisitor {
       reader.close?.(depth);
     },
     text(value, depth) {
-      if (skipping !== 0 || isBlank(value)) return;
-      // Text in an element the reader reads but keeps no text of.
-      if (reader.text === undefined) refuse();
-      reader.text(value, depth);
+      if (skipping !== 0) return;
+      // White space reaches a reader that reads text, as a single space
+      // between runs is text; the reader ignores it outside `t` and `v`.
+      if (reader.text !== undefined) reader.text(value, depth);
+      else if (!isBlank(value)) refuse();
     },
   };
 }
 
 const is = (element: XmlElement, namespace: string, local: string) =>
   element.namespace === namespace && element.local === local;
+
+/**
+ * An element inside an mc:AlternateContent outside sheetData and sst: its
+ * Choice and Fallback are read, so that SpreadsheetML's own elements in
+ * them, which a consumer applying the choice would take for the part's
+ * (another date system, a second sheetData), are refused; Excel's
+ * extensions there, such as the workbook's absPath, are skipped.
+ */
+function alternative(e: XmlElement, depth: number, refuse: () => never): Step {
+  if (e.namespace === MAIN) return refuse();
+  if (
+    e.depth === depth + 1 &&
+    e.namespace === MC &&
+    (e.local === "Choice" || e.local === "Fallback")
+  ) {
+    return "enter";
+  }
+  return "skip";
+}
 
 /** A relationship of a part, its target not yet resolved. */
 interface Relationship {
@@ -367,14 +482,17 @@ function readContentTypes(
         if (e.depth === 1)
           return is(e, CONTENT_TYPES, "Types") ? "enter" : refuse();
         if (e.depth !== 2) return "skip";
-        const type = e.attributes.get("ContentType")?.toLowerCase();
+        const written = e.attributes.get("ContentType");
+        const type = written === undefined ? undefined : asciiLower(written);
         if (is(e, CONTENT_TYPES, "Default")) {
-          const extension = e.attributes.get("Extension")?.toLowerCase();
+          const raw = e.attributes.get("Extension");
+          const extension = raw === undefined ? undefined : asciiLower(raw);
           if (type === undefined || extension === undefined) refuse();
           if (defaults.has(extension as string)) refuse();
           defaults.set(extension as string, type as string);
         } else if (is(e, CONTENT_TYPES, "Override")) {
-          const part = e.attributes.get("PartName")?.toLowerCase();
+          const raw = e.attributes.get("PartName");
+          const part = raw === undefined ? undefined : asciiLower(raw);
           if (type === undefined || part === undefined) refuse();
           if (overrides.has(part as string)) refuse();
           overrides.set(part as string, type as string);
@@ -392,7 +510,7 @@ function readContentTypes(
     throw new MacroFound();
   }
   return (name) => {
-    const part = `/${name}`.toLowerCase();
+    const part = asciiLower(`/${name}`);
     const override = overrides.get(part);
     if (override !== undefined) return override;
     const file = part.slice(part.lastIndexOf("/") + 1);
@@ -466,7 +584,13 @@ function readWorkbookPart(
   const ids = new Set<string>();
   // One object, as the visitor sets these: a plain `let` would be narrowed
   // to its first value where it is read after the scan.
-  const seen = { date1904: false, properties: false, sheets: false };
+  const seen = {
+    date1904: false,
+    properties: false,
+    sheets: false,
+    /** The depth of an mc:AlternateContent being read; 0 outside one. */
+    alternate: 0,
+  };
   const refuse = (sheet = 0): never => {
     throw new XlsxError("xlsxWorkbook", sheet);
   };
@@ -475,6 +599,13 @@ function readWorkbookPart(
     {
       open(e) {
         if (e.depth === 1) return is(e, MAIN, "workbook") ? "enter" : refuse();
+        if (seen.alternate !== 0) {
+          return alternative(e, seen.alternate, () => refuse());
+        }
+        if (e.depth === 2 && is(e, MC, "AlternateContent")) {
+          seen.alternate = e.depth;
+          return "enter";
+        }
         if (e.depth === 2) {
           if (is(e, MAIN, "workbookPr")) {
             if (seen.properties) refuse();
@@ -532,6 +663,9 @@ function readWorkbookPart(
         });
         return "skip";
       },
+      close(depth) {
+        if (depth === seen.alternate) seen.alternate = 0;
+      },
     },
     budget,
     0,
@@ -541,52 +675,40 @@ function readWorkbookPart(
   return { sheets, date1904: seen.date1904 };
 }
 
-/** The shared-string table: each string's runs joined, escapes decoded. */
+/** The shared-string table, each string read as `stringParts` reads it. */
 function readSharedStrings(bytes: Uint8Array, budget: Budget): string[] {
   const strings: string[] = [];
-  let parts: string[] = [];
-  let length = 0;
-  /** Depth of the `t` being read, inside `si` or one of its runs. */
-  let inText = 0;
-  const refuse = (): never => {
-    throw new XlsxError("xlsxStructure");
+  const at = { current: null as StringParts | null };
+  const fail = (code: XlsxReason): never => {
+    throw new XlsxError(code);
   };
   scanPart(
     bytes,
     {
       open(e) {
-        if (e.depth === 1) return is(e, MAIN, "sst") ? "enter" : refuse();
-        if (e.namespace !== MAIN) return refuse();
-        if (e.depth === 2) {
-          if (e.local === "extLst") return "skip";
-          if (e.local !== "si") return refuse();
-          if (strings.length >= LIMITS.sharedStrings) {
-            throw new XlsxError("xlsxSharedStrings");
-          }
-          parts = [];
-          length = 0;
-          return "enter";
+        if (e.depth === 1) {
+          return is(e, MAIN, "sst") ? "enter" : fail("xlsxStructure");
         }
-        // In a string: its text, its runs and their text, and phonetic
-        // guides, which are not its text.
-        if (e.local === "rPh" || e.local === "phoneticPr") return "skip";
-        if (e.depth === 3 && e.local === "r") return "enter";
-        if (e.depth === 4 && e.local === "rPr") return "skip";
-        if (e.local === "t" && (e.depth === 3 || e.depth === 4)) {
-          inText = e.depth;
-          return "enter";
-        }
-        return refuse();
+        if (at.current !== null) return at.current.open(e);
+        if (e.namespace !== MAIN) return fail("xlsxStructure");
+        if (e.local === "extLst") return "skip";
+        if (e.local !== "si") return fail("xlsxStructure");
+        if (strings.length >= LIMITS.sharedStrings) fail("xlsxSharedStrings");
+        at.current = stringParts(e.depth, fail);
+        return "enter";
       },
       close(depth) {
-        if (depth === inText) inText = 0;
-        if (depth === 2) strings.push(unescape(parts.join(""), 0));
+        if (at.current === null) return;
+        if (depth === 2) {
+          strings.push(at.current.value());
+          at.current = null;
+        } else {
+          at.current.close(depth);
+        }
       },
       text(value, depth) {
-        if (inText === 0 || depth !== inText) refuse();
-        length += value.length;
-        if (length > LIMITS.xlsxCellLength) throw new XlsxError("xlsxText");
-        parts.push(value);
+        if (at.current !== null) at.current.text(value, depth);
+        else if (!isBlank(value)) fail("xlsxStructure");
       },
     },
     budget,
@@ -597,6 +719,10 @@ function readSharedStrings(bytes: Uint8Array, budget: Budget): string[] {
 }
 
 const truthy = (value: string | undefined) => value === "1" || value === "true";
+
+/** A height or width of zero, which hides a row or column as surely. */
+const isZero = (value: string | undefined) =>
+  value !== undefined && /^0*(?:\.0*)?$/.test(value) && value !== "";
 
 /** A column's letters as its number: A is 1, XFD is 16,384. */
 function columnOf(letters: string): number {
@@ -618,6 +744,10 @@ function readSheet(
   let hiddenCells = false;
   /** The part of the worksheet being read. */
   let section: "cols" | "sheetData" | null = null;
+  /** How many sheetData the worksheet has: exactly one is read. */
+  let sheetData = 0;
+  /** The depth of an mc:AlternateContent being read; 0 outside one. */
+  let alternate = 0;
   /** The row being read, and the last column in it. */
   let row = 0;
   let column = 0;
@@ -625,8 +755,8 @@ function readSheet(
   /** The cell being read. */
   let type = "n";
   let value: string | null = null;
-  let inline: string[] | null = null;
-  let inText = 0;
+  let inValue = false;
+  let inline: StringParts | null = null;
   const fail = (code: XlsxReason, at = column): never => {
     throw new XlsxError(code, position, row, at);
   };
@@ -634,9 +764,9 @@ function readSheet(
 
   const cellOf = (): Cell | null => {
     if (inline !== null) {
-      if (type !== "inlineStr") fail("xlsxCellType");
-      const text = unescape(inline.join(""), position, row, column);
-      return { kind: "string", text };
+      // An inline string, and nothing else: no value beside it.
+      if (type !== "inlineStr" || value !== null) fail("xlsxCellType");
+      return { kind: "string", text: inline.value() };
     }
     if (value === null) return null;
     switch (type) {
@@ -651,11 +781,11 @@ function readSheet(
         if (index >= strings.length) return fail("xlsxSharedStrings");
         return { kind: "string", text: strings[index] as string };
       }
-      case "str":
-        return {
-          kind: "string",
-          text: unescape(value, position, row, column),
-        };
+      case "str": {
+        const text = unescape(value);
+        if (text === null) return fail("xlsxText");
+        return { kind: "string", text };
+      }
       case "b":
         if (value !== "0" && value !== "1") return fail("xlsxCellType");
         return { kind: "boolean", text: value, value: value === "1" };
@@ -676,15 +806,37 @@ function readSheet(
         if (e.depth === 1) {
           return is(e, MAIN, "worksheet") ? "enter" : refuse();
         }
+        if (alternate !== 0) return alternative(e, alternate, refuse);
         if (e.depth === 2) {
-          if (is(e, MAIN, "sheetData")) section = "sheetData";
-          else if (is(e, MAIN, "cols")) section = "cols";
-          else return "skip";
+          if (is(e, MC, "AlternateContent")) {
+            alternate = e.depth;
+            return "enter";
+          }
+          if (is(e, MAIN, "sheetData")) {
+            sheetData += 1;
+            if (sheetData > 1) refuse();
+            section = "sheetData";
+          } else if (is(e, MAIN, "cols")) {
+            section = "cols";
+          } else {
+            // Rows hidden unless set otherwise.
+            if (
+              is(e, MAIN, "sheetFormatPr") &&
+              truthy(e.attributes.get("zeroHeight"))
+            ) {
+              hiddenCells = true;
+            }
+            return "skip";
+          }
           return "enter";
         }
         if (section === "cols") {
-          // Columns, read only for whether one is hidden.
-          if (is(e, MAIN, "col") && truthy(e.attributes.get("hidden"))) {
+          // Columns, read only for whether one is hidden or of no width.
+          if (
+            is(e, MAIN, "col") &&
+            (truthy(e.attributes.get("hidden")) ||
+              isZero(e.attributes.get("width")))
+          ) {
             hiddenCells = true;
           }
           return "skip";
@@ -710,7 +862,12 @@ function readSheet(
           row = next;
           column = 0;
           cells = new Map();
-          if (truthy(e.attributes.get("hidden"))) hiddenCells = true;
+          if (
+            truthy(e.attributes.get("hidden")) ||
+            isZero(e.attributes.get("ht"))
+          ) {
+            hiddenCells = true;
+          }
           return "enter";
         }
         if (e.depth === 4) {
@@ -745,30 +902,25 @@ function readSheet(
           if (e.local === "v") {
             if (value !== null) refuse();
             value = "";
-            inText = 5;
+            inValue = true;
             return "enter";
           }
           if (e.local === "is") {
             if (inline !== null) refuse();
-            inline = [];
+            inline = stringParts(e.depth, (code) => fail(code));
             return "enter";
           }
           return refuse();
         }
-        // An inline string: its text, its runs and theirs, no phonetics.
-        if (inline === null) return refuse();
-        if (e.local === "rPh" || e.local === "phoneticPr") return "skip";
-        if (e.depth === 6 && e.local === "r") return "enter";
-        if (e.depth === 7 && e.local === "rPr") return "skip";
-        if (e.local === "t" && (e.depth === 6 || e.depth === 7)) {
-          inText = e.depth;
-          return "enter";
-        }
-        return refuse();
+        // Inside a value nothing stands; an inline string has its parts.
+        if (inValue || inline === null) return refuse();
+        return inline.open(e);
       },
       close(depth) {
-        if (depth === inText) inText = 0;
+        if (depth === alternate) alternate = 0;
         if (depth === 2) section = null;
+        if (depth === 5) inValue = false;
+        else if (depth > 5) inline?.close(depth);
         if (depth === 4) {
           const cell = cellOf();
           if (cell === null) return;
@@ -782,15 +934,23 @@ function readSheet(
         }
       },
       text(text, depth) {
-        if (inText === 0 || depth !== inText) refuse();
-        if (inText === 5) value = (value ?? "") + text;
-        else inline?.push(text);
+        if (inValue && depth === 5) {
+          value = (value ?? "") + text;
+          if (value.length > LIMITS.xlsxCellLength) fail("xlsxText");
+        } else if (inline !== null && depth > 5) {
+          inline.text(text, depth);
+        } else if (!isBlank(text)) {
+          refuse();
+        }
       },
     },
     budget,
     position,
     "xlsxStructure",
   );
+  // One sheetData, read; none, or one Excel would take from elsewhere, is
+  // no sheet to read.
+  if (sheetData !== 1) throw new XlsxError("xlsxStructure", position);
   return { rows, hiddenCells };
 }
 
@@ -855,7 +1015,7 @@ function open(bytes: Uint8Array): Workbook | WorkbookRefusal {
   if (workbookName === null || workbookEntry === undefined) {
     throw new XlsxError("xlsxPackage");
   }
-  const workbookType = typeOf(workbookName)?.toLowerCase();
+  const workbookType = typeOf(workbookName);
   if (workbookType === CONTENT.binaryWorkbook) return "binaryWorkbook";
   // A document, a presentation, a template: an Office file, no workbook.
   if (workbookType !== CONTENT.workbook) return "zip";

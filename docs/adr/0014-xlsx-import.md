@@ -49,9 +49,14 @@ skips rather than refuses (decision 4).
    - compression stored or DEFLATE only; for stored, compressed size equal to size;
    - general-purpose flags limited to the DEFLATE options, data descriptors (sizes taken from
      the central directory and checked against the descriptor) and UTF-8 names;
-   - names of printable ASCII, at most 256 bytes, with no `\`, no leading `/` and no `..`
-     segment; duplicates compared case-insensitively, as OPC does;
-   - extra fields of at most 1 KiB, the ZIP64 one refused;
+   - names of printable ASCII, at most 256 bytes, with no `\`, no `%`, no leading `/` and no
+     empty, `.` or `..` segment; duplicates compared case-insensitively, as OPC does;
+   - extra fields of at most 1 KiB, ZIP64's and the Unicode path and comment fields (a
+     second name for some tools) refused;
+   - no record signature in the archive comment, where a second end record could hide;
+   - no data descriptor on a stored entry, and no DEFLATE entry larger than stored blocks
+     would make it (its size plus 5 bytes a 65,535-byte block, plus 64), whose decoding the
+     budget would not charge;
    - at most `LIMITS.zipEntries` entries, checked from the End of Central Directory record
      before the directory is parsed.
 3. **A budget before any inflating.** Only the parts a workbook needs are inflated, and only
@@ -79,7 +84,16 @@ skips rather than refuses (decision 4).
    The workbook reader then holds the parts to what it reads:
    - inside `sheetData` and `sst`, only the elements decision 7 names; any other, of a foreign
      namespace (`mc:AlternateContent` included) or of SpreadsheetML's own, is refused, and
-     text is allowed only in `v`, `t` and `f`;
+     text is allowed only in `v`, `t` and `f`, white space alone included: a run of one space
+     is text;
+   - a string is one `t`, or runs of at most one `t` each, and nothing stands inside a `t` or
+     a `v`; each `t` is unescaped on its own, as Excel decodes it, and a string or a value
+     is held to `LIMITS.xlsxCellLength` whatever it is split into;
+   - outside them, an `mc:AlternateContent` whose Choice or Fallback holds SpreadsheetML's own
+     elements is refused, as a consumer applying it would read another workbook (another date
+     system, a second `sheetData`); Excel's extensions there are skipped. A worksheet has
+     exactly one `sheetData`;
+   - content types and part names are compared by ASCII case alone;
    - outside them, every element the reader does not read is skipped whole with its text:
      `extLst`, the `definedName` an autofilter leaves, `headerFooter`, a conditional format's
      `formula`, and the like, all of which Excel writes;
@@ -126,7 +140,9 @@ skips rather than refuses (decision 4).
    - Any other sheet blocks (`unknownSheet`, naming its position), so a sheet a broker adds
      can never drop rows unseen.
    - A hidden sheet an adapter reads blocks (`hiddenSheet`); hidden rows or columns in one
-     raise a warning (`hiddenCells`), as the user cannot see what is read.
+     (hidden, of zero height or width, or rows hidden by default) raise a warning
+     (`hiddenCells`), as the user cannot see what is read. Merged cells, whose values past
+     the first Excel does not show, are not detected yet.
    - A sheet's rows reach the adapter as `book.rows(position)`, and the adapter receives the
      `Workbook`, never the file's bytes: a test checks that only the workbook module imports
      the ZIP reader and the decoder.
