@@ -85,25 +85,25 @@ describe("a takeover paid in shares", () => {
 
   it("says in its place which row it is, and that the year's returns stand", () => {
     const scope = scopeLedger(validateLedger(events, findings), 2026);
-    expect(scope.findings).toEqual([
+    const notes = [
       diagnostic(
         "info",
         "refusedElsewhere",
-        { isin: OLD, date: "2025-09-03", year: "2026" },
+        { isin: OLD, date: "2025-09-03", year: "2026", shares: "out" },
         source(11),
       ),
       diagnostic(
         "info",
         "refusedElsewhere",
-        {
-          isin: NEW,
-          date: "2025-09-03",
-          year: "2026",
-          action: "Stock distribution",
-        },
+        { isin: NEW, date: "2025-09-03", year: "2026", shares: "in" },
         source(12),
       ),
-    ]);
+    ];
+    expect(scope.findings).toEqual(notes);
+    // A file's own copy of the same refusals reads the same way, and a
+    // finding of another row is left as it is.
+    const other = diagnostic("blocking", "invalidIsin", {}, source(13));
+    expect(scope.view([...findings, other])).toEqual([...notes, other]);
   });
 
   it("withholds Doh-KDVP of its own year and of every year the shares were held", () => {

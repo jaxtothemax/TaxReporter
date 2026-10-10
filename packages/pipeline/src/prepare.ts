@@ -229,12 +229,15 @@ export function buildReturns(read: ReadExports, input: BuildInput): Prepared {
     (compareText(reached, input.rates.completeThrough) > 0
       ? input.rates.completeThrough
       : reached);
+  // Worked out once, for both builders and for what the review shows.
+  const scope = scopeLedger(ledger, input.taxYear);
   const kdvp = buildDohKdvp({
     taxYear: input.taxYear,
     taxpayer: input.taxpayer,
     ledger,
     rates: input.rates,
     coverageEnd,
+    scope,
   });
   const div = buildDohDiv({
     taxYear: input.taxYear,
@@ -242,8 +245,8 @@ export function buildReturns(read: ReadExports, input: BuildInput): Prepared {
     ledger,
     rates: input.rates,
     payers: input.payers,
+    scope,
   });
-  const scope = scopeLedger(ledger, input.taxYear);
   return {
     ...read,
     coverageEnd,

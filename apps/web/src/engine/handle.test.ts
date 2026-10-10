@@ -519,8 +519,13 @@ describe("refused rows from another year (ADR 0017)", () => {
       loadRates,
     );
     if (reply.kind !== "read") throw new Error(`no read: ${reply.kind}`);
-    expect(elsewhere(reply.findings)).toBe(3);
-    expect(reply.findings.filter((f) => f.severity === "blocking")).toEqual([]);
+    // Under the file they came from, as the review shows them; nothing
+    // blocks there or in the rest of the session.
+    const under = reply.files[0]?.findings ?? [];
+    expect(elsewhere(under)).toBe(3);
+    expect(
+      [...under, ...reply.findings].filter((f) => f.severity === "blocking"),
+    ).toEqual([]);
   });
 
   it("still hold back each return of their own year that they can change", async () => {

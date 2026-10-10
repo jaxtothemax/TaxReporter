@@ -538,6 +538,73 @@ describe("rows it refuses rather than guesses", () => {
     ]);
   });
 
+  it("pairs a takeover's new shares only one to one, after the sale, within a minute (ADR 0017)", () => {
+    const row = (action: string, time: string, isin: string, price = "0E-10") =>
+      `${action},${time},${isin},X,Some Corp,,EOF1,2,${price},USD,,,,0.00,EUR,,`;
+    const sold = "Market sell";
+    const got = "Stock distribution";
+    const shares = (lines: string[]) =>
+      v4(...lines).diagnostics.map((d) =>
+        "shares" in d.params ? (d.params.shares ?? "none") : "none",
+      );
+    // One sale, then its new shares 15 seconds later: paired.
+    expect(
+      shares([
+        row(sold, "2026-09-08 14:05:12", "US00000ORBT1"),
+        row(got, "2026-09-08 14:05:27", "US00000NOVA8"),
+      ]),
+    ).toEqual(["out", "in"]);
+    // Two distributions after one sale, or two sales before one
+    // distribution: ambiguous, so neither distribution is scoped.
+    expect(
+      shares([
+        row(sold, "2026-09-08 14:05:12", "US00000ORBT1"),
+        row(got, "2026-09-08 14:05:27", "US00000NOVA8"),
+        row(got, "2026-09-08 14:05:40", "US00000ACME1"),
+      ]),
+    ).toEqual(["out", "none", "none"]);
+    expect(
+      shares([
+        row(sold, "2026-09-08 14:05:12", "US00000ORBT1"),
+        row(sold, "2026-09-08 14:05:20", "US00000ACME1"),
+        row(got, "2026-09-08 14:05:27", "US00000NOVA8"),
+      ]),
+    ).toEqual(["out", "out", "none"]);
+    // Booked before the sale, more than a minute after it, of the same
+    // security, or on another day in Ljubljana: not a pair.
+    expect(
+      shares([
+        row(got, "2026-09-08 14:05:00", "US00000NOVA8"),
+        row(sold, "2026-09-08 14:05:12", "US00000ORBT1"),
+      ]),
+    ).toEqual(["none", "out"]);
+    expect(
+      shares([
+        row(sold, "2026-09-08 14:05:12", "US00000ORBT1"),
+        row(got, "2026-09-08 14:06:13", "US00000NOVA8"),
+      ]),
+    ).toEqual(["out", "none"]);
+    expect(
+      shares([
+        row(sold, "2026-09-08 14:05:12", "US00000ORBT1"),
+        row(got, "2026-09-08 14:05:27", "US00000ORBT1"),
+      ]),
+    ).toEqual(["out", "none"]);
+    expect(
+      shares([
+        row(sold, "2026-09-08 21:59:50", "US00000ORBT1"),
+        row(got, "2026-09-08 22:00:05", "US00000NOVA8"),
+      ]),
+    ).toEqual(["out", "none"]);
+    // A sale with no price gives its shares up, but is no takeover's mark.
+    expect(
+      shares([
+        row(sold, "2026-09-08 14:05:12", "US00000ORBT1", ""),
+        row(got, "2026-09-08 14:05:27", "US00000NOVA8"),
+      ]),
+    ).toEqual(["out", "none"]);
+  });
+
   it("dividend tax in another currency, or with a sign", () => {
     const result = v4(
       "Dividend (Dividend),2026-04-01 12:10:44+00:00,US1912161007,KO,Coca-Cola,,,20,0.4335,USD,,,,7.41,EUR,1.31,EUR",

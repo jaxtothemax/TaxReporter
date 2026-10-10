@@ -34,11 +34,14 @@ takeover in a user's history blocks every later Doh-KDVP. The user could downloa
 2. **Trading 212 states them only in the shapes research has seen** (06 §4.3):
    - a sale at a price of 0 gives its shares up (`invalidPrice`, `"out"`);
    - a `Custom stock distribution` under a ticker ending in `.RST` receives rights;
-   - a `Stock distribution` receives shares only when a sale at 0 in the same file was booked
-     within 10 minutes of it (15 seconds apart in the real export seen, 06 §4.3): the
-     takeover's other leg. Booked alone it could be a spin-off or a bonus issue, which can change the cost of
-     another security or date from a resolution months earlier (ZDoh-2 art. 101(6)); it stays
-     unscoped.
+   - a `Stock distribution` receives shares only as a takeover's other leg: booked within a
+     minute after exactly one sale at a price of exactly 0 in the same file, of another
+     security, on the same day, and that sale followed by no other distribution in the minute
+     (15 seconds apart, the sale first, in the real export seen, 06 §4.3). Booked alone, or
+     beside more than one candidate, it could be a spin-off or a bonus issue booked in a
+     batch, which can change the cost of another security or date from a resolution months
+     earlier (ZDoh-2 art. 101(6)); it stays unscoped. Pairing sorts the legs once and looks
+     each one up, so its work stays bounded whatever a file holds.
 
    Every other refusal, from Trading 212 or any other adapter, is unscoped.
 3. **The rule** (`scopeLedger`, `packages/core/src/reach.ts`), for a scoped refusal of
@@ -62,11 +65,14 @@ takeover in a user's history blocks every later Doh-KDVP. The user could downloa
 4. **In a year it cannot change, a refusal shows as a note.** The review, the files step and
    the CLI show the year's view of the ledger's findings (`Prepared.scope.findings`): a scoped
    refusal that withholds neither return becomes `refusedElsewhere` (severity info, same row),
-   which names the security and the date and says it changes nothing on that year's returns.
-   No row is dropped without a word. The ledger keeps the refusal as it was, so the year it
-   belongs to still sees it as blocking.
-5. **One implementation.** Both builders withhold their form by `scopeLedger`, and the web
-   engine and the CLI count and show findings through `Prepared.scope`. The CLI's exit code is
+   which names the security, the date and what the row does (a sale at 0, new shares, free
+   rights, never text from the file) and says it changes nothing on that year's returns. The
+   files step shows each file's findings the same way (`LedgerScope.view`). No row is dropped
+   without a word. The ledger keeps the refusal as it was, so the year it belongs to still
+   sees it as blocking.
+5. **One implementation.** `buildReturns` works the scope out once and hands it to both
+   builders, which withhold their form by it; the web engine and the CLI count and show
+   findings through `Prepared.scope`. The CLI's exit code is
    non-zero when a finding of the prepared year blocks; a refusal that changes nothing in that
    year no longer makes it fail.
 

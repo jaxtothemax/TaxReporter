@@ -186,7 +186,7 @@ export const findingsEn: FindingMessages = {
   refusedElsewhere: (p) =>
     at(
       p,
-      `${p.action === undefined ? "a row priced at zero" : `a “${p.action}” row`} is not read, but it changes nothing on the ${p.year} returns: nothing it could affect is sold or received in ${p.year}. It holds back only the returns it can change.`,
+      `${p.shares === "out" ? "a sale priced at zero" : p.shares === "in" ? "a receipt of new shares" : "a receipt of free rights"} is not read, but it changes nothing on the ${p.year} returns: nothing it could affect is sold or received in ${p.year}. It holds back only the returns it can change.`,
     ),
   lossDisallowed: (p) =>
     at(
@@ -580,7 +580,7 @@ export const findingsSl: FindingMessages = {
   refusedElsewhere: (p) =>
     at(
       p,
-      `${p.action === undefined ? "vrstica s ceno nič" : `vrstica »${p.action}«`} ni prebrana, vendar ne spremeni ničesar v napovedih za leto ${p.year}: v tem letu ni prodano ali prejeto nič, na kar bi lahko vplivala. Zadrži le napovedi, ki jih lahko spremeni.`,
+      `${p.shares === "out" ? "prodaja po ceni nič ni prebrana" : p.shares === "in" ? "prejem novih delnic ni prebran" : "prejem brezplačnih pravic ni prebran"}, vendar ta vrstica ne spremeni ničesar v napovedih za leto ${p.year}: v tem letu ni prodano ali prejeto nič, na kar bi lahko vplivala. Zadrži le napovedi, ki jih lahko spremeni.`,
     ),
   lossDisallowed: (p) =>
     at(

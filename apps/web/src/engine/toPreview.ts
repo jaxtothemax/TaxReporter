@@ -423,8 +423,16 @@ export function toPreview(
 /** An account scope of a file that does not name its account: "broker:3". */
 const GROUP_SCOPE = /^[a-z0-9]+:\d{1,4}$/;
 
-/** What became of each file of the request, at its position. */
-export function summarize(read: ReadExports, index: FileIndex): FileSummary[] {
+/**
+ * What became of each file of the request, at its position. `view` shows a
+ * file's findings as the prepared year does (ADR 0017): a refusal that
+ * changes neither of its returns is a note there, as in the review.
+ */
+export function summarize(
+  read: ReadExports,
+  index: FileIndex,
+  view: (findings: readonly Diagnostic[]) => readonly Diagnostic[],
+): FileSummary[] {
   const { names } = index;
   const none: FileSummary = {
     status: "notRead",
@@ -440,9 +448,10 @@ export function summarize(read: ReadExports, index: FileIndex): FileSummary[] {
   for (const { file, result } of read.imports) {
     const position = names.indexOf(file);
     if (position < 0) continue;
-    // Every one of them is in the review as well; here they are capped.
+    // Every one of them is in the review as well, as the year shows it;
+    // here they are capped.
     const { findings } = bounded(
-      result.diagnostics.map((d) => toFinding(d, index)),
+      view(result.diagnostics).map((d) => toFinding(d, index)),
     );
     if (result.broker === "unknown") {
       summaries[position] = { ...none, status: "refused", findings };

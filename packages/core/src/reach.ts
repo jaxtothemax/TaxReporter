@@ -38,13 +38,17 @@ export interface LedgerScope {
    * refusal that can change neither return is a note that says so instead.
    */
   readonly findings: readonly Diagnostic[];
+  /**
+   * Any list of the same findings, such as one file's, as this year shows
+   * it: each refusal the year's view replaced, replaced the same way.
+   */
+  readonly view: (findings: readonly Diagnostic[]) => Diagnostic[];
 }
 
 interface Scoped {
   readonly isin: string;
   readonly date: IsoDate;
   readonly shares: RefusedShares;
-  readonly action?: string;
 }
 
 const SHARES: ReadonlySet<string> = new Set<RefusedShares>([
@@ -59,7 +63,10 @@ const SHARES: ReadonlySet<string> = new Set<RefusedShares>([
  * withholds everything, as before ADR 0017.
  */
 function scopedOf(finding: Diagnostic): Scoped | null {
-  if (finding.code !== "unsupportedAction" && finding.code !== "invalidPrice") {
+  if (
+    finding.severity !== "blocking" ||
+    (finding.code !== "unsupportedAction" && finding.code !== "invalidPrice")
+  ) {
     return null;
   }
   const { isin, date, shares } = finding.params;
@@ -73,13 +80,33 @@ function scopedOf(finding: Diagnostic): Scoped | null {
   ) {
     return null;
   }
-  return finding.code === "unsupportedAction"
-    ? { isin, date, shares, action: finding.params.action }
-    : { isin, date, shares };
+  return { isin, date, shares };
+}
+
+/** One row's refusal, the same in the ledger and in its file's findings. */
+function rowOf(finding: Diagnostic): string | null {
+  const { source } = finding;
+  return source === undefined
+    ? null
+    : [finding.code, source.fileId, source.part ?? "", String(source.row)].join(
+        " ",
+      );
 }
 
 /** Before every date: a holding with no purchase on record reaches any year. */
 const DAWN = "0000-01-01";
+
+/** The index of the first date not before `date`, in dates sorted as text. */
+function firstFrom(dates: readonly IsoDate[], date: IsoDate): number {
+  let low = 0;
+  let high = dates.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (compareText(dates[middle] ?? "", date) < 0) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
 
 export function scopeLedger(
   ledger: ValidatedLedger,
@@ -87,40 +114,44 @@ export function scopeLedger(
 ): LedgerScope {
   const yearStart = `${String(taxYear)}-01-01`;
   const yearEnd = `${String(taxYear)}-12-31`;
-  const inYear = (date: IsoDate) =>
-    compareText(date, yearStart) >= 0 && compareText(date, yearEnd) <= 0;
   const overlaps = (from: IsoDate, to: IsoDate) =>
     compareText(from, yearEnd) <= 0 && compareText(to, yearStart) >= 0;
 
   // Every file and account together: FIFO and the 30-day rule run across
-  // all of a taxpayer's holdings (research 04 §4.4, §5.3).
-  const sales: { readonly isin: string; readonly date: IsoDate }[] = [];
-  const buys = new Map<string, IsoDate[]>();
+  // all of a taxpayer's holdings (research 04 §4.4, §5.3). Indexed once, so
+  // each refusal is looked up, not scanned for.
+  const lastSale = new Map<string, IsoDate>();
+  const saleDates: IsoDate[] = [];
+  const firstBuy = new Map<string, IsoDate>();
   for (const event of ledger.events) {
     if (event.kind !== "trade") continue;
     const { isin } = event.security;
     if (event.side === "sell") {
-      if (inYear(event.date)) sales.push({ isin, date: event.date });
+      if (!overlaps(event.date, event.date)) continue;
+      saleDates.push(event.date);
+      const seen = lastSale.get(isin);
+      if (seen === undefined || compareText(event.date, seen) > 0) {
+        lastSale.set(isin, event.date);
+      }
     } else {
-      const dates = buys.get(isin) ?? [];
-      dates.push(event.date);
-      buys.set(isin, dates);
+      const seen = firstBuy.get(isin);
+      if (seen === undefined || compareText(event.date, seen) < 0) {
+        firstBuy.set(isin, event.date);
+      }
     }
   }
-  const firstBuy = (isin: string, until: IsoDate): IsoDate | null => {
-    let first: IsoDate | null = null;
-    for (const date of buys.get(isin) ?? []) {
-      if (compareText(date, until) > 0) continue;
-      if (first === null || compareText(date, first) < 0) first = date;
-    }
-    return first;
+  saleDates.sort(compareText);
+  const anySaleBetween = (from: IsoDate, to: IsoDate) => {
+    const at = saleDates[firstFrom(saleDates, from)];
+    return at !== undefined && compareText(at, to) <= 0;
   };
 
   const kdvp: Diagnostic[] = [];
   const div: Diagnostic[] = [];
   const findings: Diagnostic[] = [];
+  const replaced = new Map<string, Diagnostic>();
   for (const finding of ledger.diagnostics) {
-    const scoped = finding.severity === "blocking" ? scopedOf(finding) : null;
+    const scoped = scopedOf(finding);
     if (scoped === null) {
       if (finding.severity === "blocking") {
         kdvp.push(finding);
@@ -137,16 +168,17 @@ export function scopeLedger(
     // reads a purchase or a right 30 days either side of a loss sale
     // (ZDoh-2 art. 97(5), research 04 §5.3).
     const reach = addDays(happened, -WASH_SALE_DAYS);
-    let onKdvp = sales.some(
-      (sale) => sale.isin === isin && compareText(sale.date, reach) >= 0,
-    );
+    const last = lastSale.get(isin);
+    let onKdvp = last !== undefined && compareText(last, reach) >= 0;
     let onDiv = false;
     if (shares === "out") {
       // A disposal belongs to the year it happened, and that can be earlier
       // than its booking by more than a month: one reading dates a merger by
       // its agreement (research 04 §9.1). So every year from the first
       // purchase it gives up, or any year if none is on record.
-      const from = firstBuy(isin, date) ?? DAWN;
+      const bought = firstBuy.get(isin);
+      const from =
+        bought === undefined || compareText(bought, date) > 0 ? DAWN : bought;
       onKdvp ||= overlaps(
         compareText(from, happened) < 0 ? from : happened,
         date,
@@ -158,31 +190,29 @@ export function scopeLedger(
         // A right to buy counts as acquiring capital of the same kind, for
         // a loss sale of any security it could be a right to (art.
         // 97(5)(1)); the row names only the right, so any sale reaches it.
-        const until = addDays(date, WASH_SALE_DAYS);
-        onKdvp ||= sales.some(
-          (sale) =>
-            compareText(sale.date, reach) >= 0 &&
-            compareText(sale.date, until) <= 0,
-        );
+        onKdvp ||= anySaleBetween(reach, addDays(date, WASH_SALE_DAYS));
       }
     }
     if (onKdvp) kdvp.push(finding);
     if (onDiv) div.push(finding);
-    findings.push(
-      onKdvp || onDiv
-        ? finding
-        : diagnostic(
-            "info",
-            "refusedElsewhere",
-            {
-              isin,
-              date,
-              year: String(taxYear),
-              ...(scoped.action === undefined ? {} : { action: scoped.action }),
-            },
-            finding.source,
-          ),
+    if (onKdvp || onDiv) {
+      findings.push(finding);
+      continue;
+    }
+    const note = diagnostic(
+      "info",
+      "refusedElsewhere",
+      { isin, date, year: String(taxYear), shares },
+      finding.source,
     );
+    findings.push(note);
+    const row = rowOf(finding);
+    if (row !== null) replaced.set(row, note);
   }
-  return { kdvp, div, findings };
+  const view = (list: readonly Diagnostic[]) =>
+    list.map((finding) => {
+      const row = rowOf(finding);
+      return (row === null ? undefined : replaced.get(row)) ?? finding;
+    });
+  return { kdvp, div, findings, view };
 }

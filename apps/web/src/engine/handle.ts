@@ -116,16 +116,12 @@ export async function handleRequest(
       accounts: request.accounts,
     });
     const index = fileIndex(read, names);
-    const files = summarize(read, index);
+    // The year's view of what reading found: a refusal of another year is a
+    // note, on the files step as in the review (ADR 0017).
+    const scope = scopeLedger(read.ledger, request.taxYear);
+    const files = summarize(read, index, scope.view);
     if (request.kind === "read") {
-      const session = bounded(
-        // The year's view: a refusal from another year is a note (ADR 0017).
-        sessionFindings(
-          scopeLedger(read.ledger, request.taxYear).findings,
-          files,
-          index,
-        ),
-      );
+      const session = bounded(sessionFindings(scope.findings, files, index));
       return {
         ...base,
         kind: "read",
@@ -143,11 +139,12 @@ export async function handleRequest(
       rates: await rates(),
       payers,
     });
-    const { kdvp, div, scope } = prepared;
+    const { kdvp, div } = prepared;
     // A finding from reading the files withholds each form it can change
     // this year; a builder's own withholds only its form (ADRs 0013 §9, 0017).
-    const kdvpBlocking = scope.kdvp.length + blocking(kdvp.diagnostics);
-    const divBlocking = scope.div.length + blocking(div.diagnostics);
+    const kdvpBlocking =
+      prepared.scope.kdvp.length + blocking(kdvp.diagnostics);
+    const divBlocking = prepared.scope.div.length + blocking(div.diagnostics);
     const kdvpOut: FormOutput = {
       xml:
         kdvp.form === null || hasBlocking(kdvp.diagnostics)

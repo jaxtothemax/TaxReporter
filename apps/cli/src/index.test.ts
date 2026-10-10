@@ -500,6 +500,29 @@ describe("taxreporter", () => {
     expect(existsSync(join(out, "Doh_KDVP_2026.xml"))).toBe(true);
     expect(existsSync(join(out, "Doh_Div_2026.xml"))).toBe(true);
     expect(written.stdout).toContain("refusedElsewhere");
+    const json = run([
+      takeover,
+      ...args2026(join(dir, "json"), "--payers", payersFile(dir), "--json"),
+    ]);
+    const report = JSON.parse(json.stdout) as {
+      diagnostics: { severity: string; code: string; params: unknown }[];
+    };
+    const note = (isin: string, date: string, shares: string) => [
+      "info",
+      { isin, date, year: "2026", shares },
+    ];
+    expect(
+      report.diagnostics
+        .filter((d) => d.code === "refusedElsewhere")
+        .map((d) => [d.severity, d.params]),
+    ).toEqual([
+      note("US00000VEGA3", "2025-06-24", "rights"),
+      note("US00000ORBT1", "2025-09-03", "out"),
+      note("US00000NOVA8", "2025-09-03", "in"),
+    ]);
+    expect(report.diagnostics.some((d) => d.severity === "blocking")).toBe(
+      false,
+    );
     // In their own year they still hold both returns back.
     const held = join(dir, "held");
     const result = run([

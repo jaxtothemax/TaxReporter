@@ -39,6 +39,7 @@ import {
   type DividendCredit,
   type DividendEvent,
   type IsoDate,
+  type LedgerScope,
   type Money,
   type SecurityRef,
   type SourceRef,
@@ -70,6 +71,11 @@ export interface DivBuildInput {
   readonly rates: RateTable;
   /** Who pays each security's dividends, by ISIN. */
   readonly payers: ReadonlyMap<string, PayerInfo>;
+  /**
+   * The ledger's findings for this year (`scopeLedger` over the same ledger
+   * and year), when the caller already has it; worked out here otherwise.
+   */
+  readonly scope?: LedgerScope;
   /**
    * Treaty caps for countries the built-in table lacks, by FURS country
    * code, as the user states them. They change the estimate only, never the
@@ -376,7 +382,8 @@ export function buildDohDiv(input: DivBuildInput): DivBuild {
   // else blocks, so the review shows causes, not their echoes. A refusal
   // from reading the files withholds the form only if it can change this
   // year's dividends (ADR 0017).
-  const ledgerBlocks = scopeLedger(input.ledger, input.taxYear).div.length > 0;
+  const ledgerBlocks =
+    (input.scope ?? scopeLedger(input.ledger, input.taxYear)).div.length > 0;
   if (records.length > 0 && !ledgerBlocks && !hasBlocking(diagnostics)) {
     // One by one: spread into a call, a long list overflows the stack.
     for (const issue of formIssues(validateDohDiv(draft))) {

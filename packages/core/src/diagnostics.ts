@@ -209,7 +209,9 @@ type MaybeWhere = Partial<Where>;
  * 0017): gives shares up (a sale at a price of 0), receives shares (the new
  * shares of a takeover paid in shares), or receives rights. With it, an ISIN
  * and a date, a refusal withholds only the returns it can change; without
- * any of the three, both returns of every year.
+ * any of the three, both returns of every year. Setting it is an adapter's
+ * claim about what the row can reach, made only for a shape whose reach has
+ * been analysed as ADR 0017 asks: never a default.
  */
 export type RefusedShares = "out" | "in" | "rights";
 
@@ -311,9 +313,13 @@ export interface DiagnosticParams {
   /**
    * A refused row that can change neither return of `year`, shown in place
    * of its refusal (ADR 0017); it still withholds the returns it can
-   * change. `action` is the refusal's, from the adapter's closed list.
+   * change. Worded from what the row does to the holding, never from file
+   * text.
    */
-  refusedElsewhere: Where & { readonly year: string; readonly action?: string };
+  refusedElsewhere: Where & {
+    readonly year: string;
+    readonly shares: RefusedShares;
+  };
   lossDisallowed: Where;
   lossPartlyDisallowed: Where & { readonly replaced: string };
   washSaleWindowOpen: Where & { readonly until: IsoDate };
