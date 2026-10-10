@@ -258,7 +258,7 @@ function toDividend(
       ),
     ),
     isin,
-    country: isoCountry(d.record?.payer.country ?? d.sourceCountry ?? ""),
+    country: isoCountry(d.record?.sourceCountry ?? d.sourceCountry ?? ""),
     gross: toMoney(d.gross),
     foreignTax,
     rate: toRate(d.rate),

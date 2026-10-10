@@ -305,6 +305,56 @@ describe("own files", () => {
     expect(again.payers["US1912161007"]?.name).toBe("The Coca-Cola Company");
   });
 
+  it("gives the same payer whatever order the files were added in", () => {
+    const prompt = {
+      isin: "US1912161007",
+      symbol: "KO",
+      name: "Coca-Cola",
+      isinCountry: "US",
+      broker: "trading212",
+      payments: 2,
+    };
+    const reread = (state: WizardState, broker: string, request: number) =>
+      wizardReducer(
+        wizardReducer(state, {
+          type: "readStarted",
+          request,
+          fileIds: ["file-1"],
+        }),
+        {
+          type: "readDone",
+          request,
+          reply: readReply([summary()], { payers: [{ ...prompt, broker }] }),
+        },
+      );
+    // Trading 212 first, then a file of another broker that paid it too: the
+    // preset goes, as it would had both been added at once.
+    const first = readOwn([summary()], { payers: [prompt] });
+    expect(first.payers["US1912161007"]?.name).toBe("TRADING 212");
+    const mixed = reread(first, "", 2);
+    expect(mixed.payers["US1912161007"]).toMatchObject({
+      name: "Coca-Cola",
+      address: "",
+      country: "US",
+    });
+    // And back again, when the other broker's file is removed.
+    expect(reread(mixed, "trading212", 3).payers["US1912161007"]?.name).toBe(
+      "TRADING 212",
+    );
+    // What the user typed stays through every change of the mix.
+    const typed = wizardReducer(first, {
+      type: "setPayer",
+      isin: "US1912161007",
+      field: "address",
+      value: "1 Some Street, London",
+    });
+    const kept = reread(typed, "", 4);
+    expect(kept.payers["US1912161007"]).toMatchObject({
+      name: "TRADING 212",
+      address: "1 Some Street, London",
+    });
+  });
+
   it("presets each payer from the export, and keeps what the user typed", () => {
     const read = readOwn();
     expect(read.payers["US1912161007"]).toEqual({

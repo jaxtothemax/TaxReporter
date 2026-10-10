@@ -74,6 +74,17 @@ describe("isReply", () => {
     expect(isReply({ v: PROTOCOL_VERSION, id: 2, kind: "failed" })).toBe(true);
   });
 
+  it("drops a payer prompt that does not name its broker", () => {
+    const [prompt] = read.payers;
+    if (prompt === undefined) throw new Error("no payer in the fixture");
+    const without: Partial<typeof prompt> = { ...prompt };
+    delete without.broker;
+    expect(isReply({ ...read, payers: [without] })).toBe(false);
+    expect(isReply({ ...read, payers: [{ ...prompt, broker: 7 }] })).toBe(
+      false,
+    );
+  });
+
   it("drops another version, an unknown kind or a broken envelope", () => {
     for (const bad of [
       null,

@@ -330,7 +330,9 @@ export function DetailsStep({
   const presetBrokers = [
     ...new Set(
       prompts.flatMap((p) => {
-        const preset = BROKER_PAYERS[p.broker];
+        const preset = Object.hasOwn(BROKER_PAYERS, p.broker)
+          ? BROKER_PAYERS[p.broker]
+          : undefined;
         return preset === undefined ? [] : [preset.name];
       }),
     ),

@@ -90,7 +90,9 @@ and are open to review.
 8. **Payers are asked for, never looked up.** Doh-Div needs each payer's name, address and
    country (research 02 §3). The Details step lists every security that paid a dividend in
    the tax year, with the payer's name preset to the security's name in the export and the
-   country to the one its ISIN names, where FURS lists it; the address, and the payer's ID if
+   country to the one its ISIN names, where FURS lists it (for a broker that pays its dividends
+   out, so far Trading 212, the broker's own name, address and country, set again whenever the
+   files change until the user types something; research 02 §5); the address, and the payer's ID if
    the user knows it, are typed in; a Slovenian payer's 8-digit tax number is required, as
    Doh-Div names it by that. Each field takes no more than its XML element does, pasted
    characters the writer refuses are dropped, and what still breaks a form's rule is said as

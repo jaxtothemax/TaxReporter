@@ -108,6 +108,8 @@ export interface WizardState {
   /** Whether Trading 212 files, which do not name their account, are one. */
   readonly accounts: AccountChoice;
   readonly payers: Readonly<Record<string, PayerDraft>>;
+  /** What each payer draft started as, to tell a typed one from a preset. */
+  readonly payerPresets: Readonly<Record<string, PayerDraft>>;
   readonly reading: Reading;
   readonly preparing: Preparing;
   /**
@@ -194,6 +196,7 @@ export const initialWizardState: WizardState = {
   details: EMPTY_DETAILS,
   accounts: "same",
   payers: {},
+  payerPresets: {},
   reading: IDLE,
   preparing: IDLE,
   lastRead: null,
@@ -426,23 +429,51 @@ export const BROKER_PAYERS: Readonly<
   trading212: { name: "TRADING 212", address: "LONDON", country: "GB" },
 };
 
-/** New payers get their details preset from the export; typed ones stay. */
+const samePayer = (a: PayerDraft, b: PayerDraft) =>
+  a.name === b.name &&
+  a.address === b.address &&
+  a.country === b.country &&
+  a.id === b.id &&
+  a.sourceCountry === b.sourceCountry;
+
+/**
+ * Payers get their details preset from the export. A draft the user has
+ * typed in stays; one still equal to the preset it started as is set again
+ * from the new reading, so that adding a file of another broker does not
+ * leave the first broker's preset on its payments (the same files must give
+ * the same payer whatever order they were added in).
+ */
 function presetPayers(
   payers: Readonly<Record<string, PayerDraft>>,
+  presets: Readonly<Record<string, PayerDraft>>,
   reply: ReadReply,
-): Readonly<Record<string, PayerDraft>> {
-  const next = { ...payers };
+): {
+  readonly payers: Readonly<Record<string, PayerDraft>>;
+  readonly presets: Readonly<Record<string, PayerDraft>>;
+} {
+  const nextPayers = { ...payers };
+  const nextPresets = { ...presets };
   for (const prompt of reply.payers) {
-    const broker = BROKER_PAYERS[prompt.broker];
-    next[prompt.isin] ??= {
+    const broker = Object.hasOwn(BROKER_PAYERS, prompt.broker)
+      ? BROKER_PAYERS[prompt.broker]
+      : undefined;
+    const preset: PayerDraft = {
       name: broker?.name ?? prompt.name,
       address: broker?.address ?? "",
       country: broker?.country ?? prompt.isinCountry,
       id: "",
       sourceCountry: "",
     };
+    const draft = payers[prompt.isin];
+    const before = presets[prompt.isin];
+    const untouched =
+      draft === undefined || (before !== undefined && samePayer(draft, before));
+    if (untouched) {
+      nextPayers[prompt.isin] = preset;
+      nextPresets[prompt.isin] = preset;
+    }
   }
-  return next;
+  return { payers: nextPayers, presets: nextPresets };
 }
 
 export function wizardReducer(
@@ -545,11 +576,17 @@ export function wizardReducer(
       if (action.reply.kind === "failed") {
         return { ...state, reading: { status: "failed", request, fileIds } };
       }
+      const preset = presetPayers(
+        state.payers,
+        state.payerPresets,
+        action.reply,
+      );
       return {
         ...state,
         reading: { status: "read", request, fileIds, reply: action.reply },
         lastRead: null,
-        payers: presetPayers(state.payers, action.reply),
+        payers: preset.payers,
+        payerPresets: preset.presets,
       };
     }
     case "prepareStarted":

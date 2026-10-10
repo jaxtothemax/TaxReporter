@@ -69,7 +69,8 @@ your own: one person's files per session.
 
 For Doh-Div, eDavki needs the name, address and country of every company or fund that paid you
 a dividend. TaxReporter will fill in the name and the country from your export where it can,
-and you will type in the address. It will not look these details up online: that would tell a
+and you will type in the address. For dividends Trading 212 paid out, it will start with
+Trading 212 as the payer (its name, address and country), which you can change. It will not look these details up online: that would tell a
 server which securities you own. Until a payer's details are complete, Doh-Div will wait, while
 Doh-KDVP will still be ready to download.
 
