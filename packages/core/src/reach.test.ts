@@ -171,6 +171,45 @@ describe("a takeover paid in shares", () => {
   });
 });
 
+describe("what the rule reads from the ledger", () => {
+  it("leaves a year alone when the security is sold only in a later year", () => {
+    const sold = [trade("sell", "2027-03-01", "5", "20", of(NEW))];
+    expect(withheld([received("2025-09-03", "in")], sold, 2026).kdvp).toEqual(
+      [],
+    );
+  });
+
+  it("reads the year's last sale of the security, not its first", () => {
+    // Booked 3 September: a sale in February is out of reach, one in
+    // October is not.
+    const sales = [
+      trade("sell", "2026-02-01", "5", "20", of(NEW)),
+      trade("sell", "2026-10-15", "5", "20", of(NEW)),
+    ];
+    expect(withheld([received("2026-09-03", "in")], sales, 2026).kdvp).toEqual([
+      "unsupportedAction@12",
+    ]);
+  });
+
+  it("reaches back to the first purchase of the shares given up", () => {
+    const bought = [
+      trade("buy", "2022-03-01", "10", "11", of(OLD)),
+      trade("buy", "2024-04-23", "21", "12", of(OLD)),
+    ];
+    expect(withheld([soldAtZero("2025-09-03")], bought, 2023).kdvp).toEqual([
+      "invalidPrice@11",
+    ]);
+  });
+
+  it("reaches every earlier year when the only purchase came after", () => {
+    // Shares held from before the files, given up, then bought again.
+    const later = [trade("buy", "2026-02-01", "10", "11", of(OLD))];
+    expect(withheld([soldAtZero("2025-09-03")], later, 2020).kdvp).toEqual([
+      "invalidPrice@11",
+    ]);
+  });
+});
+
 describe("rights handed out free", () => {
   const rights = [received("2025-06-24", "rights", RIGHTS)];
 

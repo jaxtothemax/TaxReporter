@@ -32,9 +32,12 @@ takeover in a user's history blocks every later Doh-KDVP. The user could downloa
    without all three, or with any of them malformed, withholds both returns of every year, as
    before. So does every other code.
 2. **Trading 212 states them only in the shapes research has seen** (06 §4.3):
-   - a sale at a price of exactly 0 gives its shares up (`invalidPrice`, `"out"`); one with no
-     price or a negative one could be anything, such as cash for a fraction of a spin-off
-     share, and stays unscoped;
+   - a sale at a price of exactly 0 gives its shares up (`invalidPrice`, `"out"`), but only
+     when it pairs with its new shares as below. A takeover's new shares can also arrive "not
+     at all" or in another file (06 §4.3); then the ledger lacks them, a later purchase and
+     sale of the new security could take the wrong lots without any finding, and the sale
+     stays unscoped. One with no price or a negative one could be anything, such as cash for
+     a fraction of a spin-off share, and stays unscoped too;
    - a `Custom stock distribution` under a ticker ending in `.RST` receives rights;
    - a `Stock distribution` receives shares only as a takeover's other leg: booked within a
      minute after exactly one sale at a price of exactly 0 in the same file, of another
@@ -87,7 +90,7 @@ What the rule assumes a scoped refusal does not do, and why each holds:
 | Rights change no other security's cost | No source found gives free rights a basis taken from the parent (#29); the 30-day reach is covered by the rights clause. |
 | A refused row hides no dividend of another year | Shares or rights received within a month of the year count for it; `Dividend adjustment`, which can reverse an earlier year, stays unscoped. |
 | The ISIN is the engine's identity of a security | True today: ISIN changes are refused and unscoped. Widen this check with the engine when ISINs are linked. |
-| A later sale missing the refused shares is caught anyway | `insufficientHistory` blocks it (`packages/furs/src/build-kdvp.ts`). |
+| A later sale of shares the ledger lacks is caught | Only when it exceeds what the ledger holds: `insufficientHistory` (`packages/furs/src/build-kdvp.ts`). A purchase that covers it hides the gap, which is why a sale at 0 is scoped only when its new shares are paired with it. |
 
 This amends ADR 0011 decision 9 ("an adapter's refused row included, withholds both forms") and
 ADR 0013 decision 9 ("a finding from reading the files, which can bear on either, withholds

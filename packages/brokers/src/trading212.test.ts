@@ -415,7 +415,6 @@ describe("rows it refuses rather than guesses", () => {
       "Market buy,2026-09-08 14:05:12+00:00,US1912161007,KO,Coca-Cola,,EOF1,2,0E-13,USD,,,,1,EUR,,",
     );
     const price = { column: "Price / share" };
-    const sold = { isin: "US1912161007", date: "2026-09-08", shares: "out" };
     // A zero price is the mark of a takeover paid in shares (06 §4.3), and a
     // zero share count no quantity. A tax or a total is kept to 2 decimals,
     // so there the form is not a zero T212 writes. The form runs from 7
@@ -423,7 +422,7 @@ describe("rows it refuses rather than guesses", () => {
     expect(
       result.diagnostics.map((d) => [d.code, d.params, d.source?.row]),
     ).toEqual([
-      ["invalidPrice", sold, 2],
+      ["invalidPrice", {}, 2],
       ["invalidQuantity", {}, 3],
       ["invalidNumber", price, 4],
       ["invalidNumber", price, 5],
@@ -431,8 +430,8 @@ describe("rows it refuses rather than guesses", () => {
       ["invalidNumber", price, 7],
       ["invalidNumber", { column: "Withholding tax" }, 8],
       ["invalidNumber", { column: "Total" }, 9],
-      ["invalidPrice", sold, 10],
-      ["invalidPrice", sold, 11],
+      ["invalidPrice", {}, 10],
+      ["invalidPrice", {}, 11],
       ["invalidNumber", price, 12],
     ]);
     expect(result.events).toEqual([]);
@@ -514,11 +513,9 @@ describe("rows it refuses rather than guesses", () => {
         },
         4,
       ],
-      [
-        "invalidPrice",
-        { isin: "US00000ORBT1", date: "2026-05-04", shares: "out" },
-        5,
-      ],
+      // A sale at 0 whose new shares never pair: unscoped, since a later
+      // sale of the new security could take the wrong lots unnoticed.
+      ["invalidPrice", {}, 5],
       [
         "unsupportedAction",
         {
@@ -555,47 +552,48 @@ describe("rows it refuses rather than guesses", () => {
       ]),
     ).toEqual(["out", "in"]);
     // Two distributions after one sale, or two sales before one
-    // distribution: ambiguous, so neither distribution is scoped.
+    // distribution: ambiguous, so no leg is scoped.
     expect(
       shares([
         row(sold, "2026-09-08 14:05:12", "US00000ORBT1"),
         row(got, "2026-09-08 14:05:27", "US00000NOVA8"),
         row(got, "2026-09-08 14:05:40", "US00000ACME1"),
       ]),
-    ).toEqual(["out", "none", "none"]);
+    ).toEqual(["none", "none", "none"]);
     expect(
       shares([
         row(sold, "2026-09-08 14:05:12", "US00000ORBT1"),
         row(sold, "2026-09-08 14:05:20", "US00000ACME1"),
         row(got, "2026-09-08 14:05:27", "US00000NOVA8"),
       ]),
-    ).toEqual(["out", "out", "none"]);
+    ).toEqual(["none", "none", "none"]);
     // Booked before the sale, more than a minute after it, of the same
-    // security, or on another day in Ljubljana: not a pair.
+    // security, or on another day in Ljubljana: not a pair, so neither leg
+    // is scoped.
     expect(
       shares([
         row(got, "2026-09-08 14:05:00", "US00000NOVA8"),
         row(sold, "2026-09-08 14:05:12", "US00000ORBT1"),
       ]),
-    ).toEqual(["none", "out"]);
+    ).toEqual(["none", "none"]);
     expect(
       shares([
         row(sold, "2026-09-08 14:05:12", "US00000ORBT1"),
         row(got, "2026-09-08 14:06:13", "US00000NOVA8"),
       ]),
-    ).toEqual(["out", "none"]);
+    ).toEqual(["none", "none"]);
     expect(
       shares([
         row(sold, "2026-09-08 14:05:12", "US00000ORBT1"),
         row(got, "2026-09-08 14:05:27", "US00000ORBT1"),
       ]),
-    ).toEqual(["out", "none"]);
+    ).toEqual(["none", "none"]);
     expect(
       shares([
         row(sold, "2026-09-08 21:59:50", "US00000ORBT1"),
         row(got, "2026-09-08 22:00:05", "US00000NOVA8"),
       ]),
-    ).toEqual(["out", "none"]);
+    ).toEqual(["none", "none"]);
     // A sale with no price, or a negative one, is not the shape research
     // has seen: neither leg is scoped.
     for (const price of ["", "-1.5"]) {

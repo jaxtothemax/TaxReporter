@@ -424,10 +424,10 @@ function read(table: CsvTable, context: ReadContext): ImportResult {
   const fundsNoted = new Set<string>();
   const halves = new Map<string, { close: SplitHalf[]; open: SplitHalf[] }>();
   // A takeover's legs, to pair after the last row (ADR 0017): each
-  // `Stock distribution` refusal with where it sits among the findings, and
-  // each sale at a price of exactly 0.
+  // `Stock distribution` refusal and each sale at a price of exactly 0, with
+  // where its refusal sits among the findings.
   const received: (Leg & { readonly index: number })[] = [];
-  const soldAtZero: Leg[] = [];
+  const soldAtZero: (Leg & { readonly index: number })[] = [];
   let interestRows = 0;
   let lastDate: string | null = null;
 
@@ -572,17 +572,14 @@ function read(table: CsvTable, context: ReadContext): ImportResult {
       continue;
     }
     // Zero is no price: a sale at 0 is a takeover paid in shares, which
-    // needs the user's input (06 §4.3). It gives the shares up, which is
-    // what scopes the refusal (ADR 0017). Only a price of exactly 0 is the
-    // shape research has seen; a missing or negative one could be anything,
-    // such as cash for a fraction of a spin-off share, and stays unscoped.
+    // needs the user's input (06 §4.3). Refused unscoped here; one at a
+    // price of exactly 0 that pairs with its new shares after the last row
+    // is scoped there (ADR 0017).
     if (price === null || !price.isPositive()) {
-      if (side === "sell" && price?.isZero() === true) {
-        block("invalidPrice", { isin, date, shares: "out" });
-        const ms = at.instant === null ? null : instantMillis(at.instant);
-        if (ms !== null) soldAtZero.push({ ms, isin, date });
-      } else {
-        block("invalidPrice", {});
+      block("invalidPrice", {});
+      const ms = at.instant === null ? null : instantMillis(at.instant);
+      if (side === "sell" && price?.isZero() === true && ms !== null) {
+        soldAtZero.push({ index: diagnostics.length - 1, ms, isin, date });
       }
       continue;
     }
@@ -679,11 +676,14 @@ function read(table: CsvTable, context: ReadContext): ImportResult {
     }
   }
 
-  // New shares booked just after a sale at 0 are a takeover's other leg:
-  // they receive what the sale gave up, so their refusal is scoped too. Only
-  // one to one, within a minute, the sale first, the same day and another
-  // security: a spin-off or bonus issue booked in a batch beside it reaches
-  // further (ADR 0017), so anything ambiguous stays unscoped.
+  // A sale at 0 and the new shares booked just after it are a takeover's
+  // two legs: what one gives up the other receives, so both refusals are
+  // scoped. Only one to one, within a minute, the sale first, the same day
+  // and another security: a spin-off or bonus issue booked in a batch
+  // beside it reaches further, and a sale at 0 whose new shares never came,
+  // or came in another file, leaves them out of the ledger, so a later sale
+  // of the new security could take the wrong lots unnoticed (ADR 0017).
+  // Anything unpaired or ambiguous stays unscoped.
   const sales = [...soldAtZero].sort((a, b) => a.ms - b.ms);
   const receipts = [...received].sort((a, b) => a.ms - b.ms);
   for (const receipt of received) {
@@ -703,14 +703,25 @@ function read(table: CsvTable, context: ReadContext): ImportResult {
     ) {
       continue;
     }
-    const { index } = receipt;
-    const refusal = diagnostics[index];
-    if (refusal?.code !== "unsupportedAction") continue;
-    diagnostics[index] = diagnostic(
+    const refusal = diagnostics[receipt.index];
+    const gave = diagnostics[sale.index];
+    if (
+      refusal?.code !== "unsupportedAction" ||
+      gave?.code !== "invalidPrice"
+    ) {
+      continue;
+    }
+    diagnostics[receipt.index] = diagnostic(
       "blocking",
       "unsupportedAction",
       { ...refusal.params, shares: "in" },
       refusal.source,
+    );
+    diagnostics[sale.index] = diagnostic(
+      "blocking",
+      "invalidPrice",
+      { isin: sale.isin, date: sale.date, shares: "out" },
+      gave.source,
     );
   }
 
