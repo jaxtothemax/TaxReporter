@@ -300,13 +300,13 @@ describe("dividends a broker labels Bonus or Demerger", () => {
     expect(result.events).toEqual([]);
   });
 
-  it("keeps them apart from an ordinary dividend of the same figures", () => {
+  it("keys a Bonus row apart from an ordinary dividend of the same figures", () => {
+    // Two files, as with overlapping exports: the label is part of the key.
     const ordinary = bonus.replace("Dividend (Bonus)", "Dividend (Dividend)");
-    const keys = new Set(
-      v4(bonus, ordinary).events.map((e) => ("key" in e ? e.key : "")),
-    );
-    // Two dividends and two withholdings, none of them one event twice.
-    expect(keys.size).toBe(4);
+    const key = (text: string) =>
+      v4(text).events.flatMap((e) => (e.kind === "dividend" ? [e.key] : []));
+    expect(key(bonus)).toHaveLength(1);
+    expect(key(bonus)).not.toEqual(key(ordinary));
   });
 });
 

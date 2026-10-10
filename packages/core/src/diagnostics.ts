@@ -392,7 +392,7 @@ export interface DiagnosticParams {
   fundFromName: Isin;
   /**
    * A dividend the broker labels otherwise ("Bonus", "Demerger"), counted as
-   * an ordinary dividend; `kind` comes from the adapter's own list.
+   * an ordinary dividend; `label` comes from the adapter's own list.
    */
   dividendLabelTreated: {
     readonly broker: string;

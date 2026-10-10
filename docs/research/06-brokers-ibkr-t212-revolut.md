@@ -1,6 +1,6 @@
 # Broker export formats: Interactive Brokers, Trading 212, Revolut
 
-> Researched: 2026-10-07 · Verification: not independently verified · Updated: 2026-10-09 (one real Trading 212 export inspected: the `0E-10` zero, dividend prices to 6 decimals, the V4 header and a takeover's rows, §4.2–§4.4; the tax rule for takeovers and mergers paid in shares linked from §3.5 and §4.3; `Dividend (Bonus)` and `Dividend (Demerger)` rows from the same export, §4.3)
+> Researched: 2026-10-07 · Verification: not independently verified · Updated: 2026-10-09 (one real Trading 212 export inspected: the `0E-10` zero, dividend prices to 6 decimals, the V4 header and a takeover's rows, §4.2–§4.4; the tax rule for takeovers and mergers paid in shares linked from §3.5 and §4.3; `Dividend (Bonus)` and `Dividend (Demerger)` rows from a second, full-history export, §4.3)
 >
 > Research for building TaxReporter. It is not tax advice, and FURS publications and the law win over anything written here. Where this page overlaps a verified doc (01–03), the verified doc wins; such places are cross-referenced inline. See the [README](README.md#confidence-and-verification-legend) for the legend.
 
@@ -269,11 +269,11 @@ Seen in one real export, generated in October 2026 for the year 2025 (not commit
 
 **Gross dividend for Doh-Div** = `No. of shares × Price / share + Withholding tax`, when the WHT currency equals the price currency. This is cgt-calc's rule, verified on real exports from 2020 to 2026 (#1203).
 
-**`Dividend (Bonus)` and `Dividend (Demerger)`** [H, from one real export of 2020 to 2022] are cash rows shaped like any dividend: shares, a price per share net of the tax withheld, and a `Withholding tax` column. In that export:
+**`Dividend (Bonus)` and `Dividend (Demerger)`** [H, from a second real export: a full history of yearly files, which also showed the zero form above] are cash rows shaped like any dividend: shares, a price per share net of the tax withheld, and a `Withholding tax` column. In those files:
 
-- Two `Dividend (Bonus)` rows were per-share cash payments from US companies: one was a large company's special cash dividend of USD 10 per share, whose row price was exactly USD 8.50, that is USD 10 less 15% US tax, so the net-price rule of this section held. Neither was a payment in shares.
-- Two `Dividend (Demerger)` rows, in 2020 and 2021, were cash paid instead of a fraction of a spin-off share: the holder owned 1 to 2 shares and the spin-off ratio left a fraction. Neither had tax withheld.
-- The special dividend, the one checked against the company's notice, was booked three days after its payment date, so the row's time is again when Trading 212 booked it (see the takeover notes below).
+- `Dividend (Bonus)` rows were per-share cash payments from US companies, never payments in shares. One was a special cash dividend whose row price, with the tax withheld, reconstructed a round-number gross, so the net-price rule of this section held.
+- `Dividend (Demerger)` rows were cash paid instead of a fraction of a spin-off share, to holders of a few shares. Neither had tax withheld.
+- The special dividend, checked against the company's notice, was booked a few days after its payment date, so the row's time is again when Trading 212 booked it (see the takeover notes below).
 
 The reader counts both as ordinary dividends, with a warning on each row ([04 §9](04-si-tax-rules.md#9-special-cases)).
 

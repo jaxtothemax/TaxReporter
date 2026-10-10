@@ -87,7 +87,7 @@ const DIVIDENDS = new Set([
  * Cash paid per share under a label that is not "Dividend". Both are read as
  * ordinary dividends, which ZDoh-2 art. 90 makes of any distribution on the
  * basis of a holding that does not reduce it, with a warning on each row
- * (04 §7.1, §9.1; 06 §4.3). A "Bonus" in a real export was a company's
+ * (04 §7.1, §9; 06 §4.3). A "Bonus" in a real export was a company's
  * special cash dividend. A "Demerger" was cash paid instead of a fraction of
  * a spin-off share, whose treatment is not settled: counting it as a
  * dividend is the simplest reading, and the warning says so.
