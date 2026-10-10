@@ -20,7 +20,7 @@ import { explain, type ExplainProps } from "../explain/anchors";
 import { formatCountry, plural, type Locale } from "../i18n/format";
 import { useI18n } from "../i18n/i18n";
 import {
-  BROKER_PAYERS,
+  brokerPayerOf,
   isPayerIncomplete,
   isValidTaxNumber,
   normalizeTaxNumber,
@@ -330,9 +330,7 @@ export function DetailsStep({
   const presetBrokers = [
     ...new Set(
       prompts.flatMap((p) => {
-        const preset = Object.hasOwn(BROKER_PAYERS, p.broker)
-          ? BROKER_PAYERS[p.broker]
-          : undefined;
+        const preset = brokerPayerOf(p);
         return preset === undefined ? [] : [preset.name];
       }),
     ),

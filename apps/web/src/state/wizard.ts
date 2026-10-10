@@ -18,6 +18,7 @@ import type {
   FailedReply,
   FileSummary,
   PayerDetails,
+  PayerPrompt,
   PrepareReply,
   ReadReply,
 } from "../engine/protocol";
@@ -429,6 +430,21 @@ export const BROKER_PAYERS: Readonly<
   trading212: { name: "TRADING 212", address: "LONDON", country: "GB" },
 };
 
+/**
+ * The broker's own details, for a prompt whose dividends one broker paid out.
+ * Never for a Slovenian security: a Slovenian payer is named by its tax
+ * number and withholds Slovenian tax itself, which a preset country of GB
+ * would hide (research 04 §7.1, 02 §3.4).
+ */
+export function brokerPayerOf(
+  prompt: Pick<PayerPrompt, "broker" | "isinCountry">,
+): Pick<PayerDraft, "name" | "address" | "country"> | undefined {
+  if (prompt.isinCountry === "SI") return undefined;
+  return Object.hasOwn(BROKER_PAYERS, prompt.broker)
+    ? BROKER_PAYERS[prompt.broker]
+    : undefined;
+}
+
 const samePayer = (a: PayerDraft, b: PayerDraft) =>
   a.name === b.name &&
   a.address === b.address &&
@@ -454,9 +470,7 @@ function presetPayers(
   const nextPayers = { ...payers };
   const nextPresets = { ...presets };
   for (const prompt of reply.payers) {
-    const broker = Object.hasOwn(BROKER_PAYERS, prompt.broker)
-      ? BROKER_PAYERS[prompt.broker]
-      : undefined;
+    const broker = brokerPayerOf(prompt);
     const preset: PayerDraft = {
       name: broker?.name ?? prompt.name,
       address: broker?.address ?? "",

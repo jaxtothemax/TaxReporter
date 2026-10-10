@@ -305,6 +305,26 @@ describe("own files", () => {
     expect(again.payers["US1912161007"]?.name).toBe("The Coca-Cola Company");
   });
 
+  it("never presets the broker for a Slovenian security", () => {
+    const read = readOwn([summary()], {
+      payers: [
+        {
+          isin: "SI0031102120",
+          symbol: "KRKG",
+          name: "Krka",
+          isinCountry: "SI",
+          broker: "trading212",
+          payments: 1,
+        },
+      ],
+    });
+    // A Slovenian payer is named by its tax number, so it stays the company.
+    expect(read.payers["SI0031102120"]).toMatchObject({
+      name: "Krka",
+      country: "SI",
+    });
+  });
+
   it("gives the same payer whatever order the files were added in", () => {
     const prompt = {
       isin: "US1912161007",

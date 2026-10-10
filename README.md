@@ -69,7 +69,8 @@ broker exports ─► read ─► one ledger ─► Banka Slovenije rates ─►
    schemas, which the project's tests check every kind of return against. Before a file is
    written, it is checked against the rules the schemas leave out. Foreign tax withheld stays
    with its dividend. Brokers do not export a dividend payer's address, which Doh-Div needs, so
-   you add it once per security. A return is withheld, with the reason, while any finding blocks
+   you add it once per security (the web app starts Trading 212's dividends with Trading 212
+   as the payer). A return is withheld, with the reason, while any finding blocks
    it.
 6. **You check it, then import it into eDavki yourself.** TaxReporter shows an estimate of the
    tax and the source of every figure. It never files anything.
