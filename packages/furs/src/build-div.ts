@@ -33,6 +33,7 @@ import {
   DIVIDEND_TAX_RATE,
   eventId,
   hasBlocking,
+  scopeLedger,
   treatyDividendRate,
   type Diagnostic,
   type DividendCredit,
@@ -372,8 +373,10 @@ export function buildDohDiv(input: DivBuildInput): DivBuild {
   };
   // The writer's own rules, run here so that a form handed out is one the
   // writer takes: a payer's details can still break them. Only when nothing
-  // else blocks, so the review shows causes, not their echoes.
-  const ledgerBlocks = hasBlocking(input.ledger.diagnostics);
+  // else blocks, so the review shows causes, not their echoes. A refusal
+  // from reading the files withholds the form only if it can change this
+  // year's dividends (ADR 0017).
+  const ledgerBlocks = scopeLedger(input.ledger, input.taxYear).div.length > 0;
   if (records.length > 0 && !ledgerBlocks && !hasBlocking(diagnostics)) {
     // One by one: spread into a call, a long list overflows the stack.
     for (const issue of formIssues(validateDohDiv(draft))) {

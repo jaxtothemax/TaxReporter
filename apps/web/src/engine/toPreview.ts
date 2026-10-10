@@ -334,10 +334,13 @@ export function bounded(findings: readonly Finding[]): {
   };
 }
 
-/** Every finding of the run, from reading the files and from both builders. */
+/**
+ * Every finding of the run, from reading the files (as the year sees them,
+ * ADR 0017) and from both builders.
+ */
 export function findingsOf(prepared: Prepared): readonly Diagnostic[] {
   return [
-    ...prepared.ledger.diagnostics,
+    ...prepared.scope.findings,
     ...prepared.kdvp.diagnostics,
     ...prepared.div.diagnostics,
   ];

@@ -4,7 +4,7 @@
  * but for the rate snapshot, which it is handed, so the tests run it in Node
  * over the broker fixtures; the worker file is a thin shell around it.
  */
-import { hasBlocking, type Diagnostic } from "@taxreporter/core";
+import { hasBlocking, scopeLedger, type Diagnostic } from "@taxreporter/core";
 import {
   isFursCountry,
   isTaxNumber,
@@ -119,7 +119,12 @@ export async function handleRequest(
     const files = summarize(read, index);
     if (request.kind === "read") {
       const session = bounded(
-        sessionFindings(read.ledger.diagnostics, files, index),
+        // The year's view: a refusal from another year is a note (ADR 0017).
+        sessionFindings(
+          scopeLedger(read.ledger, request.taxYear).findings,
+          files,
+          index,
+        ),
       );
       return {
         ...base,
@@ -138,12 +143,11 @@ export async function handleRequest(
       rates: await rates(),
       payers,
     });
-    const { kdvp, div, ledger } = prepared;
-    // A finding from reading the files can bear on either return, so it
-    // withholds both; a builder's own withholds only its form (ADR 0013 §9).
-    const fromLedger = blocking(ledger.diagnostics);
-    const kdvpBlocking = fromLedger + blocking(kdvp.diagnostics);
-    const divBlocking = fromLedger + blocking(div.diagnostics);
+    const { kdvp, div, scope } = prepared;
+    // A finding from reading the files withholds each form it can change
+    // this year; a builder's own withholds only its form (ADRs 0013 §9, 0017).
+    const kdvpBlocking = scope.kdvp.length + blocking(kdvp.diagnostics);
+    const divBlocking = scope.div.length + blocking(div.diagnostics);
     const kdvpOut: FormOutput = {
       xml:
         kdvp.form === null || hasBlocking(kdvp.diagnostics)

@@ -7,19 +7,26 @@ account. No row comes from a real account: IDs are placeholders, amounts are
 made up (cash totals are kept roughly consistent), and Acme Corp
 (`US00000ACME1`) does not exist.
 
-| File                               | Revision                                                         | Header source                                             |
-| ---------------------------------- | ---------------------------------------------------------------- | --------------------------------------------------------- |
-| `t212-invest-v1-2022.csv`          | V1: currency in the header (`Total (EUR)`), `Notes,ID` last      | Reconstructed from the research description; illustrative |
-| `t212-invest-v2-2024.csv`          | V2: `Currency (Total)` columns, `Notes,ID` after the tax columns | Reconstructed from the research description; illustrative |
-| `t212-invest-v3-2025.csv`          | V3: `Notes,ID` after `Name`, conversion and merchant columns     | The real January 2026 header quoted in cgt-calc #709      |
-| `t212-invest-v4-2026.csv`          | V4: `Time (UTC)`                                                 | The research's synthetic 2026 fixture, extended           |
-| `t212-invest-v4-2026-takeover.csv` | V4 without `Notes`, as an export with no notes writes it         | A real export's header (October 2026); rows made up       |
+| File                                  | Revision                                                         | Header source                                             |
+| ------------------------------------- | ---------------------------------------------------------------- | --------------------------------------------------------- |
+| `t212-invest-v1-2022.csv`             | V1: currency in the header (`Total (EUR)`), `Notes,ID` last      | Reconstructed from the research description; illustrative |
+| `t212-invest-v2-2024.csv`             | V2: `Currency (Total)` columns, `Notes,ID` after the tax columns | Reconstructed from the research description; illustrative |
+| `t212-invest-v3-2025.csv`             | V3: `Notes,ID` after `Name`, conversion and merchant columns     | The real January 2026 header quoted in cgt-calc #709      |
+| `t212-invest-v4-2026.csv`             | V4: `Time (UTC)`                                                 | The research's synthetic 2026 fixture, extended           |
+| `t212-invest-v4-2026-takeover.csv`    | V4 without `Notes`, as an export with no notes writes it         | A real export's header (October 2026); rows made up       |
+| `t212-invest-v4-history-takeover.csv` | V4 without `Notes`                                               | The same real header; rows made up                        |
 
 `t212-invest-v4-2026-takeover.csv` holds made-up rows of the kinds a real
 2025 export had and the other files lack (research 06 §4.2, §4.3): a
 takeover paid in shares, priced `0E-10`, a distribution of rights, and
 dividends priced to 6 decimals. Orbit Corp (`US00000ORBT1`), Nova Holdings
 (`US00000NOVA8`) and Vega Rights (`US00000VEGA3`) do not exist either.
+
+`t212-invest-v4-history-takeover.csv` has the shape of a real history from
+2024 to 2026 (ADR 0017): shares bought in 2024 and taken over for shares in
+2025, rights handed out in 2025, and in 2026 only dividends and a sale of
+another security. Its 2025 refusals must withhold the 2025 returns they can
+change and leave both 2026 returns to be written. The rows are made up.
 
 The research warns that every fixture has to be checked against a real,
 anonymized export of the revision it claims to be before the parser ships.

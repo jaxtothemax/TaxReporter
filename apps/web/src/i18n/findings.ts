@@ -183,6 +183,11 @@ export const findingsEn: FindingMessages = {
       p,
       `the loss reduces your gains, because you bought none in the 30 days before or after the sale.`,
     ),
+  refusedElsewhere: (p) =>
+    at(
+      p,
+      `${p.action === undefined ? "a row priced at zero" : `a “${p.action}” row`} is not read, but it changes nothing on the ${p.year} returns: nothing it could affect is sold or received in ${p.year}. It holds back only the returns it can change.`,
+    ),
   lossDisallowed: (p) =>
     at(
       p,
@@ -571,6 +576,11 @@ export const findingsSl: FindingMessages = {
     at(
       p,
       `izguba zmanjša dobiček, ker v 30 dneh pred prodajo ali po njej niste kupili istega vrednostnega papirja.`,
+    ),
+  refusedElsewhere: (p) =>
+    at(
+      p,
+      `${p.action === undefined ? "vrstica s ceno nič" : `vrstica »${p.action}«`} ni prebrana, vendar ne spremeni ničesar v napovedih za leto ${p.year}: v tem letu ni prodano ali prejeto nič, na kar bi lahko vplivala. Zadrži le napovedi, ki jih lahko spremeni.`,
     ),
   lossDisallowed: (p) =>
     at(

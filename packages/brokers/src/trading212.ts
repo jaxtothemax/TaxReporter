@@ -38,6 +38,7 @@ import {
   accountGroup,
   Decimal,
   diagnostic,
+  instantMillis,
   isIsin,
   keyBuilder,
   LIMITS,
@@ -117,6 +118,16 @@ const INTEREST = new Set([
   "Lending interest",
   "Dividend (Interest)",
 ]);
+
+/** Rights handed out free to holders, under a `.RST` ticker (06 §4.3). */
+const FREE_RIGHTS = "Custom stock distribution";
+/** The new shares of a takeover paid in shares, among other uses (06 §4.3). */
+const SHARES_RECEIVED = "Stock distribution";
+/**
+ * How far apart a takeover's two rows may be booked to be paired: 15 seconds
+ * in the real export seen (06 §4.3).
+ */
+const TAKEOVER_PAIR_MS = 10 * 60 * 1000;
 
 /** Known actions whose tax treatment is not settled (06 §4.3, §4.6). */
 const UNSETTLED = new Set([
@@ -379,6 +390,11 @@ function read(table: CsvTable, context: ReadContext): ImportResult {
 
   const fundsNoted = new Set<string>();
   const halves = new Map<string, { close: SplitHalf[]; open: SplitHalf[] }>();
+  // A takeover's legs, to pair after the last row (ADR 0017): where each
+  // `Stock distribution` refusal sits among the findings, and when the
+  // sales at a price of 0 were booked.
+  const received: { readonly index: number; readonly instant: string }[] = [];
+  const soldAtZero: string[] = [];
   let interestRows = 0;
   let lastDate: string | null = null;
 
@@ -423,7 +439,30 @@ function read(table: CsvTable, context: ReadContext): ImportResult {
       continue;
     }
     if (UNSETTLED.has(action)) {
-      block("unsupportedAction", { broker: TRADING212, action });
+      // Refused either way. What the refusal can reach is stated only where
+      // the row's shape shows it (ADR 0017): rights booked under a `.RST`
+      // ticker, and new shares paired with a sale at 0 after the last row.
+      // Every other refusal withholds both returns of every year.
+      const isin = text(row, "ISIN");
+      if (
+        (action === FREE_RIGHTS || action === SHARES_RECEIVED) &&
+        isIsin(isin)
+      ) {
+        const rights =
+          action === FREE_RIGHTS && text(row, "Ticker").endsWith(".RST");
+        block("unsupportedAction", {
+          broker: TRADING212,
+          action,
+          isin,
+          date,
+          ...(rights ? { shares: "rights" as const } : {}),
+        });
+        if (action === SHARES_RECEIVED && at.instant !== null) {
+          received.push({ index: diagnostics.length - 1, instant: at.instant });
+        }
+      } else {
+        block("unsupportedAction", { broker: TRADING212, action });
+      }
       continue;
     }
     const side = BUYS.has(action) ? "buy" : SELLS.has(action) ? "sell" : null;
@@ -499,9 +538,15 @@ function read(table: CsvTable, context: ReadContext): ImportResult {
       continue;
     }
     // Zero is no price: a sale at 0 is a takeover paid in shares, which
-    // needs the user's input (06 §4.3).
+    // needs the user's input (06 §4.3). It gives the shares up, which is
+    // what scopes the refusal (ADR 0017).
     if (price === null || !price.isPositive()) {
-      block("invalidPrice", {});
+      if (side === "sell") {
+        block("invalidPrice", { isin, date, shares: "out" });
+        if (at.instant !== null) soldAtZero.push(at.instant);
+      } else {
+        block("invalidPrice", {});
+      }
       continue;
     }
 
@@ -595,6 +640,28 @@ function read(table: CsvTable, context: ReadContext): ImportResult {
         amount: { amount: withheld, currency },
       });
     }
+  }
+
+  // New shares booked beside a sale at 0 are a takeover's other leg: they
+  // receive what the sale gave up, so their refusal is scoped too. One booked
+  // alone could be a spin-off or bonus issue, whose reach is wider; it stays
+  // unscoped.
+  for (const { index, instant } of received) {
+    const when = instantMillis(instant);
+    const paired =
+      when !== null &&
+      soldAtZero.some((sold) => {
+        const then = instantMillis(sold);
+        return then !== null && Math.abs(then - when) <= TAKEOVER_PAIR_MS;
+      });
+    const refusal = diagnostics[index];
+    if (!paired || refusal?.code !== "unsupportedAction") continue;
+    diagnostics[index] = diagnostic(
+      "blocking",
+      "unsupportedAction",
+      { ...refusal.params, shares: "in" },
+      refusal.source,
+    );
   }
 
   // More split pairs on one security than the engine takes are refused

@@ -204,6 +204,18 @@ interface Where {
 /** For refusals: only the parts that had their proper shape. */
 type MaybeWhere = Partial<Where>;
 
+/**
+ * What a refused row does to a holding, where its adapter can tell (ADR
+ * 0017): gives shares up (a sale at a price of 0), receives shares (the new
+ * shares of a takeover paid in shares), or receives rights. With it, an ISIN
+ * and a date, a refusal withholds only the returns it can change; without
+ * any of the three, both returns of every year.
+ */
+export type RefusedShares = "out" | "in" | "rights";
+
+/** A refused row's security, date and effect, as far as they are known. */
+type Reach = MaybeWhere & { readonly shares?: RefusedShares };
+
 type Isin = Pick<Where, "isin">;
 type None = Readonly<Record<string, never>>;
 
@@ -296,6 +308,12 @@ export interface DiagnosticParams {
   };
   exemptLotsLeftOut: Isin & { readonly quantity: string };
   lossCounts: Where;
+  /**
+   * A refused row that can change neither return of `year`, shown in place
+   * of its refusal (ADR 0017); it still withholds the returns it can
+   * change. `action` is the refusal's, from the adapter's closed list.
+   */
+  refusedElsewhere: Where & { readonly year: string; readonly action?: string };
   lossDisallowed: Where;
   lossPartlyDisallowed: Where & { readonly replaced: string };
   washSaleWindowOpen: Where & { readonly until: IsoDate };
@@ -346,7 +364,10 @@ export interface DiagnosticParams {
   };
   unknownAction: { readonly broker: string; readonly action: UntrustedText };
   /** `action` comes from the adapter's own closed list, never the file. */
-  unsupportedAction: { readonly broker: string; readonly action: string };
+  unsupportedAction: {
+    readonly broker: string;
+    readonly action: string;
+  } & Reach;
   /**
    * Rows whose treatment is settled but whose columns' meaning in this
    * export no source confirms yet; `action` from the adapter's own list.
@@ -358,7 +379,7 @@ export interface DiagnosticParams {
   invalidNumber: { readonly column: NumberColumn };
   invalidQuantity: None;
   invalidCurrency: None;
-  invalidPrice: None;
+  invalidPrice: Reach;
   unexpectedSign: { readonly column: NumberColumn };
   dividendTaxCurrency: None;
   splitUnpaired: Isin;

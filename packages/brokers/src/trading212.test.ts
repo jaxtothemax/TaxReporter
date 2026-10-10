@@ -224,15 +224,35 @@ describe("a takeover paid in shares, under a real export's header", () => {
     expect(
       result.diagnostics.map((d) => [d.code, d.params, d.source?.row]),
     ).toEqual([
+      // Each states what it does to a holding, so that it withholds only
+      // the returns it can change (ADR 0017): rights under a ".RST" ticker,
+      // the shares a sale at 0 gives up, and the new shares booked 51
+      // seconds after it, paired with it as the takeover's other leg.
       [
         "unsupportedAction",
-        { broker: "trading212", action: "Custom stock distribution" },
+        {
+          broker: "trading212",
+          action: "Custom stock distribution",
+          isin: "US00000VEGA3",
+          date: "2026-02-24",
+          shares: "rights",
+        },
         3,
       ],
-      ["invalidPrice", {}, 6],
+      [
+        "invalidPrice",
+        { isin: "US00000ORBT1", date: "2026-09-08", shares: "out" },
+        6,
+      ],
       [
         "unsupportedAction",
-        { broker: "trading212", action: "Stock distribution" },
+        {
+          broker: "trading212",
+          action: "Stock distribution",
+          isin: "US00000NOVA8",
+          date: "2026-09-08",
+          shares: "in",
+        },
         7,
       ],
     ]);
@@ -395,6 +415,7 @@ describe("rows it refuses rather than guesses", () => {
       "Market buy,2026-09-08 14:05:12+00:00,US1912161007,KO,Coca-Cola,,EOF1,2,0E-13,USD,,,,1,EUR,,",
     );
     const price = { column: "Price / share" };
+    const sold = { isin: "US1912161007", date: "2026-09-08", shares: "out" };
     // A zero price is the mark of a takeover paid in shares (06 §4.3), and a
     // zero share count no quantity. A tax or a total is kept to 2 decimals,
     // so there the form is not a zero T212 writes. The form runs from 7
@@ -402,7 +423,7 @@ describe("rows it refuses rather than guesses", () => {
     expect(
       result.diagnostics.map((d) => [d.code, d.params, d.source?.row]),
     ).toEqual([
-      ["invalidPrice", {}, 2],
+      ["invalidPrice", sold, 2],
       ["invalidQuantity", {}, 3],
       ["invalidNumber", price, 4],
       ["invalidNumber", price, 5],
@@ -410,11 +431,111 @@ describe("rows it refuses rather than guesses", () => {
       ["invalidNumber", price, 7],
       ["invalidNumber", { column: "Withholding tax" }, 8],
       ["invalidNumber", { column: "Total" }, 9],
-      ["invalidPrice", {}, 10],
-      ["invalidPrice", {}, 11],
+      ["invalidPrice", sold, 10],
+      ["invalidPrice", sold, 11],
       ["invalidNumber", price, 12],
     ]);
     expect(result.events).toEqual([]);
+  });
+
+  it("states a refusal's reach only in the shapes research has seen (ADR 0017)", () => {
+    const row = (
+      action: string,
+      time: string,
+      isin: string,
+      ticker: string,
+      price: string,
+    ) =>
+      `${action},${time},${isin},${ticker},Some Corp,,EOF1,2,${price},USD,,,,0.00,EUR,,`;
+    const result = v4(
+      // A buy at 0 gives nothing up: unscoped.
+      row("Market buy", "2026-03-02 10:00:00", "US1912161007", "KO", "0E-10"),
+      // Rights without a ".RST" ticker, a lone Stock distribution, one booked
+      // an hour after a sale at 0, and any other unsettled action: unscoped.
+      row(
+        "Custom stock distribution",
+        "2026-03-03 10:00:00",
+        "US00000VEGA3",
+        "VEGA",
+        "0E-10",
+      ),
+      row(
+        "Stock distribution",
+        "2026-03-04 10:00:00",
+        "US00000NOVA8",
+        "NOVA",
+        "0E-10",
+      ),
+      row(
+        "Market sell",
+        "2026-05-04 10:00:00",
+        "US00000ORBT1",
+        "ORBT",
+        "0E-10",
+      ),
+      row(
+        "Stock distribution",
+        "2026-05-04 11:00:01",
+        "US00000NOVA8",
+        "NOVA",
+        "0E-10",
+      ),
+      row("Spin off", "2026-06-01 10:00:00", "US00000ACME1", "ACME", "0E-10"),
+      // A Stock distribution whose ISIN cannot be read names none.
+      row(
+        "Stock distribution",
+        "2026-06-02 10:00:00",
+        "NOT-AN-ISIN",
+        "NOVA",
+        "0E-10",
+      ),
+    );
+    expect(
+      result.diagnostics.map((d) => [d.code, d.params, d.source?.row]),
+    ).toEqual([
+      ["invalidPrice", {}, 2],
+      [
+        "unsupportedAction",
+        {
+          broker: "trading212",
+          action: "Custom stock distribution",
+          isin: "US00000VEGA3",
+          date: "2026-03-03",
+        },
+        3,
+      ],
+      [
+        "unsupportedAction",
+        {
+          broker: "trading212",
+          action: "Stock distribution",
+          isin: "US00000NOVA8",
+          date: "2026-03-04",
+        },
+        4,
+      ],
+      [
+        "invalidPrice",
+        { isin: "US00000ORBT1", date: "2026-05-04", shares: "out" },
+        5,
+      ],
+      [
+        "unsupportedAction",
+        {
+          broker: "trading212",
+          action: "Stock distribution",
+          isin: "US00000NOVA8",
+          date: "2026-05-04",
+        },
+        6,
+      ],
+      ["unsupportedAction", { broker: "trading212", action: "Spin off" }, 7],
+      [
+        "unsupportedAction",
+        { broker: "trading212", action: "Stock distribution" },
+        8,
+      ],
+    ]);
   });
 
   it("dividend tax in another currency, or with a sign", () => {

@@ -463,7 +463,7 @@ export function main(
   // each) is one finding.
   const said = new Set<string>();
   const diagnostics = [
-    ...prepared.ledger.diagnostics.filter(
+    ...prepared.scope.findings.filter(
       (d) => d.code !== "fileRefused" && d.code !== "fileIdClash",
     ),
     ...kdvp.diagnostics,

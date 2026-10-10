@@ -39,6 +39,7 @@ export {
   type FileRef,
   type FileRefusal,
   type NumberColumn,
+  type RefusedShares,
   type UnreadableReason,
   type XmlReason,
   type XlsxReason,
@@ -111,6 +112,7 @@ export {
   type KeyBuilder,
   type KeyPart,
 } from "./keys.js";
+export { BOOKING_LAG_DAYS, scopeLedger, type LedgerScope } from "./reach.js";
 export { eventId, validateLedger, type ValidatedLedger } from "./validate.js";
 export {
   WASH_SALE_DAYS,

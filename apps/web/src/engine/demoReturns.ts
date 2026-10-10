@@ -5,7 +5,11 @@
  * module, and the rate snapshot with it, only when it opens, so the first
  * screens stay light.
  */
-import { validateLedger, type Diagnostic } from "@taxreporter/core";
+import {
+  scopeLedger,
+  validateLedger,
+  type Diagnostic,
+} from "@taxreporter/core";
 import {
   buildDohDiv,
   buildDohKdvp,
@@ -50,7 +54,7 @@ const isBlocking = (d: Diagnostic) => d.severity === "blocking";
 /** Both returns over the demo's ledger, at the given rates. */
 export function demoReturns(rates: RateTable): BuiltReturns {
   const ledger = validateLedger(demoLedgerEvents());
-  const fromLedger = ledger.diagnostics.filter(isBlocking).length;
+  const scope = scopeLedger(ledger, DEMO_TAX_YEAR);
   const kdvp = buildDohKdvp({
     taxYear: DEMO_TAX_YEAR,
     taxpayer: DEMO_TAXPAYER,
@@ -65,8 +69,10 @@ export function demoReturns(rates: RateTable): BuiltReturns {
     rates,
     payers: DEMO_PAYERS,
   });
-  const kdvpBlocking = fromLedger + kdvp.diagnostics.filter(isBlocking).length;
-  const divBlocking = fromLedger + div.diagnostics.filter(isBlocking).length;
+  const kdvpBlocking =
+    scope.kdvp.length + kdvp.diagnostics.filter(isBlocking).length;
+  const divBlocking =
+    scope.div.length + div.diagnostics.filter(isBlocking).length;
   return {
     kdvp: {
       fileName: formFileName("kdvp", DEMO_TAX_YEAR),

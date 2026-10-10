@@ -17,10 +17,12 @@ import {
   fileRef,
   isIsoDate,
   LIMITS,
+  scopeLedger,
   validateLedger,
   type Diagnostic,
   type FileId,
   type IsoDate,
+  type LedgerScope,
   type ValidatedLedger,
 } from "@taxreporter/core";
 import {
@@ -98,6 +100,12 @@ export interface ReadExports {
 export interface Prepared extends ReadExports {
   /** The coverage end the 30-day rule used. */
   readonly coverageEnd: IsoDate;
+  /**
+   * The ledger's findings for this year: which withhold each form, and the
+   * list the review shows (ADR 0017). Read these, not `ledger.diagnostics`,
+   * whose refusals may belong to another year.
+   */
+  readonly scope: LedgerScope;
   readonly kdvp: KdvpBuild;
   readonly div: DivBuild;
   /**
@@ -235,7 +243,15 @@ export function buildReturns(read: ReadExports, input: BuildInput): Prepared {
     rates: input.rates,
     payers: input.payers,
   });
-  return { ...read, coverageEnd, kdvp, div, holdings: holdingsOf(read, input) };
+  const scope = scopeLedger(ledger, input.taxYear);
+  return {
+    ...read,
+    coverageEnd,
+    scope,
+    kdvp,
+    div,
+    holdings: holdingsOf(read, input),
+  };
 }
 
 /**

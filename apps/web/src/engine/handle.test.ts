@@ -8,6 +8,7 @@ import { prepareReturns } from "@taxreporter/pipeline";
 import { describe, expect, it, vi } from "vitest";
 
 import ibkrXml from "../../../../packages/brokers/test/fixtures/ibkr/flex-activity-2025-2026.xml?raw";
+import t212takeover from "../../../../packages/brokers/test/fixtures/trading212/t212-invest-v4-history-takeover.csv?raw";
 import t212v3 from "../../../../packages/brokers/test/fixtures/trading212/t212-invest-v3-2025.csv?raw";
 import t212v4 from "../../../../packages/brokers/test/fixtures/trading212/t212-invest-v4-2026.csv?raw";
 import trade from "../../../../packages/brokers/test/fixtures/trade-republic/tr-transactions-2026.csv?raw";
@@ -475,5 +476,58 @@ describe("taxpayerOf and payersOf", () => {
     // Pasted characters the writer would refuse are gone.
     expect(payers.get("H")?.name).toBe("Coca -Cola Company");
     expect(payers.get("F")?.sourceCountry).toBe("KY");
+  });
+});
+
+describe("refused rows from another year (ADR 0017)", () => {
+  // A takeover paid in shares and free rights in 2025, nothing of either
+  // sold in 2026.
+  const history = [file("history.csv", t212takeover)];
+  async function ask(taxYear: number): Promise<PrepareReply> {
+    const reply = await handleRequest(
+      {
+        ...base,
+        taxYear,
+        id: 3,
+        kind: "prepare",
+        files: history,
+        taxpayer,
+        payers: [coca],
+      },
+      loadRates,
+    );
+    if (reply.kind !== "prepare") throw new Error(`no prepare: ${reply.kind}`);
+    return reply;
+  }
+  const elsewhere = (findings: readonly { code: string }[]) =>
+    findings.filter((f) => f.code === "refusedElsewhere").length;
+
+  it("leave both returns of a year they cannot change to be written", async () => {
+    const reply = await ask(2026);
+    expect([reply.kdvp.blocking, reply.div.blocking]).toEqual([0, 0]);
+    expect(reply.kdvp.xml).not.toBeNull();
+    expect(reply.div.xml).not.toBeNull();
+    expect(elsewhere(reply.preview.findings)).toBe(3);
+    expect(
+      reply.preview.findings.filter((f) => f.severity === "blocking"),
+    ).toEqual([]);
+  });
+
+  it("are notes on the files step too, for that year", async () => {
+    const reply = await handleRequest(
+      { ...base, id: 4, kind: "read", files: history },
+      loadRates,
+    );
+    if (reply.kind !== "read") throw new Error(`no read: ${reply.kind}`);
+    expect(elsewhere(reply.findings)).toBe(3);
+    expect(reply.findings.filter((f) => f.severity === "blocking")).toEqual([]);
+  });
+
+  it("still hold back each return of their own year that they can change", async () => {
+    const reply = await ask(2025);
+    // The sale at 0 withholds Doh-KDVP; the rights and the new shares,
+    // which might be income, Doh-Div.
+    expect([reply.kdvp.blocking, reply.div.blocking]).toEqual([1, 2]);
+    expect([reply.kdvp.xml, reply.div.xml]).toEqual([null, null]);
   });
 });
