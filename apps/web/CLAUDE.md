@@ -96,7 +96,9 @@ explanation, not `disabled`, so keyboard users can reach it and hear why.
 - The tour's cutout is the one shape outside the radius scale: concentric with the lit
   card, its radius is the card's own (capped at `--r-lg`) plus the padding around it.
 - The tour's dock never grows past the window: it scrolls inside itself, and in the
-  one-at-a-time sheet its controls row stays pinned and carries the bottom padding.
+  one-at-a-time sheet its controls row stays pinned and carries the bottom padding. The
+  sheet is capped at `56dvh` at every width, so a short landscape window keeps room above
+  it for the highlight.
   Explanation boxes stay between the sticky header and the dock.
 - Tour motion: 160, 200 and 240ms fades, a 220ms progress transition and two 900ms ring
   pulses, all inside `prefers-reduced-motion: no-preference`. In forced-colors mode the

@@ -32,7 +32,6 @@ import type { ReturnPreview } from "../model/preview";
 import { TOUR_BUTTON_ID } from "../ui/bits";
 import { Button, cx } from "../ui/kit";
 import {
-  bottom,
   BOX_WIDTH,
   cardBand,
   centerY,
@@ -41,6 +40,7 @@ import {
   dimPath,
   gutterWidth,
   inflate,
+  intersect,
   linePath,
   placeGutter,
   placeRow,
@@ -52,6 +52,7 @@ import {
   scrollLeftFor,
   SPACE,
   union,
+  within,
   type Box,
   type Frame,
   type Placed,
@@ -179,12 +180,22 @@ function scrollersOf(element: Element): HTMLElement[] {
   return found;
 }
 
+/** The least of a target that must show for the sheet's ring to mark it. */
+const MIN_PART = 12;
+
 /**
- * A target's box where it is wholly in view: inside the window, between the
- * header and the dock, and inside every scroller it sits in. A target that
- * is cut off gets its explanation as text, with no line pointing at it.
+ * A target's box where it is in view: inside the window, between the header
+ * and the dock, and inside every scroller it sits in. A line needs the whole
+ * target, so a target that is cut off gets its explanation as text with no
+ * line pointing at it. The sheet's ring needs only part (`whole` false): a
+ * target taller than the room a short window leaves above the sheet, or wider
+ * than its table on a phone, is marked where it shows.
  */
-function visibleBox(anchors: AnchorPath, frame: Frame): Box | null {
+function visibleBox(
+  anchors: AnchorPath,
+  frame: Frame,
+  whole = true,
+): Box | null {
   const element = resolve(document, anchors);
   if (element === null) return null;
   const box = measure(element, anchors);
@@ -194,16 +205,18 @@ function visibleBox(anchors: AnchorPath, frame: Frame): Box | null {
     width: frame.width,
     height: frame.dockTop - frame.headerBottom,
   };
-  const inside = (outer: Box) =>
-    box.left >= outer.left - 0.5 &&
-    right(box) <= right(outer) + 0.5 &&
-    box.top >= outer.top - 0.5 &&
-    bottom(box) <= bottom(outer) + 0.5;
-  if (!inside(view)) return null;
-  for (const scroller of scrollersOf(element)) {
-    if (!inside(boxOf(scroller.getBoundingClientRect()))) return null;
-  }
-  return box;
+  const clips = [
+    view,
+    ...scrollersOf(element).map((scroller) =>
+      boxOf(scroller.getBoundingClientRect()),
+    ),
+  ];
+  if (whole) return clips.every((clip) => within(box, clip)) ? box : null;
+  let part: Box | null = box;
+  for (const clip of clips) part = part === null ? null : intersect(part, clip);
+  return part !== null && part.width >= MIN_PART && part.height >= MIN_PART
+    ? part
+    : null;
 }
 
 /** Polls each frame until `find` answers, or gives up after `ms`. */
@@ -392,7 +405,9 @@ export function TourLayer({
         presentation.sides,
       );
     } else {
-      const target = targets[shown.from] ?? null;
+      const note = stop.notes[shown.from];
+      const target =
+        note === undefined ? null : visibleBox(note.target, frame, false);
       if (target !== null) {
         const leftRing = target.left - SPACE.ring;
         sheetRing =
@@ -534,6 +549,8 @@ export function TourLayer({
           const wanted = scrollLeftFor(
             {
               box,
+              clientLeft: scroller.clientLeft,
+              clientWidth: scroller.clientWidth,
               scrollLeft: scroller.scrollLeft,
               scrollWidth: scroller.scrollWidth,
             },

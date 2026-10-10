@@ -1,0 +1,1 @@
+- **File list on a narrow phone**: a file's name keeps the width of its line and the broker chip moves under it, instead of the name being squeezed to a few letters per line.

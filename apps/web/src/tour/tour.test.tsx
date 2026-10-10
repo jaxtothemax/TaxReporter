@@ -426,6 +426,99 @@ describe("the rules the explanations state", () => {
   });
 });
 
+describe("the sentences the tour renders", () => {
+  const written = (locale: Locale, t: Messages) =>
+    TOUR.map((stop) => {
+      const context = { t, locale, preview: demoPreview };
+      return {
+        stop: stop.id,
+        title: stop.title(context),
+        intro: stop.intro(context),
+        notes: stop.notes.map((note) => note.text(context)),
+      };
+    });
+
+  /** A figure as the locale writes it, back to a plain decimal string. */
+  const plain = (figure: string, locale: Locale) => {
+    const bare = figure
+      .replace(/€|USD|EUR|GBP|%/g, "")
+      .replace(/[\s\u00a0\u202f]/g, "")
+      .replace(/−/g, "-");
+    return locale === "en"
+      ? bare.replace(/,/g, "")
+      : bare.replace(/\./g, "").replace(/,/g, ".");
+  };
+  const FIGURE =
+    "(?:(?:€|USD|EUR|GBP)[\\s\\u00a0]?)?[\\u2212-]?\\d+(?:[.,]\\d+)*(?:[\\s\\u00a0]?(?:%|€|USD|EUR|GBP))?";
+  const EQUATION = new RegExp(
+    `(${FIGURE}(?:[\\s\\u00a0]*[×÷+][\\s\\u00a0]*${FIGURE})+)[\\s\\u00a0]*=[\\s\\u00a0]*(${FIGURE})`,
+    "g",
+  );
+
+  /** The left side's value: × and ÷ before +, a percentage as a fraction. */
+  function evaluate(left: string, locale: Locale): Decimal {
+    const terms = left.split(/[\s\u00a0]*\+[\s\u00a0]*/);
+    return Decimal.sum(
+      terms.map((term) => {
+        const parts = term.split(/[\s\u00a0]*([×÷])[\s\u00a0]*/);
+        const value = (figure: string) => {
+          const number = Decimal.parse(plain(figure, locale));
+          return figure.includes("%")
+            ? number.dividedBy(Decimal.parse("100"))
+            : number;
+        };
+        let result = value(parts[0] ?? "0");
+        for (let k = 1; k < parts.length; k += 2) {
+          const operand = value(parts[k + 1] ?? "0");
+          result =
+            parts[k] === "×"
+              ? result.times(operand)
+              : result.dividedBy(operand);
+        }
+        return result;
+      }),
+    );
+  }
+
+  for (const [locale, t] of LOCALES) {
+    it(`${locale}: says what was reviewed, word for word`, () => {
+      // No-break spaces and the minus sign written out, so a reviewer sees
+      // them where a space or a hyphen would look the same.
+      const shown = JSON.stringify(written(locale, t), null, 2).replace(
+        /[\u00a0\u202f\u2212]/g,
+        (char) =>
+          `\\u${(char.codePointAt(0) ?? 0).toString(16).padStart(4, "0")}`,
+      );
+      expect(shown).toMatchSnapshot();
+    });
+
+    it(`${locale}: states only equations that hold, at their stated precision`, () => {
+      let checked = 0;
+      for (const stop of written(locale, t)) {
+        for (const note of stop.notes) {
+          if (note === null) continue;
+          const sides = [...note.body.matchAll(EQUATION)];
+          // Every "=" in an explanation is an equation this test can read.
+          expect(sides.length, `${stop.stop}: ${note.body}`).toBe(
+            (note.body.match(/=/g) ?? []).length,
+          );
+          for (const [, left = "", right = ""] of sides) {
+            const target = plain(right, locale);
+            const places = target.split(".")[1]?.length ?? 0;
+            expect(
+              evaluate(left, locale).toPlain(places, "halfUp"),
+              `${stop.stop}: ${left} = ${right}`,
+            ).toBe(Decimal.parse(target).toPlain(places, "halfUp"));
+            checked += 1;
+          }
+        }
+      }
+      // The holding rates, the sale's rate, the slices, the holiday dividend, the treaty.
+      expect(checked).toBeGreaterThanOrEqual(5);
+    });
+  }
+});
+
 describe("what the tour must never say or do", () => {
   const sayings = (t: Messages) =>
     JSON.stringify(
@@ -443,10 +536,22 @@ describe("what the tour must never say or do", () => {
     );
 
   it("names no broker the demo does not cover, and never 'your case'", () => {
+    const covered = new Set<string>(demoPreview.files.map((f) => f.broker));
     for (const [, t] of LOCALES) {
-      expect(sayings(t)).not.toMatch(
-        /Schwab|eToro|Revolut|in your case|v vašem primeru/i,
-      );
+      // Every broker the app knows that has no file in the demo, and the
+      // ones it does not support yet.
+      const others = [
+        ...Object.entries(t.brokers)
+          .filter(([id]) => !covered.has(id))
+          .map(([, name]) => name),
+        "Schwab",
+        "eToro",
+        "Revolut",
+      ];
+      expect(others.length).toBeGreaterThan(3);
+      const said = sayings(t).toLowerCase();
+      for (const name of others) expect(said).not.toContain(name.toLowerCase());
+      expect(said).not.toMatch(/in your case|v vašem primeru/);
     }
   });
 

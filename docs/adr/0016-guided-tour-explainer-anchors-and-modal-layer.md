@@ -3,11 +3,12 @@
 **Date:** 2026-10-09
 **Status:** Proposed
 
-> **Implementation status (2026-10-09):** built on branch `feat/27-guided-tour` (#27), not
-> yet on `main`: `apps/web/src/explain/anchors.ts`, `apps/web/src/tour/` (`machine.ts`,
-> `layout.ts`, `script.ts`, `TourLayer.tsx`), the anchors on the five screens, the review's
-> view held by the app frame (`ReviewView`), and the browser tests in
-> `apps/web/e2e/tour.spec.ts`.
+> **Implementation status (2026-10-10):** the decision is still Proposed, but its
+> implementation lands with it in the pull request for #27, not as a later step:
+> `apps/web/src/explain/anchors.ts`, `apps/web/src/tour/` (`machine.ts`, `layout.ts`,
+> `script.ts`, `TourLayer.tsx`), the anchors on the five screens, the review's view held by
+> the app frame (`ReviewView`), and the browser tests in `apps/web/e2e/tour.spec.ts`.
+> Accepting it changes no code.
 
 ## Context
 
@@ -68,7 +69,11 @@ at a time on a phone; and the demo data stays as it is (#26).
    functions from measured rectangles and applied through React's `style` prop, which
    writes CSSOM properties that `style-src 'self'` allows. The dim, its cutout, the lines
    and the rings are one `aria-hidden` SVG whose geometry is in attributes. Inline `style`
-   markup, `setAttribute("style")`, `cssText` and `<style>` elements are not used.
+   markup, `setAttribute("style")`, `cssText` and `<style>` elements are not used. A line
+   joins an explanation to its target only where the whole target is in view; a target cut
+   off by the window or its table gets its explanation with no line. In the one-at-a-time
+   sheet the ring marks whatever part of the target shows, because a short window can leave
+   less room above the sheet than the target needs.
 6. **Explanations are concepts in the message catalog, figures come from the preview.**
    Each explanation is a concept entry (`t.explain.*`) in Slovenian and English, written
    descriptively ("here", "this sale"); demo framing lives only in the tour's own intros.

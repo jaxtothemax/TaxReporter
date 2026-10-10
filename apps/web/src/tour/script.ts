@@ -333,7 +333,7 @@ export const TOUR: readonly TourStop[] = [
           const sale = firstSale(security(preview, DEMO_AAPL));
           const rate = sale?.rate ?? null;
           // Only a daily list is explained here; a monthly rate or the euro's
-          // changeover rate would need words of its own (research 03 §9, §11).
+          // changeover rate would need words of its own (research 03 §5, §10).
           if (sale === null || rate === null || rate.source !== "bsi-daily")
             return null;
           const division = divided(

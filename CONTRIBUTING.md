@@ -113,7 +113,13 @@ Run tests before pushing:
 ```bash
 make test                          # every package, with coverage
 pnpm vitest run packages/brokers   # one package or file while iterating
+make test-e2e                      # browser tests on the built web app
 ```
+
+`make test-e2e` runs the Playwright tests in `apps/web/e2e/` against the production build,
+in Chromium, Firefox and WebKit. Fetch the browsers once with
+`pnpm --dir apps/web exec playwright install chromium firefox webkit`. It is not part of
+the pre-push checks; CI's `e2e` job runs it on every pull request.
 
 Every new feature and bug fix needs test coverage in the same PR. The
 `check-added-files-covered` gate fails a PR that adds a source file no test executes.

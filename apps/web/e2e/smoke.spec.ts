@@ -75,6 +75,15 @@ test("nothing scrolls sideways at 320px", async ({ page }) => {
   await page.keyboard.press("Escape");
   await expect(page.locator("#main h1")).toBeFocused();
   expect(await scrollsSideways(page)).toBe(false);
+  // A file's name keeps the width of its line; its broker chip moves under
+  // it, rather than squeezing the name to a few letters a line.
+  const names = await page
+    .locator(".file-text")
+    .evaluateAll((items) =>
+      items.map((item) => item.getBoundingClientRect().width),
+    );
+  expect(names.length).toBeGreaterThan(0);
+  expect(Math.min(...names)).toBeGreaterThan(150);
 });
 
 test("the watcher sees what the policy blocks", async ({ page }) => {

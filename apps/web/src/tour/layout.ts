@@ -111,6 +111,17 @@ export function union(boxes: readonly Box[]): Box | null {
   return { left, top, width: r - left, height: b - top };
 }
 
+/** The part of `box` inside `clip`, or null where they do not overlap. */
+export function intersect(box: Box, clip: Box): Box | null {
+  const left = Math.max(box.left, clip.left);
+  const top = Math.max(box.top, clip.top);
+  const r = Math.min(right(box), right(clip));
+  const b = Math.min(bottom(box), bottom(clip));
+  return r > left && b > top
+    ? { left, top, width: r - left, height: b - top }
+    : null;
+}
+
 /** Whether `inner` lies wholly inside `outer`. */
 export function within(inner: Box, outer: Box): boolean {
   return (
@@ -481,23 +492,31 @@ export function scrollDelta(
 
 /**
  * The scrollLeft that centers `target` in a sideways scroller, or null where
- * the target is already wholly in view.
+ * the target is already wholly in view. What scrolls is the padding box
+ * (`clientLeft` past the border box's edge, `clientWidth` wide): measuring
+ * against the border box would stop a bordered table short of its last column.
  */
 export function scrollLeftFor(
   scroller: {
     readonly box: Box;
+    readonly clientLeft: number;
+    readonly clientWidth: number;
     readonly scrollLeft: number;
     readonly scrollWidth: number;
   },
   target: Box,
 ): number | null {
-  if (target.left >= scroller.box.left && right(target) <= right(scroller.box))
-    return null;
-  const wanted = scroller.scrollLeft + centerX(target) - centerX(scroller.box);
+  const view: Box = {
+    ...scroller.box,
+    left: scroller.box.left + scroller.clientLeft,
+    width: scroller.clientWidth,
+  };
+  if (target.left >= view.left && right(target) <= right(view)) return null;
+  const wanted = scroller.scrollLeft + centerX(target) - centerX(view);
   return clamp(
     Math.round(wanted),
     0,
-    scroller.scrollWidth - scroller.box.width,
+    Math.max(0, scroller.scrollWidth - scroller.clientWidth),
   );
 }
 

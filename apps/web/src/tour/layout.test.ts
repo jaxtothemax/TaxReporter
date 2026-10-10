@@ -6,6 +6,7 @@ import {
   cutoutOf,
   dimPath,
   gutterWidth,
+  intersect,
   linePath,
   placeGutter,
   placeRow,
@@ -205,6 +206,8 @@ describe("scrolling into view", () => {
   it("scrolls a table sideways only to bring a clipped cell into view", () => {
     const scroller = {
       box: { left: 20, top: 0, width: 300, height: 200 },
+      clientLeft: 0,
+      clientWidth: 300,
       scrollLeft: 0,
       scrollWidth: 900,
     };
@@ -217,6 +220,42 @@ describe("scrolling into view", () => {
     expect(
       scrollLeftFor(scroller, { left: 1200, top: 0, width: 80, height: 20 }),
     ).toBe(600);
+  });
+
+  it("scrolls a bordered table to its very end, not a border short of it", () => {
+    // A 1px border each side: the border box is 302 wide, the scrolling
+    // padding box 300, so the last scrollLeft is 900 - 300, not 900 - 302.
+    const scroller = {
+      box: { left: 19, top: 0, width: 302, height: 200 },
+      clientLeft: 1,
+      clientWidth: 300,
+      scrollLeft: 0,
+      scrollWidth: 900,
+    };
+    expect(
+      scrollLeftFor(scroller, { left: 1200, top: 0, width: 80, height: 20 }),
+    ).toBe(600);
+    // A cell under the right border is not in view, though it is in the box.
+    expect(
+      scrollLeftFor(scroller, { left: 301, top: 0, width: 20, height: 20 }),
+    ).toBe(141);
+  });
+});
+
+describe("intersect", () => {
+  it("keeps the part of a box inside the clip, or nothing", () => {
+    const clip = { left: 0, top: 60, width: 320, height: 160 };
+    // A field taller than the room above the sheet: its top part shows.
+    expect(
+      intersect({ left: 50, top: 70, width: 200, height: 300 }, clip),
+    ).toEqual({ left: 50, top: 70, width: 200, height: 150 });
+    expect(
+      intersect({ left: 50, top: 400, width: 200, height: 30 }, clip),
+    ).toBeNull();
+    // Touching edges share no area.
+    expect(
+      intersect({ left: 320, top: 70, width: 20, height: 20 }, clip),
+    ).toBeNull();
   });
 });
 

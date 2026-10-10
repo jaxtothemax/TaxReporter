@@ -1486,10 +1486,16 @@ button.step-item:hover {
   color: var(--danger);
 }
 
-/* A broker chip cannot shrink, so on a narrow phone it moves under the name. */
+/* A broker chip cannot shrink, so on a narrow phone it moves under the name.
+   The name claims the rest of its line first: with no basis of its own it
+   would shrink to a few letters wide and the chip would never wrap. */
 @media (max-width: 560px) {
   .file-row {
     flex-wrap: wrap;
+  }
+
+  .file-row:has(> .chip) > .file-text {
+    flex-basis: calc(100% - 54px);
   }
 
   .file-row > .chip {
@@ -2974,6 +2980,10 @@ button.step-item:hover {
    explanations do not fit beside or around the card. */
 .tour-dock.is-sheet {
   width: min(640px, calc(100% - 32px));
+  /* The sheet scrolls the page so the highlight sits above it: capped at
+     about half the window, at any width, so a short landscape window still
+     leaves room for what it explains. */
+  max-height: 56dvh;
   grid-template-areas:
     "head skip"
     "intro intro"

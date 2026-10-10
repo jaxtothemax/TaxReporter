@@ -8,6 +8,14 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 
 const DEMO = /Preizkusi demo|Explore the demo/;
 
+/**
+ * Tab with the modifier that reaches buttons. WebKit on macOS tabs only to
+ * fields unless Option is held, as in Safari; elsewhere (CI runs Linux) it
+ * tabs to every control, and Alt+Tab could belong to the window manager.
+ */
+const tabKey = (browserName: string, back = false) =>
+  `${browserName === "webkit" && process.platform === "darwin" ? "Alt+" : ""}${back ? "Shift+" : ""}Tab`;
+
 /** Collects policy violations and uncaught errors. */
 async function watch(page: Page): Promise<string[]> {
   const problems: string[] = [];
@@ -84,8 +92,7 @@ test("starts on entering the demo, on Next, with Skip first in order", async ({
   await expect(dialog.getByRole("button").first()).toHaveText(
     /Preskoči ogled|Skip tour/,
   );
-  // WebKit on macOS tabs only to fields unless Option is held, as in Safari.
-  const back = browserName === "webkit" ? "Alt+Shift+Tab" : "Shift+Tab";
+  const back = tabKey(browserName, true);
   await page.keyboard.press(back);
   await page.keyboard.press(back);
   await expect(dialog.getByRole("button").first()).toBeFocused();
@@ -192,10 +199,11 @@ for (const [width, height] of [
   [320, 640],
   [390, 844],
   [768, 1024],
+  [844, 390],
   [1280, 800],
   [1440, 900],
 ] as const) {
-  test(`at ${String(width)}x${String(height)}: nothing covers what a stop lights, nothing scrolls sideways, nothing is blocked`, async ({
+  test(`at ${String(width)}x${String(height)}: nothing covers what a stop lights, every explanation marks it, nothing scrolls sideways, nothing is blocked`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height });
@@ -210,9 +218,26 @@ for (const [width, height] of [
         const dock = document
           .querySelector(".tour-dock")
           ?.getBoundingClientRect();
+        const header = document
+          .querySelector(".app-header")
+          ?.getBoundingClientRect();
         const boxes = [
           ...document.querySelectorAll(".tour-note.is-placed"),
         ].map((li) => li.getBoundingClientRect());
+        // The explanations a reader sees now: beside the card, or the one in
+        // the sheet. The sheet's always has its ring, on what of its target
+        // shows; beside the card, a target cut off at the edge of its table
+        // gets its explanation with no line (ADR 0016), but never all of them.
+        const shown = [
+          ...document.querySelectorAll<HTMLElement>(".tour-dock .tour-note"),
+        ].filter(
+          (li) =>
+            li.getClientRects().length > 0 &&
+            getComputedStyle(li).visibility !== "hidden",
+        ).length;
+        const rings = [
+          ...document.querySelectorAll<SVGCircleElement>(".tour-ring-mark"),
+        ].map((circle) => [circle.cx.baseVal.value, circle.cy.baseVal.value]);
         const overlaps = (
           a: DOMRect,
           b: { x: number; y: number; width: number; height: number },
@@ -234,12 +259,27 @@ for (const [width, height] of [
               box.top < 0 ||
               (dock !== undefined && box.bottom > dock.top),
           ).length,
+          shown: shown > 0,
+          marked: document.querySelector(".tour-dock.is-sheet")
+            ? rings.length === shown
+            : rings.length >= 1 && rings.length <= shown,
+          // A ring under the sticky header or the dock marks nothing visible.
+          hiddenRings: rings.filter(
+            ([x = -1, y = -1]) =>
+              x < 0 ||
+              x > window.innerWidth ||
+              y < (header?.bottom ?? 0) ||
+              (dock !== undefined && y > dock.top),
+          ).length,
         };
       });
       expect(check, `stop ${String(k)}`).toEqual({
         sideways: false,
         covered: 0,
         outside: 0,
+        shown: true,
+        marked: true,
+        hiddenRings: 0,
       });
       const label = (await dialog.locator(".tour-next").textContent()) ?? "";
       await dialog.locator(".tour-next").click();
@@ -304,7 +344,7 @@ test("Tab never reaches the page behind the tour", async ({
 }) => {
   const dialog = await enterDemo(page);
   await settled(dialog);
-  const forward = browserName === "webkit" ? "Alt+Tab" : "Tab";
+  const forward = tabKey(browserName);
   for (let k = 0; k < 6; k += 1) {
     await page.keyboard.press(forward);
     const outside = await page.evaluate(() => {

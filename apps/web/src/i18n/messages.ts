@@ -829,6 +829,8 @@ export const en: Messages = {
       `${broker}, from ${date}. A sale is matched with the purchases before it, so an export reaches back to the oldest of them.`,
     fifoAcrossBrokers: (broker, date) =>
       `${broker}, from ${date}. All files are read together, in this tab, and never uploaded. Shares bought at one broker and sold at another are matched across both.`,
+    // eDavki computes the tax itself and FURS assesses it:
+    // docs/research/04-si-tax-rules.md §4.1, §10.3.
     estimateOnly:
       "TaxReporter prepares the return and estimates the tax. eDavki calculates the final tax, and the FURS assessment is what counts.",
     // Normed costs and the loss offset: docs/research/04-si-tax-rules.md §4.1, §5.1.
@@ -836,15 +838,19 @@ export const en: Messages = {
       `Gains after normed costs (1% of the purchase value and 1% of the sale value, never more than the gain), with this year's losses set against them: ${losses}.`,
     holdingBucket: (terms, tax) =>
       `The longer shares were held, the lower the rate on their gain. Here ${terms} = ${tax}.`,
+    // A split is no disposal; dates and total cost carry over:
+    // docs/research/04-si-tax-rules.md §9.
     splitAdjusted: (ratio) =>
       `This purchase is shown in shares after the split: quantity and price restated by its ${ratio} ratio. The purchase date stays, and with it the holding period.`,
-    // The list of the trade date, or the last one before it: research 03 §9.
+    // The list of the trade date, or the last one before it, which neither
+    // the law nor FURS states (TaxReporter's reading): research 03 §9.
     bsiRateTradeDay: (listDate, currency, division, perUnit) =>
       `From Banka Slovenije's list of ${listDate}, the trade date. The list quotes ${currency} per euro, so the price is divided: ${division} = ${perUnit}, rounded to 8 decimal places.`,
     bsiRateListBefore: (tradeDate, listDate, currency, division, perUnit) =>
-      `Traded on ${tradeDate}, a day Banka Slovenije published no list, so the last list before it applies, of ${listDate}. It quotes ${currency} per euro: ${division} = ${perUnit}, rounded to 8 decimal places.`,
+      `Traded on ${tradeDate}, a day Banka Slovenije published no list, so TaxReporter uses the last list before it, of ${listDate}. It quotes ${currency} per euro: ${division} = ${perUnit}, rounded to 8 decimal places.`,
     sourceRow:
       "Every row names the file and the line it came from, so each figure can be checked against the broker's own export.",
+    // Required by eDavki, not by the XSD: docs/research/01-furs-doh-kdvp.md §3.
     taxNumberInHeader:
       "The 8 digits FURS knows a taxpayer by. With the name and address, it goes into each file's header only; no figure depends on it. A real return needs it.",
     // Holding periods and their rates: ZDoh-2 Arts. 96 and 132,
@@ -873,13 +879,16 @@ export const en: Messages = {
     // The 30-day rule: ZDoh-2 Art. 97(5), docs/research/04-si-tax-rules.md §5.3.
     lossWithin30Days: (bought, sold) =>
       `Bought on ${bought}, sold on ${sold}. A loss is set aside, in the part replaced, when the same security was bought in the 30 days before or after the sale. These files show no such purchase, so the whole loss counts.`,
+    // No normed costs on a loss, and the offset within the year:
+    // docs/research/04-si-tax-rules.md §4.1, §5.1.
     lossOffsets: (proceeds, cost) =>
       `Proceeds ${proceeds} less cost ${cost}. A loss gets no normed costs; it is set against the year's gains.`,
     amountInEur: (division, eur) =>
       `${division} = ${eur}: the gross in euros, rounded to the cent.`,
-    // TARGET holidays and the list before them: docs/research/03-bsi-exchange-rates.md §9.
+    // TARGET holidays and the list before them, TaxReporter's reading where
+    // the law is silent: docs/research/03-bsi-exchange-rates.md §9.
     listBeforeHoliday: (paid, listDate) =>
-      `Paid on ${paid}, a TARGET holiday: the euro payment system is closed and Banka Slovenije publishes no list. The last list before it applies, as for a weekend: ${listDate}.`,
+      `Paid on ${paid}, a TARGET holiday: the euro payment system is closed and Banka Slovenije publishes no list. As for a weekend, TaxReporter uses the last list before it: ${listDate}.`,
     foreignTaxWithheld: (country, gross, payer) =>
       `Withheld in ${country} on the ${gross} gross paid by ${payer}.`,
     // The credit for foreign tax, capped at the treaty rate:
@@ -892,6 +901,7 @@ export const en: Messages = {
       "Rows that are not on these returns are named here rather than left out without a word, so nothing in a file goes missing unnoticed.",
     returnForms:
       "The return for gains on securities: one inventory list (popisni list) for each security sold. Doh-Div, beside it, lists each dividend payment on a row of its own.",
+    // Dokumenti, then Uvoz dokumenta: docs/research/01-furs-doh-kdvp.md §9.
     edavkiImport:
       "Written on this device and saved there; nothing is uploaded. In eDavki, a file like this is imported under Dokumenti, then Uvoz.",
     youReviewAndSubmit:
@@ -1374,7 +1384,7 @@ export const sl: Messages = {
     bsiRateTradeDay: (listDate, currency, division, perUnit) =>
       `Iz tečajnice Banke Slovenije z dne ${listDate}, dneva posla. Tečajnica navaja ${currency} za en evro, zato se cena deli: ${division} = ${perUnit}, zaokroženo na 8 decimalnih mest.`,
     bsiRateListBefore: (tradeDate, listDate, currency, division, perUnit) =>
-      `Posel je bil sklenjen ${tradeDate}, ko Banka Slovenije ni objavila tečajnice, zato velja zadnja pred tem, z dne ${listDate}. Navaja ${currency} za en evro: ${division} = ${perUnit}, zaokroženo na 8 decimalnih mest.`,
+      `Posel je bil sklenjen ${tradeDate}, ko Banka Slovenije ni objavila tečajnice, zato TaxReporter uporabi zadnjo pred tem, z dne ${listDate}. Navaja ${currency} za en evro: ${division} = ${perUnit}, zaokroženo na 8 decimalnih mest.`,
     sourceRow:
       "Vsaka vrstica navaja datoteko in vrstico, iz katere izhaja, zato je vsako številko mogoče preveriti v izvozu posrednika.",
     taxNumberInHeader:
@@ -1406,11 +1416,11 @@ export const sl: Messages = {
     amountInEur: (division, eur) =>
       `${division} = ${eur}: bruto znesek v evrih, zaokrožen na cent.`,
     listBeforeHoliday: (paid, listDate) =>
-      `Izplačano ${paid}, na praznik sistema TARGET: plačilni sistem evra ne deluje in Banka Slovenije ne objavi tečajnice. Velja zadnja pred njim, kot ob koncu tedna: ${listDate}.`,
+      `Izplačano ${paid}, na praznik sistema TARGET: plačilni sistem evra ne deluje in Banka Slovenije ne objavi tečajnice. Kot ob koncu tedna TaxReporter uporabi zadnjo pred njim: ${listDate}.`,
     foreignTaxWithheld: (country, gross, payer) =>
       `Odtegnjeno v državi ${country} od bruto zneska ${gross}, ki ga je izplačala družba ${payer}.`,
     treatyCappedCredit: (country, rate, product, excess) =>
-      `Pogodba z državo ${country} dovoljuje ${rate}: ${product}. Preostalih ${excess} odtegnjenega davka slovenskega davka ne zmanjša.`,
+      `Pogodba z državo ${country} dovoljuje ${rate}: ${product}. Preostalih ${excess} odtegnjenega davka ne zmanjša slovenskega davka.`,
     findingSeverity: (blocking, warning, info) =>
       `Opombe so treh vrst. \u201e${blocking}\u201c zadrži napoved, dokler ni popravljeno, \u201e${warning}\u201c je vredno prebrati, \u201e${info}\u201c pa ne zahteva ničesar.`,
     notOnTheseReturns:
