@@ -3,6 +3,7 @@
  * was withheld and the part of it that can be credited (capped by the treaty
  * rate and by the Slovenian tax; docs/research/04-si-tax-rules.md).
  */
+import { explain } from "../../explain/anchors";
 import {
   formatCountry,
   formatDate,
@@ -56,7 +57,10 @@ export function DividendsPanel({
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={`${row.source.file}:${String(row.source.row)}`}>
+            <tr
+              key={`${row.source.file}:${String(row.source.row)}`}
+              {...explain("div.row", `${row.isin}@${row.date}`)}
+            >
               <th scope="row" className="num nowrap">
                 {formatDate(row.date, locale)}
               </th>
@@ -75,7 +79,7 @@ export function DividendsPanel({
               <td className="nowrap">
                 {row.country === "" ? "" : formatCountry(row.country, locale)}
               </td>
-              <td className="end">
+              <td className="end" {...explain("div.gross")}>
                 <span className="stack-tight align-end">
                   <Eur value={row.grossEur} />
                   {row.gross.currency === "EUR" ? null : (
@@ -89,10 +93,10 @@ export function DividendsPanel({
                   )}
                 </span>
               </td>
-              <td className="end">
+              <td className="end" {...explain("div.foreignTax")}>
                 <Eur value={row.foreignTaxEur} />
               </td>
-              <td className="end">
+              <td className="end" {...explain("div.credit")}>
                 <span className="stack-tight align-end">
                   <Eur value={row.creditEur} />
                   {isCapped(row) && row.treatyRate !== null ? (
@@ -104,7 +108,7 @@ export function DividendsPanel({
                   ) : null}
                 </span>
               </td>
-              <td>
+              <td {...explain("div.rate")}>
                 <RateText rate={row.rate} />
               </td>
             </tr>

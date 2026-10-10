@@ -8,7 +8,9 @@
 # Every application job runs the SAME `make <target>` a developer and the git
 # hooks run (install-deps, lint, format-check, typecheck, test, build), so a
 # green check here means exactly what a green `make` means locally. The
-# commands themselves live once, in the root package.json scripts.
+# commands themselves live once, in the root package.json scripts. The e2e job
+# is the one exception: its Playwright image has no make, so it runs the
+# commands `make install-deps` and `make test-e2e` run, spelled out.
 #
 # Gate SCRIPTS are the exception: check-added-files-covered.mjs and
 # check-licenses.mjs are called directly from `run:` — never through make — and
@@ -181,6 +183,47 @@ jobs:
           out="$(node apps/cli/dist/bin.js --help)"
           printf '%s\n' "$out"
           grep -q "Usage: taxreporter" <<<"$out"
+
+  # Browser tests (Playwright) on the production build of the web app, in
+  # Chromium, Firefox and WebKit. The build matters: the Content Security Policy
+  # is a <meta> tag only the build carries (apps/web/vite.config.ts), and the
+  # tests fail on any violation. `playwright install` checks no hash of what it
+  # downloads, so the browsers come from Microsoft's Playwright image instead,
+  # pinned by digest. Its tag must equal the exact @playwright/test version in
+  # apps/web/package.json: a bump of one without the other fails here, with
+  # Playwright naming the browser it cannot find. --user 1001 is the runner's
+  # uid, so the checkout stays writable and Firefox does not run as root.
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.0-noble@sha256:06a9939e57531807f8d5fd76ce44b53165ffb7d7501d87ab10e285c20b1e971f
+      options: --user 1001
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      # The image has no make, so these are the commands `make install-deps`
+      # and `make test-e2e` run, spelled out.
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      - run: pnpm --dir apps/web exec playwright test
+      # Traces and screenshots of the demo only: the tests never load a real
+      # export, and playwright.config.ts keeps git details out of the report.
+      - if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-report
+          path: |
+            apps/web/playwright-report/
+            apps/web/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
 
   # Every dependency's license is AGPL-3.0-compatible: production, development
   # and optional alike. The policy (allowlist, deny-by-default, reasoned

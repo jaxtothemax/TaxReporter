@@ -7,7 +7,14 @@
  * the file is listed: removing it, choosing the demo or starting over drops
  * them. The reducer holds only what the engine answered.
  */
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 
 import { demoPreview } from "./demo/demoPreview";
 import { createWorkerEngine, type Engine } from "./engine/client";
@@ -15,11 +22,24 @@ import type { BuiltReturns } from "./engine/demoReturns";
 import { createRunner } from "./engine/runner";
 import type { Locale } from "./i18n/format";
 import { I18nProvider, useI18n } from "./i18n/i18n";
+import { formFileName } from "./model/preview";
 import { DetailsStep } from "./screens/DetailsStep";
 import { DownloadStep } from "./screens/DownloadStep";
-import { FilesStep } from "./screens/FilesStep";
-import { EmptyReview, ReviewStep } from "./screens/ReviewStep";
+import { DEMO_FILES_BUTTON_ID, FilesStep } from "./screens/FilesStep";
+import {
+  EmptyReview,
+  initialReviewView,
+  ReviewStep,
+  type ReviewView,
+} from "./screens/ReviewStep";
 import { StartScreen } from "./screens/StartScreen";
+import {
+  createTourReducer,
+  initialTourState,
+  type TourState,
+} from "./tour/machine";
+import { NOTE_COUNTS, TOUR } from "./tour/script";
+import { focusTarget, TourLayer, type TourRestore } from "./tour/TourLayer";
 import {
   blockingReason,
   initialWizardState,
@@ -37,10 +57,19 @@ import {
   SkipLink,
   type Theme,
 } from "./ui/AppChrome";
-import { DemoBanner } from "./ui/bits";
+import { DemoBanner, TOUR_BUTTON_ID } from "./ui/bits";
 import { ErrorBoundary } from "./ui/ErrorBoundary";
-import { Button, Note } from "./ui/kit";
+import { Button, cx, Note } from "./ui/kit";
 import { Stepper } from "./ui/Stepper";
+
+/** The guided tour's reducer, over the script's stops (tour/script.ts). */
+const tourReducer = createTourReducer(NOTE_COUNTS);
+
+const noRestore = (focus: TourRestore["focus"] = null): TourRestore => ({
+  focus,
+  scrollY: null,
+  scrollers: new Map(),
+});
 
 /** The demo's returns, from the engine the download step loads when it opens. */
 const writeDemoReturns = () =>
@@ -62,15 +91,30 @@ function reviewStatus(state: WizardState): "ready" | "preparing" | "failed" {
 function Frame({
   initialState,
   initialTheme,
+  initialTour,
   engine,
 }: {
   readonly initialState: WizardState;
   readonly initialTheme: Theme;
+  readonly initialTour: TourState;
   readonly engine: Engine;
 }) {
   const { locale, t } = useI18n();
   const [state, dispatch] = useReducer(wizardReducer, initialState);
+  // The guided tour (#27, ADR 0016) sits next to the wizard, not in it:
+  // starting over resets the wizard and never re-arms the tour.
+  const [tour, tourDispatch] = useReducer(tourReducer, initialTour);
+  const restore = useRef<TourRestore>(noRestore());
+  const restorePending = useRef(false);
   const [theme, setTheme] = useState<Theme>(initialTheme);
+  // The review's tab and open securities. Leaving the review resets them, as
+  // they were reset when the review's own state went with it.
+  const [reviewView, setReviewView] = useState<ReviewView>(initialReviewView);
+  const [viewScreen, setViewScreen] = useState(state.screen);
+  if (viewScreen !== state.screen) {
+    setViewScreen(state.screen);
+    if (state.screen !== "review") setReviewView(initialReviewView);
+  }
   const previousScreen = useRef(state.screen);
   // Each added file, by id, and its bytes once the engine first needs them:
   // a file refused unread is never read at all.
@@ -87,6 +131,50 @@ function Frame({
       : null;
   const preview =
     state.mode === "demo" ? demoPreview : (prepared?.preview ?? null);
+
+  // While a tour stop runs, the app shows the stop's screen, tab and rows in
+  // place of the user's; the wizard's state is never changed, so ending the
+  // tour brings the user's view back as it was.
+  const tourRun = state.mode === "demo" ? tour.run : null;
+  const tourOpen = useRef(false);
+  tourOpen.current = tourRun !== null;
+
+  // The tour belongs to the demo: leaving it ends the tour, so a later entry
+  // never resumes a stale stop. (The modal dialog makes this unreachable while
+  // the tour shows; the reducer state would outlive it otherwise.)
+  useEffect(() => {
+    if (state.mode !== "demo" && tour.run !== null) {
+      tourDispatch({ type: "exit" });
+    }
+  }, [state.mode, tour.run]);
+  const stop = tourRun === null ? undefined : TOUR[tourRun.stop];
+  const shownScreen = stop?.view.screen ?? state.screen;
+  const shown: WizardState =
+    shownScreen === state.screen ? state : { ...state, screen: shownScreen };
+  const shownReview = stop?.view.review ?? reviewView;
+
+  // The tour has ended: give back the scroll and the focus it took. The
+  // user's own view is already back, by construction, in this commit.
+  useLayoutEffect(() => {
+    if (tour.run !== null || !restorePending.current) return;
+    restorePending.current = false;
+    const { focus, scrollY, scrollers } = restore.current;
+    for (const [scroller, left] of scrollers) {
+      if (scroller.isConnected) scroller.scrollLeft = left;
+    }
+    if (scrollY !== null)
+      window.scrollTo({ top: scrollY, behavior: "instant" });
+    const back = focusTarget(focus);
+    back?.focus({ preventScroll: true });
+    // A browser may still hand focus back to what had it before the dialog
+    // opened, after this runs (WebKit does): give it to the target again.
+    requestAnimationFrame(() => {
+      if (back?.isConnected === true && document.activeElement !== back) {
+        back.focus({ preventScroll: true });
+      }
+    });
+    restore.current = noRestore();
+  }, [tour.run]);
 
   useEffect(() => {
     document.documentElement.lang = locale;
@@ -115,9 +203,14 @@ function Frame({
   // A new screen replaces the whole content: move focus to its heading so
   // keyboard and screen-reader users land at its start, hearing which screen it
   // is, instead of on a vanished button.
+  //
+  // While the guided tour is open it owns focus and scroll: a focus here would
+  // land behind the modal dialog (WebKit grants it, then drops focus to the
+  // body), and the tour gives the screen back, focused, when it ends.
   useEffect(() => {
     if (previousScreen.current === state.screen) return;
     previousScreen.current = state.screen;
+    if (tourOpen.current) return;
     window.scrollTo({ top: 0 });
     const target =
       document.querySelector<HTMLElement>("#main h1") ??
@@ -213,16 +306,34 @@ function Frame({
 
   const ownReturns = useMemo((): BuiltReturns | null => {
     if (prepared === null) return null;
-    const year = String(TAX_YEAR);
     // The names last: nothing in a reply can rename a download.
     return {
-      kdvp: { ...prepared.kdvp, fileName: `Doh_KDVP_${year}.xml` },
-      div: { ...prepared.div, fileName: `Doh_Div_${year}.xml` },
+      kdvp: { ...prepared.kdvp, fileName: formFileName("kdvp", TAX_YEAR) },
+      div: { ...prepared.div, fileName: formFileName("div", TAX_YEAR) },
     };
   }, [prepared]);
 
+  // Entering the demo starts the tour, the first time in this page session.
+  const enterDemo = (action: "startDemo" | "useDemoFiles") => {
+    if (!tour.seen) {
+      // From the start screen a new screen opens at its top, and the tour
+      // gives it back there, on its heading. "Use demo files" keeps the files
+      // screen: the tour gives back the scroll and the button the user left.
+      restore.current =
+        action === "startDemo"
+          ? { ...noRestore(), scrollY: 0 }
+          : { ...noRestore(DEMO_FILES_BUTTON_ID), scrollY: window.scrollY };
+    }
+    dispatch({ type: action });
+    tourDispatch({ type: "start" });
+  };
   const startDemo = () => {
-    dispatch({ type: "startDemo" });
+    enterDemo("startDemo");
+  };
+  const replayTour = () => {
+    // Taken before the tour shows a shorter screen, which clamps the scroll.
+    restore.current = { ...noRestore(TOUR_BUTTON_ID), scrollY: window.scrollY };
+    tourDispatch({ type: "replay" });
   };
   const back = () => {
     dispatch({ type: "back" });
@@ -239,7 +350,10 @@ function Frame({
   );
 
   return (
-    <div className="app" data-theme={theme}>
+    <div
+      className={cx("app", tourRun !== null && "is-touring")}
+      data-theme={theme}
+    >
       <SkipLink />
       <AppHeader
         onHome={() => {
@@ -261,14 +375,14 @@ function Frame({
         ) : (
           <div className="container flow">
             <Stepper
-              state={state}
+              state={shown}
               onGoTo={(screen) => {
                 dispatch({ type: "goTo", screen });
               }}
             />
-            {state.mode === "demo" ? <DemoBanner /> : null}
+            {state.mode === "demo" ? <DemoBanner onTour={replayTour} /> : null}
             <ErrorBoundary
-              resetKey={state.screen}
+              resetKey={shownScreen}
               fallback={
                 <div className="screen">
                   <Note tone="danger" role="alert">
@@ -291,9 +405,9 @@ function Frame({
                 </div>
               }
             >
-              {state.screen === "files" ? (
+              {shownScreen === "files" ? (
                 <FilesStep
-                  state={state}
+                  state={shown}
                   taxYear={TAX_YEAR}
                   onAddFiles={addFiles}
                   onRemoveFile={(id) => {
@@ -303,15 +417,15 @@ function Frame({
                     dispatch({ type: "setAccounts", accounts: choice });
                   }}
                   onUseDemoFiles={() => {
-                    dispatch({ type: "useDemoFiles" });
+                    enterDemo("useDemoFiles");
                   }}
                   onBack={back}
                   onNext={next}
                 />
               ) : null}
-              {state.screen === "details" ? (
+              {shownScreen === "details" ? (
                 <DetailsStep
-                  state={state}
+                  state={shown}
                   onChange={(field, value) => {
                     dispatch({ type: "setDetail", field, value });
                   }}
@@ -322,7 +436,7 @@ function Frame({
                   onNext={next}
                 />
               ) : null}
-              {state.screen === "review" ? (
+              {shownScreen === "review" ? (
                 <ReviewStep
                   preview={preview}
                   status={reviewStatus(state)}
@@ -337,12 +451,15 @@ function Frame({
                       ? blockingReason(state, "review") === null
                       : !demoBlocked
                   }
+                  view={shownReview}
+                  // The tour's view is its own: a toggle it causes is not the user's.
+                  onViewChange={stop === undefined ? setReviewView : noChange}
                   onBack={back}
                   onNext={next}
                   onStartDemo={startDemo}
                 />
               ) : null}
-              {state.screen === "download" ? (
+              {shownScreen === "download" ? (
                 preview === null ||
                 (state.mode === "own" && ownReturns === null) ? (
                   // Unreachable through the flow (own files block at the
@@ -365,20 +482,53 @@ function Frame({
         )}
       </Main>
       <AppFooter />
+      {tourRun === null || stop === undefined ? null : (
+        // A failure in the tour closes it and gives the page back, rather
+        // than taking the app down with it.
+        <ErrorBoundary
+          resetKey={tourRun.stop}
+          fallback={null}
+          onError={() => {
+            restorePending.current = true;
+            tourDispatch({ type: "exit" });
+          }}
+        >
+          <TourLayer
+            run={tourRun}
+            preview={demoPreview}
+            restore={restore.current}
+            onNext={(capacity) => {
+              tourDispatch({ type: "next", capacity });
+            }}
+            onBack={(capacity) => {
+              tourDispatch({ type: "back", capacity });
+            }}
+            onClosed={() => {
+              restorePending.current = true;
+              tourDispatch({ type: "exit" });
+            }}
+          />
+        </ErrorBoundary>
+      )}
     </div>
   );
 }
+
+const noChange = () => undefined;
 
 export function App({
   initialLocale = "sl",
   initialState = initialWizardState,
   initialTheme = "dark",
+  initialTour = initialTourState,
   engine,
 }: {
   readonly initialLocale?: Locale;
   /** Lets tests render any screen without simulating clicks. */
   readonly initialState?: WizardState;
   readonly initialTheme?: Theme;
+  /** Lets tests render a tour stop, or a tour already seen. */
+  readonly initialTour?: TourState;
   /** The engine; tests pass a fake, the app starts its worker when needed. */
   readonly engine?: Engine;
 }) {
@@ -389,6 +539,7 @@ export function App({
       <Frame
         initialState={initialState}
         initialTheme={initialTheme}
+        initialTour={initialTour}
         engine={running}
       />
     </I18nProvider>

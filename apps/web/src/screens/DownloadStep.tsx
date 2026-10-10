@@ -18,9 +18,10 @@ import { useEffect, useState } from "react";
 
 import type { BuiltForm, BuiltReturns } from "../engine/demoReturns";
 import { saveFile } from "../engine/saveFile";
+import { explain } from "../explain/anchors";
 import { formatDate, formatNumber, plural } from "../i18n/format";
 import { useI18n } from "../i18n/i18n";
-import type { ReturnPreview } from "../model/preview";
+import { formFileName, type ReturnPreview } from "../model/preview";
 import { Button, Chip, Note } from "../ui/kit";
 
 /** Where writing the returns stands. */
@@ -71,17 +72,21 @@ export function FormCard({
       <Chip tone="accent">{t.download.readyChip}</Chip>
     );
   return (
-    <div className="card form-file-card">
+    <div className="card form-file-card" {...explain("download.form", id)}>
       <div className="form-file-top">
         <span className="icon-tile" aria-hidden>
           <FileCodeIcon size={22} weight="bold" />
         </span>
         {chip}
       </div>
-      <h2 className="form-file-title">{form}</h2>
+      <h2 className="form-file-title" {...explain("download.title", id)}>
+        {form}
+      </h2>
       <p className="muted">{body}</p>
       <p>
-        <code className="code-badge">{built?.fileName ?? fileName}</code>
+        <code className="code-badge" {...explain("download.fileName", id)}>
+          {built?.fileName ?? fileName}
+        </code>
       </p>
       {built !== null && xml === null ? (
         <p className="muted" id={reasonId}>
@@ -93,6 +98,7 @@ export function FormCard({
           variant="primary"
           aria-disabled
           aria-describedby={built === null ? STATUS_NOTE : reasonId}
+          {...explain("download.button", id)}
         >
           <DownloadSimpleIcon size={18} weight="bold" aria-hidden />
           {t.download.downloadButton(form)}
@@ -103,6 +109,7 @@ export function FormCard({
           onClick={() => {
             saveFile(built.fileName, xml);
           }}
+          {...explain("download.button", id)}
         >
           <DownloadSimpleIcon size={18} weight="bold" aria-hidden />
           {t.download.downloadButton(form)}
@@ -156,7 +163,6 @@ export function DownloadStep({
   }, [source]);
   const returns = writing.status === "ready" ? writing.returns : null;
   const deadline = formatDate(filingDeadline(preview.taxYear), locale);
-  const year = String(preview.taxYear);
   const lists = preview.securities.length;
   const payments = preview.dividends.length;
   const forms = [
@@ -170,7 +176,7 @@ export function DownloadStep({
             ? t.download.kdvpNone
             : plural(lists, locale, t.download.kdvpBody)
         }
-        fileName={`Doh_KDVP_${year}.xml`}
+        fileName={formFileName("kdvp", preview.taxYear)}
         built={returns?.kdvp ?? null}
       />
     ),
@@ -184,7 +190,7 @@ export function DownloadStep({
             ? t.download.divNone
             : plural(payments, locale, t.download.divBody)
         }
-        fileName={`Doh_Div_${year}.xml`}
+        fileName={formFileName("div", preview.taxYear)}
         built={returns?.div ?? null}
       />
     ),

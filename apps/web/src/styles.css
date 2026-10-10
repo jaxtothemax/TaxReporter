@@ -106,6 +106,13 @@
     inset 0 1px 0 rgb(255 255 255 / 0.035), 0 24px 48px -28px rgb(0 0 0 / 0.85);
   --shadow-float:
     inset 0 1px 0 rgb(255 255 255 / 0.06), 0 32px 64px -24px rgb(0 0 0 / 0.9);
+  /* The guided tour's overlay only (#27): the dim, the frame round the lit
+     card, the lines and their casing, the rings. */
+  --tour-dim: rgb(2 3 4 / 0.76);
+  --tour-frame: rgb(52 211 153 / 0.8);
+  --tour-line: rgb(110 231 183 / 0.75);
+  --tour-halo: rgb(8 9 11 / 0.85);
+  --tour-ring: #34d399;
   --glow:
     inset 0 1px 0 rgb(255 255 255 / 0.35), 0 0 0 1px rgb(52 211 153 / 0.45),
     0 10px 32px -10px rgb(52 211 153 / 0.6);
@@ -160,6 +167,11 @@
     0 1px 2px rgb(16 24 40 / 0.04), 0 12px 32px -18px rgb(16 24 40 / 0.16);
   --shadow-float:
     0 1px 2px rgb(16 24 40 / 0.05), 0 28px 56px -20px rgb(16 24 40 / 0.24);
+  --tour-dim: rgb(11 13 18 / 0.56);
+  --tour-frame: #047857;
+  --tour-line: #047857;
+  --tour-halo: #ffffff;
+  --tour-ring: #047857;
   --glow:
     inset 0 1px 0 rgb(255 255 255 / 0.22),
     0 10px 24px -10px rgb(4 120 87 / 0.65);
@@ -1474,10 +1486,16 @@ button.step-item:hover {
   color: var(--danger);
 }
 
-/* A broker chip cannot shrink, so on a narrow phone it moves under the name. */
+/* A broker chip cannot shrink, so on a narrow phone it moves under the name.
+   The name claims the rest of its line first: with no basis of its own it
+   would shrink to a few letters wide and the chip would never wrap. */
 @media (max-width: 560px) {
   .file-row {
     flex-wrap: wrap;
+  }
+
+  .file-row:has(> .chip) > .file-text {
+    flex-basis: calc(100% - 54px);
   }
 
   .file-row > .chip {
@@ -2719,11 +2737,358 @@ button.step-item:hover {
   list-style: none;
 }
 
+/* ─── Guided tour (#27, ADR 0016) ─────────────────────────────────────────── */
+
+/* One modal <dialog> over the whole window. It draws nothing itself: the SVG
+   dims the page, and the dock holds the controls. No transform, filter or
+   backdrop-filter on it or the dock, which would make them the containing
+   block of the explanations positioned against the window. */
+.tour {
+  position: fixed;
+  inset: 0;
+  width: auto;
+  height: auto;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  overflow: clip;
+  color: var(--text);
+}
+
+.tour::backdrop {
+  background: transparent;
+}
+
+.tour-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.tour-dim {
+  fill: var(--tour-dim);
+}
+
+.tour-frame {
+  fill: none;
+  stroke: var(--tour-frame);
+  stroke-width: 1.5;
+}
+
+.tour-line-casing,
+.tour-line {
+  fill: none;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.tour-line-casing {
+  stroke: var(--tour-halo);
+  stroke-width: 4;
+}
+
+.tour-line {
+  stroke: var(--tour-line);
+  stroke-width: 1.5;
+}
+
+.tour-ring-halo {
+  fill: var(--tour-halo);
+}
+
+.tour-ring-mark,
+.tour-ring-pulse {
+  fill: none;
+  stroke: var(--tour-ring);
+  stroke-width: 2;
+}
+
+.tour-ring-pulse {
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.tour-note {
+  list-style: none;
+  margin: 0;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-float);
+}
+
+.tour-note.is-placed {
+  position: fixed;
+}
+
+.tour-note-lead {
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.tour-note-body {
+  margin: 4px 0 0;
+  font-size: var(--fs-md);
+  line-height: 1.5;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* While the tour runs the page gets room below its end, so a card near the
+   end of a short screen can still be scrolled clear of the dock with its
+   explanations. It goes when the tour does, before the scroll is given back. */
+.app.is-touring {
+  padding-bottom: 100dvh;
+}
+
+/* Boxes measured at a width before they are placed: out of sight and out of
+   the accessibility tree. */
+.tour-measure {
+  position: fixed;
+  top: 0;
+  left: -10000px;
+  margin: 0;
+  padding: 0;
+  visibility: hidden;
+}
+
+.tour-dock {
+  position: fixed;
+  right: 0;
+  bottom: 16px;
+  left: 0;
+  width: min(880px, calc(100% - 32px));
+  margin-inline: auto;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    "head skip"
+    "intro controls";
+  gap: 8px 24px;
+  align-items: center;
+  padding: 14px 20px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-float);
+  /* Never taller than the window, at any width: a short window, a long
+     explanation or zoomed text scroll inside the dock (WCAG 1.4.10). */
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+}
+
+.tour-progress {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 3px;
+  background: var(--surface-3);
+}
+
+.tour-progress-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: var(--r-pill);
+}
+
+.tour-skip {
+  grid-area: skip;
+  justify-self: end;
+}
+
+.tour-title {
+  grid-area: head;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin: 0;
+}
+
+.tour-count {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.tour-name {
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-semibold);
+  letter-spacing: -0.01em;
+}
+
+.tour-intro {
+  grid-area: intro;
+  margin: 0;
+  font-size: var(--fs-md);
+  color: var(--text-2);
+}
+
+.tour-notes {
+  margin: 0;
+  padding: 0;
+}
+
+/* Beside or around the card, the explanations are placed against the window
+   and the list takes no room in the dock; one not placed yet is not shown. */
+.tour-dock.is-wide .tour-notes {
+  position: absolute;
+}
+
+.tour-dock.is-wide .tour-note:not(.is-placed) {
+  visibility: hidden;
+}
+
+.tour-waiting {
+  display: block;
+  margin-top: 4px;
+}
+
+.tour-controls {
+  grid-area: controls;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.tour-note-count {
+  margin-right: auto;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.tour-next {
+  min-width: 112px;
+}
+
+/* One explanation at a time, inside the dock: on a phone, and wherever the
+   explanations do not fit beside or around the card. */
+.tour-dock.is-sheet {
+  width: min(640px, calc(100% - 32px));
+  /* The sheet scrolls the page so the highlight sits above it: capped at
+     about half the window, at any width, so a short landscape window still
+     leaves room for what it explains. */
+  max-height: 56dvh;
+  grid-template-areas:
+    "head skip"
+    "intro intro"
+    "note note"
+    "controls controls";
+}
+
+.tour-dock.is-sheet .tour-notes {
+  grid-area: note;
+}
+
+.tour-dock.is-sheet .tour-note {
+  background: var(--surface-2);
+  border-color: var(--border);
+  box-shadow: none;
+}
+
+/* The controls stay in reach while the explanation scrolls. They carry the
+   dock's bottom padding themselves: a sticky row ignores the scroller's own,
+   which would cut the focus ring and, on a phone, sit in the home bar. */
+.tour-dock.is-sheet {
+  padding-bottom: 0;
+}
+
+.tour-dock.is-sheet .tour-controls {
+  position: sticky;
+  bottom: 0;
+  padding: 12px 0 14px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+}
+
+@media (max-width: 720px) {
+  .tour-dock,
+  .tour-dock.is-sheet {
+    bottom: 0;
+    width: 100%;
+    max-height: 56dvh;
+    padding: 16px 16px 0;
+    border-radius: var(--r-lg) var(--r-lg) 0 0;
+  }
+
+  .tour-dock.is-sheet .tour-controls {
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  }
+
+  .tour-title {
+    flex-direction: column;
+  }
+
+  /* Where the tour meets a touch screen, its controls are full touch targets. */
+  .tour-dock .btn {
+    min-height: 44px;
+  }
+}
+
 /* ─── Forced colors (Windows contrast themes) ─────────────────────────────── */
 
 /* Backgrounds are replaced by system colors there, so states that rely on a
    fill get a system color or an outline instead. */
 @media (forced-colors: active) {
+  /* The tour draws its own marks: no dim, a Highlight frame round the lit
+     card, and lines and rings in the text color. */
+  .tour-canvas {
+    forced-color-adjust: none;
+  }
+
+  .tour-dim {
+    fill: transparent;
+  }
+
+  .tour-frame {
+    stroke: Highlight;
+    stroke-width: 3;
+  }
+
+  .tour-line,
+  .tour-ring-mark,
+  .tour-ring-pulse {
+    stroke: CanvasText;
+  }
+
+  .tour-line-casing {
+    stroke: Canvas;
+  }
+
+  .tour-ring-halo {
+    fill: Canvas;
+  }
+
+  .tour-note,
+  .tour-dock {
+    border: 1px solid CanvasText;
+  }
+
+  .tour-progress-fill {
+    background: Highlight;
+  }
+
+  /* An action not available yet looks it, not only through its fill. */
+  .btn[aria-disabled="true"] {
+    color: GrayText;
+    border-color: GrayText;
+  }
+
   .tab[aria-selected="true"],
   .segment:has(input:checked),
   .icon-btn[aria-pressed="true"] {
@@ -2824,6 +3189,49 @@ button.step-item:hover {
   @keyframes pulse {
     50% {
       box-shadow: 0 0 0 6px transparent;
+    }
+  }
+
+  /* The tour fades in; nothing moves the dock (see .tour). Two pulses of a
+     ring, 1.8s in all. */
+  .tour-canvas {
+    animation: tour-fade 200ms ease-out both;
+  }
+
+  .tour-dock {
+    animation: tour-fade 240ms var(--ease-out) both;
+  }
+
+  .tour-note.is-placed,
+  .tour-line,
+  .tour-line-casing,
+  .tour-ring {
+    animation: tour-fade 160ms ease-out both;
+  }
+
+  .tour-ring-pulse {
+    animation: tour-pulse 900ms ease-out 2;
+  }
+
+  .tour-progress-fill {
+    transition: width 220ms var(--ease-out);
+  }
+
+  @keyframes tour-fade {
+    from {
+      opacity: 0;
+    }
+  }
+
+  @keyframes tour-pulse {
+    from {
+      opacity: 0.6;
+      transform: scale(1);
+    }
+
+    to {
+      opacity: 0;
+      transform: scale(2.5);
     }
   }
 }

@@ -27,6 +27,11 @@ coverage/
 htmlcov/
 coverage.xml
 
+# ─── Browser tests (Playwright) ───────────────────────────────────────────────
+playwright-report/
+test-results/
+blob-report/
+
 # ─── IDE ──────────────────────────────────────────────────────────────────────
 .idea/
 .vscode/

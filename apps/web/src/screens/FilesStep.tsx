@@ -19,6 +19,7 @@ import { useEffect, useRef, useState, type DragEvent } from "react";
 
 import { demoPreview } from "../demo/demoPreview";
 import type { FileSummary } from "../engine/protocol";
+import { explain } from "../explain/anchors";
 import {
   formatDate,
   formatKilobytes,
@@ -205,6 +206,9 @@ function AccountQuestion({
   );
 }
 
+/** The "Use demo files" button: where focus goes back after the tour it starts. */
+export const DEMO_FILES_BUTTON_ID = "use-demo-files";
+
 export function FilesStep({
   state,
   taxYear,
@@ -354,6 +358,7 @@ export function FilesStep({
             {t.files.chooseButton}
           </Button>
           <Button
+            id={DEMO_FILES_BUTTON_ID}
             variant="ghost"
             onClick={() => {
               onUseDemoFiles();
@@ -379,7 +384,7 @@ export function FilesStep({
         />
       </div>
 
-      <div className="card list-card">
+      <div className="card list-card" {...explain("files.list")}>
         <div className="card-head">
           <h2 ref={listHeading} tabIndex={-1}>
             {t.files.listTitle}
@@ -408,7 +413,10 @@ export function FilesStep({
                   >
                     <FileIcon file={file} refused={refused} />
                   </span>
-                  <div className="file-text">
+                  <div
+                    className="file-text"
+                    {...explain("files.text", file.name)}
+                  >
                     <p className="file-name mono">
                       {labels.get(file.id) ?? file.name}
                     </p>

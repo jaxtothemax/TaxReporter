@@ -13,6 +13,20 @@ The short version: you export your history from your broker, open the files in T
 check what it found, download the XML files, and import them into eDavki, where you review the
 return and submit it yourself.
 
+## Try the demo first
+
+Before you add your own files, you will be able to explore a demo: made-up trades and
+dividends at real Banka Slovenije rates. The first time you open it, a short guided tour will
+walk you through it. On each step it lights one part of the screen and explains, next to it,
+what each figure is and where it came from: which exchange rate a sale used and why, how
+sales are matched with purchases across brokers, how long shares were held and the rate that
+follows, the 30-day rule for losses, the credit for tax withheld abroad, and how a file is
+imported into eDavki without filing it.
+
+You will be able to leave the tour at any point with Escape or **Skip tour**, and the demo
+will be just as you left it. The demo's banner starts the tour again. Nothing records that
+you have seen it.
+
 ## 1. Export your history from your broker
 
 Download your transaction history as a file from every broker you use. For the first version

@@ -105,9 +105,17 @@ call: window.addEventListener("beforeunload", ask);
 why:  The only warning before a reload or a closed tab loses the user's files (ADR 0013 §6). Delete it and they vanish without a word; the screen tests render without effects and cannot see it.
 
 path: apps/web/src/App.tsx
-call: <ErrorBoundary
-why:  The only boundary around the screens: without it a render error blanks the whole app, and the user's files and answers go with it. The screen tests render on the server, where a boundary never catches, so deleting it leaves every test green.
+call: resetKey={shownScreen}
+why:  The only boundary around the screens (its reset key; the tour's own boundary is another one): without it a render error blanks the whole app, and the user's files and answers go with it. The screen tests render on the server, where a boundary never catches, so deleting it leaves every test green.
+
+path: apps/web/src/App.tsx
+call: onError={() => {
+why:  The only way a failure inside the guided tour ends it. The tour's boundary renders nothing in its place, so without this handler the tour stays open with no dialog: its stop keeps overriding the screen the user navigates to, the screen-change focus move stays off, and the user's view is never given back (ADR 0016). No test makes the tour throw, so deleting it leaves every test green.
 
 path: apps/web/vite.config.ts
 call: "worker-src 'self' blob:",
 why:  The only grant for the engine's blob: bootstrap, which makes the worker inherit the page's policy (ADR 0013 §3). Drop blob: and every test and build stays green while the deployed app can no longer start its engine, so no file of the user's is read.
+
+path: .github/workflows/ci.yml
+call: pnpm --dir apps/web exec playwright test
+why:  The only place CI runs the browser tests: the guided tour's keyboard path, focus and scroll restore, no sideways scroll at 320px, and the zero-violation check of the Content Security Policy on the built app. Delete it and the e2e job passes having run nothing.

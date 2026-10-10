@@ -22,6 +22,8 @@ import {
   type WizardState,
 } from "./state/wizard";
 import { engineReplies, ownState, preparedState } from "./testing/ownFiles";
+import type { TourState } from "./tour/machine";
+import { TOUR } from "./tour/script";
 
 function stateAfter(...actions: WizardAction[]): WizardState {
   return actions.reduce(wizardReducer, initialWizardState);
@@ -30,7 +32,13 @@ function stateAfter(...actions: WizardAction[]): WizardState {
 // The user's own files, as the engine reads and prepares them.
 const { read, prepared } = await engineReplies();
 
-const SCREENS: [string, WizardState][] = [
+const stopOf = (id: string) => TOUR.findIndex((stop) => stop.id === id);
+const touring = (id: string): TourState => ({
+  seen: true,
+  run: { stop: stopOf(id), note: 0 },
+});
+
+const SCREENS: [string, WizardState, TourState?][] = [
   ["start", initialWizardState],
   ["files", stateAfter({ type: "startDemo" })],
   ["details", stateAfter({ type: "startDemo" }, { type: "next" })],
@@ -47,6 +55,19 @@ const SCREENS: [string, WizardState][] = [
   ["details with an error", ownState(read, { type: "next" }, { type: "next" })],
   ["review, own files", preparedState(read, prepared)],
   ["download, own files", preparedState(read, prepared, { type: "next" })],
+  // The guided tour open over the demo: its dialog joins the page's checks.
+  ["tour on the files", stateAfter({ type: "startDemo" }), touring("files")],
+  [
+    "tour on a security",
+    stateAfter({ type: "startDemo" }),
+    touring("saleRate"),
+  ],
+  ["tour on a dividend", stateAfter({ type: "startDemo" }), touring("holiday")],
+  [
+    "tour on the download",
+    stateAfter({ type: "startDemo" }),
+    touring("download"),
+  ],
 ];
 
 /** The review panels on their own, as the review's tabs hold them. */
@@ -60,6 +81,8 @@ function panels(locale: Locale): string {
       <GainsPanel
         securities={demoPreview.securities}
         estimate={demoPreview.gainsEstimate}
+        open={new Set()}
+        onToggle={() => undefined}
       />,
     ),
     wrap(
@@ -85,10 +108,20 @@ const headingLevels = (html: string) =>
 
 for (const locale of ["sl", "en"] as const) {
   describe(`accessibility structure (${locale})`, () => {
-    for (const [name, state] of SCREENS) {
+    for (const [name, state, tour] of SCREENS) {
       const html = renderToStaticMarkup(
-        <App initialLocale={locale} initialState={state} />,
+        <App
+          initialLocale={locale}
+          initialState={state}
+          {...(tour === undefined ? {} : { initialTour: tour })}
+        />,
       );
+
+      if (tour !== undefined) {
+        it(`${name}: the tour's dialog is there, labelled by its heading`, () => {
+          expect(html).toMatch(/<dialog[^>]*aria-labelledby="tour-title"/);
+        });
+      }
 
       it(`${name}: every aria-labelledby and aria-describedby target exists`, () => {
         const known = ids(html);
@@ -134,7 +167,7 @@ for (const locale of ["sl", "en"] as const) {
       // in a named region that takes focus.
       const scrollers =
         html.match(
-          /<div class="table-scroll" role="region" aria-label="[^"]+" tabindex="0"><table/g,
+          /<div class="table-scroll" role="region" aria-label="[^"]+" tabindex="0"[^>]*><table/g,
         ) ?? [];
       expect(scrollers).toHaveLength(tables.length);
       expect(html).not.toMatch(/<summary[^>]*aria-label=/);

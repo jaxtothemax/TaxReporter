@@ -19,6 +19,9 @@
 # reads too — repeated here so this file alone states the scope).
 dist/
 coverage/
+playwright-report/
+test-results/
+blob-report/
 
 # The vendored FURS schemas are pinned byte-for-byte by SHA-256 (see
 # packages/furs/schemas/README.md). Prettier has no XML parser today, but an XML

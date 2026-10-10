@@ -264,6 +264,143 @@ export interface Messages {
     ) => readonly string[];
     readonly startOver: string;
   };
+  readonly tour: {
+    readonly action: string;
+    readonly skip: string;
+    readonly back: string;
+    readonly next: string;
+    readonly finish: string;
+    readonly atStart: string;
+    readonly stopOf: (stop: string, stops: string) => string;
+    readonly noteOf: (note: string, notes: string) => string;
+    readonly listLabel: string;
+    readonly announceStop: (
+      stop: string,
+      stops: string,
+      title: string,
+    ) => string;
+    readonly announceNote: (
+      note: string,
+      notes: string,
+      lead: string,
+    ) => string;
+    readonly waiting: string;
+    readonly unavailable: string;
+    readonly stops: {
+      readonly files: { readonly title: string; readonly intro: string };
+      readonly details: { readonly title: string; readonly intro: string };
+      readonly summary: { readonly title: string; readonly intro: string };
+      readonly saleRate: {
+        readonly title: string;
+        readonly intro: (security: string) => string;
+      };
+      readonly holding: {
+        readonly title: string;
+        readonly intro: (sold: string) => string;
+      };
+      readonly fifoBrokers: {
+        readonly title: string;
+        readonly intro: (
+          security: string,
+          boughtAt: string,
+          soldAt: string,
+        ) => string;
+      };
+      readonly slices: {
+        readonly title: string;
+        readonly intro: (broker: string, sold: string) => string;
+      };
+      readonly loss: { readonly title: string; readonly intro: string };
+      readonly holiday: { readonly title: string; readonly intro: string };
+      readonly treaty: { readonly title: string; readonly intro: string };
+      readonly notes: { readonly title: string; readonly intro: string };
+      readonly download: { readonly title: string; readonly intro: string };
+    };
+  };
+  /**
+   * What a figure is and where it came from, by concept (ADR 0016): written
+   * to describe what TaxReporter did, so the same text can explain the user's
+   * own figures. Each rule stated here is the one docs/research/ records.
+   */
+  readonly explain: {
+    readonly wholeHistory: (broker: string, date: string) => string;
+    readonly fifoAcrossBrokers: (broker: string, date: string) => string;
+    readonly estimateOnly: string;
+    readonly netTaxableGain: (losses: string) => string;
+    readonly holdingBucket: (terms: string, tax: string) => string;
+    readonly splitAdjusted: (ratio: string) => string;
+    readonly bsiRateTradeDay: (
+      listDate: string,
+      currency: string,
+      division: string,
+      perUnit: string,
+    ) => string;
+    readonly bsiRateListBefore: (
+      tradeDate: string,
+      listDate: string,
+      currency: string,
+      division: string,
+      perUnit: string,
+    ) => string;
+    readonly sourceRow: string;
+    readonly taxNumberInHeader: string;
+    readonly holdingSchedule: (
+      held: string,
+      since: string,
+      r25: string,
+      r20: string,
+      r15: string,
+      r0: string,
+    ) => string;
+    readonly fifoTwoLots: (
+      firstQuantity: string,
+      firstDate: string,
+      quantity: string,
+      bought: string,
+      date: string,
+    ) => string;
+    readonly oldestFromOtherBroker: (
+      quantity: string,
+      date: string,
+      broker: string,
+      saleBroker: string,
+    ) => string;
+    readonly soldAcrossBrokers: (
+      date: string,
+      firstQuantity: string,
+      firstBroker: string,
+      quantity: string,
+      bought: string,
+      broker: string,
+      boughtOn: string,
+    ) => string;
+    readonly fifoSlices: (terms: string, sold: string) => string;
+    readonly partialLot: (used: string, bought: string, date: string) => string;
+    readonly lossWithin30Days: (bought: string, sold: string) => string;
+    readonly lossOffsets: (proceeds: string, cost: string) => string;
+    readonly amountInEur: (division: string, eur: string) => string;
+    readonly listBeforeHoliday: (paid: string, listDate: string) => string;
+    readonly foreignTaxWithheld: (
+      country: string,
+      gross: string,
+      payer: string,
+    ) => string;
+    readonly treatyCappedCredit: (
+      country: string,
+      rate: string,
+      product: string,
+      excess: string,
+    ) => string;
+    readonly findingSeverity: (
+      blocking: string,
+      warning: string,
+      info: string,
+    ) => string;
+    readonly notOnTheseReturns: string;
+    readonly returnForms: string;
+    readonly edavkiImport: string;
+    readonly youReviewAndSubmit: string;
+  };
 }
 
 export const en: Messages = {
@@ -608,6 +745,167 @@ export const en: Messages = {
         : `Submit it by ${deadline}.`,
     ],
     startOver: "Start over",
+  },
+  tour: {
+    action: "Guided tour",
+    skip: "Skip tour",
+    back: "Back",
+    next: "Next",
+    finish: "Finish",
+    atStart: "This is the start of the tour.",
+    stopOf: (stop, stops) => `Stop ${stop} of ${stops}`,
+    noteOf: (note, notes) => `${note} of ${notes}`,
+    listLabel: "Explanations on this stop",
+    announceStop: (stop, stops, title) => `Stop ${stop} of ${stops}: ${title}.`,
+    announceNote: (note, notes, lead) => `${note} of ${notes}: ${lead}.`,
+    waiting: "Preparing this stop.",
+    unavailable:
+      "This part of the demo could not be shown here. The explanations still apply.",
+    stops: {
+      files: {
+        title: "Two brokers, one history",
+        intro:
+          "A tour of the demo: made-up trades at real Banka Slovenije rates. A few cases are not in it, such as a dividend payer's details to fill in.",
+      },
+      details: {
+        title: "Details for the file header",
+        intro:
+          "FURS needs a few details in the header of each XML file. In the demo they are optional: its files are written for a made-up taxpayer.",
+      },
+      summary: {
+        title: "Estimates, split by tax rate",
+        intro:
+          "The review shows every figure behind both returns. It starts with what they add up to.",
+      },
+      saleRate: {
+        title: "A sale, its rate and its source",
+        intro: (security) =>
+          `The inventory list (popisni list) of ${security}: the rows Doh-KDVP will hold for it, one for each purchase and sale.`,
+      },
+      holding: {
+        title: "Two lots, two tax rates",
+        intro: (sold) =>
+          `The ${sold} shares sold were matched with the purchases before the sale, oldest first. Each matched lot keeps its own holding period.`,
+      },
+      fifoBrokers: {
+        title: "First in, first out, across brokers",
+        intro: (security, boughtAt, soldAt) =>
+          `${security} shares were bought at ${boughtAt}, then sold at ${soldAt}. Lots are matched by ISIN, whichever broker holds them.`,
+      },
+      slices: {
+        title: "Small buys, oldest first",
+        intro: (broker, sold) =>
+          `Regular small buys at ${broker}, in fractions of a share and in euros, so no exchange rate applies. Then one sale of ${sold}.`,
+      },
+      loss: {
+        title: "A loss that counts",
+        intro:
+          "Sold at a loss. A loss reduces the year's gains, unless the 30-day rule sets it aside.",
+      },
+      holiday: {
+        title: "A holiday, and the list before it",
+        intro:
+          "Doh-Div lists every dividend on its own row, converted at the rate of the day it was paid.",
+      },
+      treaty: {
+        title: "A credit capped by the treaty",
+        intro:
+          "Tax withheld abroad is credited against the Slovenian tax on a dividend, up to the rate in the tax treaty with that country.",
+      },
+      notes: {
+        title: "What the notes mean",
+        intro:
+          "Notes say what TaxReporter found in the files and how the rules applied. None in this demo stops a return.",
+      },
+      download: {
+        title: "Download, then you submit",
+        intro:
+          "Last stop. The demo's files are written exactly like yours, but for a made-up taxpayer: never import them into eDavki.",
+      },
+    },
+  },
+  explain: {
+    wholeHistory: (broker, date) =>
+      `${broker}, from ${date}. A sale is matched with the purchases before it, so an export reaches back to the oldest of them.`,
+    fifoAcrossBrokers: (broker, date) =>
+      `${broker}, from ${date}. All files are read together, in this tab, and never uploaded. Shares bought at one broker and sold at another are matched across both.`,
+    // eDavki computes the tax itself and FURS assesses it:
+    // docs/research/04-si-tax-rules.md §4.1, §10.3.
+    estimateOnly:
+      "TaxReporter prepares the return and estimates the tax. eDavki calculates the final tax, and the FURS assessment is what counts.",
+    // Normed costs and the loss offset: docs/research/04-si-tax-rules.md §4.1, §5.1.
+    netTaxableGain: (losses) =>
+      `Gains after normed costs (1% of the purchase value and 1% of the sale value, never more than the gain), with this year's losses set against them: ${losses}.`,
+    holdingBucket: (terms, tax) =>
+      `The longer shares were held, the lower the rate on their gain. Here ${terms} = ${tax}.`,
+    // A split is no disposal; dates and total cost carry over:
+    // docs/research/04-si-tax-rules.md §9.
+    splitAdjusted: (ratio) =>
+      `This purchase is shown in shares after the split: quantity and price restated by its ${ratio} ratio. The purchase date stays, and with it the holding period.`,
+    // The list of the trade date, or the last one before it, which neither
+    // the law nor FURS states (TaxReporter's reading): research 03 §9.
+    bsiRateTradeDay: (listDate, currency, division, perUnit) =>
+      `From Banka Slovenije's list of ${listDate}, the trade date. The list quotes ${currency} per euro, so the price is divided: ${division} = ${perUnit}, rounded to 8 decimal places.`,
+    bsiRateListBefore: (tradeDate, listDate, currency, division, perUnit) =>
+      `Traded on ${tradeDate}, a day Banka Slovenije published no list, so TaxReporter uses the last list before it, of ${listDate}. It quotes ${currency} per euro: ${division} = ${perUnit}, rounded to 8 decimal places.`,
+    sourceRow:
+      "Every row names the file and the line it came from, so each figure can be checked against the broker's own export.",
+    // Required by eDavki, not by the XSD: docs/research/01-furs-doh-kdvp.md §3.
+    taxNumberInHeader:
+      "The 8 digits FURS knows a taxpayer by. With the name and address, it goes into each file's header only; no figure depends on it. A real return needs it.",
+    // Holding periods and their rates: ZDoh-2 Arts. 96 and 132,
+    // docs/research/04-si-tax-rules.md §2.1, §4.5.
+    holdingSchedule: (held, since, r25, r20, r15, r0) =>
+      `Held ${held}, since ${since}. Gains are taxed at ${r25} under 5 completed years of holding, ${r20} after 5, ${r15} after 10, and ${r0} after 15.`,
+    // FIFO per security, across brokers: docs/research/04-si-tax-rules.md §4.4.
+    fifoTwoLots: (firstQuantity, firstDate, quantity, bought, date) =>
+      `First in, first out: the ${firstQuantity} shares bought on ${firstDate} went first, then ${quantity} of the ${bought} bought on ${date}. Each part keeps its own holding period.`,
+    oldestFromOtherBroker: (quantity, date, broker, saleBroker) =>
+      `The oldest purchase (${quantity}, ${date}) is in the ${broker} file. It is matched first, though the sale was at ${saleBroker}.`,
+    soldAcrossBrokers: (
+      date,
+      firstQuantity,
+      firstBroker,
+      quantity,
+      bought,
+      broker,
+      boughtOn,
+    ) =>
+      `Sold on ${date}: the ${firstQuantity} from ${firstBroker} first, then ${quantity} of the ${bought} bought at ${broker} on ${boughtOn}.`,
+    fifoSlices: (terms, sold) =>
+      `The oldest buys are sold first, in order: ${terms} = ${sold}.`,
+    partialLot: (used, bought, date) =>
+      `Only ${used} of the ${bought} bought on ${date} was needed. The rest stays held, with its own purchase date and cost.`,
+    // The 30-day rule: ZDoh-2 Art. 97(5), docs/research/04-si-tax-rules.md §5.3.
+    lossWithin30Days: (bought, sold) =>
+      `Bought on ${bought}, sold on ${sold}. A loss is set aside, in the part replaced, when the same security was bought in the 30 days before or after the sale. These files show no such purchase, so the whole loss counts.`,
+    // No normed costs on a loss, and the offset within the year:
+    // docs/research/04-si-tax-rules.md §4.1, §5.1.
+    lossOffsets: (proceeds, cost) =>
+      `Proceeds ${proceeds} less cost ${cost}. A loss gets no normed costs; it is set against the year's gains.`,
+    amountInEur: (division, eur) =>
+      `${division} = ${eur}: the gross in euros, rounded to the cent.`,
+    // TARGET holidays and the list before them, TaxReporter's reading where
+    // the law is silent: docs/research/03-bsi-exchange-rates.md §9.
+    listBeforeHoliday: (paid, listDate) =>
+      `Paid on ${paid}, a TARGET holiday: the euro payment system is closed and Banka Slovenije publishes no list. As for a weekend, TaxReporter uses the last list before it: ${listDate}.`,
+    foreignTaxWithheld: (country, gross, payer) =>
+      `Withheld in ${country} on the ${gross} gross paid by ${payer}.`,
+    // The credit for foreign tax, capped at the treaty rate:
+    // docs/research/04-si-tax-rules.md §7.2.
+    treatyCappedCredit: (country, rate, product, excess) =>
+      `The treaty with ${country} allows ${rate}: ${product}. The other ${excess} withheld does not reduce the Slovenian tax.`,
+    findingSeverity: (blocking, warning, info) =>
+      `Notes come in three kinds. \u201c${blocking}\u201d holds its return back until it is fixed, \u201c${warning}\u201d is worth reading, and \u201c${info}\u201d needs nothing.`,
+    notOnTheseReturns:
+      "Rows that are not on these returns are named here rather than left out without a word, so nothing in a file goes missing unnoticed.",
+    returnForms:
+      "The return for gains on securities: one inventory list (popisni list) for each security sold. Doh-Div, beside it, lists each dividend payment on a row of its own.",
+    // Dokumenti, then Uvoz dokumenta: docs/research/01-furs-doh-kdvp.md §9.
+    edavkiImport:
+      "Written on this device and saved there; nothing is uploaded. In eDavki, a file like this is imported under Dokumenti, then Uvoz.",
+    youReviewAndSubmit:
+      "After the import, eDavki shows the form for you to compare with this review and submit yourself. TaxReporter never files, and eDavki calculates the final tax.",
   },
 };
 
@@ -990,6 +1288,149 @@ export const sl: Messages = {
         : `Oddajte ga do ${deadline}.`,
     ],
     startOver: "Začni znova",
+  },
+  tour: {
+    action: "Vodeni ogled",
+    skip: "Preskoči ogled",
+    back: "Nazaj",
+    next: "Naprej",
+    finish: "Končaj",
+    atStart: "To je začetek ogleda.",
+    stopOf: (stop, stops) => `Korak ${stop} od ${stops}`,
+    noteOf: (note, notes) => `${note} od ${notes}`,
+    listLabel: "Pojasnila na tem koraku",
+    announceStop: (stop, stops, title) =>
+      `Korak ${stop} od ${stops}: ${title}.`,
+    announceNote: (note, notes, lead) => `${note} od ${notes}: ${lead}.`,
+    waiting: "Korak se pripravlja.",
+    unavailable:
+      "Tega dela demo podatkov tukaj ni bilo mogoče prikazati. Pojasnila še vedno veljajo.",
+    stops: {
+      files: {
+        title: "Dva posrednika, ena zgodovina",
+        intro:
+          "Ogled demo podatkov: izmišljeni posli po pravih tečajih Banke Slovenije. Nekaj primerov v njih ni, na primer podatkov o plačniku dividend, ki jih je treba vpisati.",
+      },
+      details: {
+        title: "Podatki za glavo datoteke",
+        intro:
+          "FURS v glavi vsake datoteke XML potrebuje nekaj podatkov. V demo podatkih niso obvezni: datoteke so zapisane za izmišljenega zavezanca.",
+      },
+      summary: {
+        title: "Ocene, razdeljene po stopnjah",
+        intro:
+          "Pregled pokaže vse številke za obe napovedi. Začne s tem, koliko skupaj znašajo.",
+      },
+      saleRate: {
+        title: "Prodaja, njen tečaj in vir",
+        intro: (security) =>
+          `Popisni list za ${security}: vrstice, ki jih bo zanj vseboval Doh-KDVP, po ena za vsak nakup in prodajo.`,
+      },
+      holding: {
+        title: "Dva nakupa, dve stopnji",
+        intro: (sold) =>
+          `Prodane delnice (${sold}) so se povezale z nakupi pred prodajo, najprej z najstarejšim. Vsak povezani nakup ohrani svoj čas imetništva.`,
+      },
+      fifoBrokers: {
+        title: "Najprej najstarejši, prek posrednikov",
+        intro: (security, boughtAt, soldAt) =>
+          `Delnice ${security} so bile kupljene pri ${boughtAt}, prodane pa pri ${soldAt}. Nakupi se povežejo po kodi ISIN, ne glede na to, pri katerem posredniku so.`,
+      },
+      slices: {
+        title: "Majhni nakupi, najprej najstarejši",
+        intro: (broker, sold) =>
+          `Redni majhni nakupi pri ${broker}, v delih delnice in v evrih, zato tečaj ni potreben. Nato ena prodaja: ${sold}.`,
+      },
+      loss: {
+        title: "Izguba, ki šteje",
+        intro:
+          "Prodano z izgubo. Izguba zmanjša letošnje dobičke, razen če jo izloči pravilo 30 dni.",
+      },
+      holiday: {
+        title: "Praznik in tečajnica pred njim",
+        intro:
+          "Doh-Div navaja vsako dividendo v svoji vrstici, preračunano po tečaju dneva izplačila.",
+      },
+      treaty: {
+        title: "Odbitek, omejen s pogodbo",
+        intro:
+          "Davek, odtegnjen v tujini, se odšteje od slovenskega davka na dividendo, največ do stopnje iz pogodbe o izogibanju dvojnega obdavčevanja s to državo.",
+      },
+      notes: {
+        title: "Kaj pomenijo opombe",
+        intro:
+          "Opombe povedo, kaj je TaxReporter našel v datotekah in kako so se uporabila pravila. Nobena v teh demo podatkih ne ustavi napovedi.",
+      },
+      download: {
+        title: "Prenos, oddate pa sami",
+        intro:
+          "Zadnji korak. Datoteke demo podatkov so zapisane natanko tako kot vaše, a za izmišljenega zavezanca: nikoli jih ne uvozite v eDavke.",
+      },
+    },
+  },
+  explain: {
+    wholeHistory: (broker, date) =>
+      `${broker}, od ${date}. Prodaja se poveže z nakupi pred njo, zato izvoz seže do najstarejšega od njih.`,
+    fifoAcrossBrokers: (broker, date) =>
+      `${broker}, od ${date}. Vse datoteke se preberejo skupaj, v tem zavihku, in se nikamor ne naložijo. Delnice, kupljene pri enem posredniku in prodane pri drugem, se povežejo med obema.`,
+    estimateOnly:
+      "TaxReporter pripravi napoved in oceni davek. Končni davek izračunajo eDavki, velja pa odmerna odločba FURS.",
+    netTaxableGain: (losses) =>
+      `Dobički po normiranih stroških (1 % nabavne in 1 % prodajne vrednosti, nikoli več od dobička), od katerih se odštejejo letošnje izgube: ${losses}.`,
+    holdingBucket: (terms, tax) =>
+      `Dlje ko so bile delnice v lasti, nižja je stopnja na njihov dobiček. Tukaj ${terms} = ${tax}.`,
+    splitAdjusted: (ratio) =>
+      `Ta nakup je prikazan v delnicah po delitvi: količina in cena sta preračunani v razmerju ${ratio}. Datum nakupa ostane enak, z njim pa tudi čas imetništva.`,
+    bsiRateTradeDay: (listDate, currency, division, perUnit) =>
+      `Iz tečajnice Banke Slovenije z dne ${listDate}, dneva posla. Tečajnica navaja ${currency} za en evro, zato se cena deli: ${division} = ${perUnit}, zaokroženo na 8 decimalnih mest.`,
+    bsiRateListBefore: (tradeDate, listDate, currency, division, perUnit) =>
+      `Posel je bil sklenjen ${tradeDate}, ko Banka Slovenije ni objavila tečajnice, zato TaxReporter uporabi zadnjo pred tem, z dne ${listDate}. Navaja ${currency} za en evro: ${division} = ${perUnit}, zaokroženo na 8 decimalnih mest.`,
+    sourceRow:
+      "Vsaka vrstica navaja datoteko in vrstico, iz katere izhaja, zato je vsako številko mogoče preveriti v izvozu posrednika.",
+    taxNumberInHeader:
+      "Osem števk, po katerih FURS pozna zavezanca. Skupaj z imenom in naslovom gre samo v glavo vsake datoteke; nobena številka ni odvisna od nje. Prava napoved jo potrebuje.",
+    holdingSchedule: (held, since, r25, r20, r15, r0) =>
+      `V lasti ${held}, od ${since}. Dobiček se obdavči po ${r25} pod 5 dopolnjenimi leti imetništva, po ${r20} po 5 letih, po ${r15} po 10 in po ${r0} po 15 letih.`,
+    fifoTwoLots: (firstQuantity, firstDate, quantity, bought, date) =>
+      `Najprej najstarejši: najprej nakup z dne ${firstDate} (${firstQuantity}), nato ${quantity} od ${bought} iz nakupa z dne ${date}. Vsak del ohrani svoj čas imetništva.`,
+    oldestFromOtherBroker: (quantity, date, broker, saleBroker) =>
+      `Najstarejši nakup (${quantity}, ${date}) je v datoteki ${broker}. Poveže se prvi, čeprav je bila prodaja pri ${saleBroker}.`,
+    soldAcrossBrokers: (
+      date,
+      firstQuantity,
+      firstBroker,
+      quantity,
+      bought,
+      broker,
+      boughtOn,
+    ) =>
+      `Prodano ${date}: najprej ${firstQuantity} pri ${firstBroker}, nato ${quantity} od ${bought}, kupljenih pri ${broker} ${boughtOn}.`,
+    fifoSlices: (terms, sold) =>
+      `Najprej se prodajo najstarejši nakupi, po vrsti: ${terms} = ${sold}.`,
+    partialLot: (used, bought, date) =>
+      `Potrebnih je bilo le ${used} od ${bought}, kupljenih ${date}. Preostanek ostane v lasti, s svojim datumom nakupa in nabavno vrednostjo.`,
+    lossWithin30Days: (bought, sold) =>
+      `Kupljeno ${bought}, prodano ${sold}. Izguba se izloči v delu, ki je bil nadomeščen, če je bil isti vrednostni papir kupljen v 30 dneh pred prodajo ali po njej. Te datoteke takega nakupa ne kažejo, zato šteje vsa izguba.`,
+    lossOffsets: (proceeds, cost) =>
+      `Prodajna vrednost ${proceeds} manj nabavna ${cost}. Izguba nima normiranih stroškov; odšteje se od letošnjih dobičkov.`,
+    amountInEur: (division, eur) =>
+      `${division} = ${eur}: bruto znesek v evrih, zaokrožen na cent.`,
+    listBeforeHoliday: (paid, listDate) =>
+      `Izplačano ${paid}, na praznik sistema TARGET: plačilni sistem evra ne deluje in Banka Slovenije ne objavi tečajnice. Kot ob koncu tedna TaxReporter uporabi zadnjo pred njim: ${listDate}.`,
+    foreignTaxWithheld: (country, gross, payer) =>
+      `Odtegnjeno v državi ${country} od bruto zneska ${gross}, ki ga je izplačala družba ${payer}.`,
+    treatyCappedCredit: (country, rate, product, excess) =>
+      `Pogodba z državo ${country} dovoljuje ${rate}: ${product}. Preostalih ${excess} odtegnjenega davka ne zmanjša slovenskega davka.`,
+    findingSeverity: (blocking, warning, info) =>
+      `Opombe so treh vrst. \u201e${blocking}\u201c zadrži napoved, dokler ni popravljeno, \u201e${warning}\u201c je vredno prebrati, \u201e${info}\u201c pa ne zahteva ničesar.`,
+    notOnTheseReturns:
+      "Vrstice, ki jih ni v teh napovedih, so navedene tukaj, namesto da bi bile izpuščene brez besede, zato nič iz datoteke ne izgine neopazno.",
+    returnForms:
+      "Napoved za dobiček od odsvojitve vrednostnih papirjev: en popisni list za vsak prodani vrednostni papir. Doh-Div poleg nje navaja vsako izplačilo dividende v svoji vrstici.",
+    edavkiImport:
+      "Zapisana je na tej napravi in tam shranjena, ničesar se ne naloži. V eDavkih se taka datoteka uvozi pod Dokumenti, nato Uvoz.",
+    youReviewAndSubmit:
+      "Po uvozu eDavki prikažejo obrazec, ki ga primerjate s tem pregledom in sami oddate. TaxReporter napovedi nikoli ne odda, končni davek pa izračunajo eDavki.",
   },
 };
 

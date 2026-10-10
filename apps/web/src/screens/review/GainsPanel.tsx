@@ -1,7 +1,8 @@
 /**
  * Doh-KDVP: one disclosure per security, holding its inventory list (what the
  * XML will contain) and the FIFO-matched lots behind the gain, followed by how
- * the estimate is built. Native <details> keeps the disclosure accessible.
+ * the estimate is built. Native <details> keeps the disclosure accessible;
+ * which ones are open is held by the caller, as part of the review's view.
  */
 import { CaretDownIcon } from "@phosphor-icons/react";
 
@@ -11,6 +12,7 @@ import {
   formatNumber,
   plural,
 } from "../../i18n/format";
+import { explain } from "../../explain/anchors";
 import { useI18n } from "../../i18n/i18n";
 import {
   HOLDING_BUCKETS,
@@ -44,7 +46,10 @@ const labelOf = (security: SecurityResult) =>
 function InventoryTable({ security }: { readonly security: SecurityResult }) {
   const { locale, t } = useI18n();
   return (
-    <DataTable caption={`${labelOf(security)}: ${t.review.rowsTitle}`}>
+    <DataTable
+      caption={`${labelOf(security)}: ${t.review.rowsTitle}`}
+      explain={explain("sec.rows")}
+    >
       <thead>
         <tr>
           <th scope="col">{t.review.colDate}</th>
@@ -64,7 +69,10 @@ function InventoryTable({ security }: { readonly security: SecurityResult }) {
       </thead>
       <tbody>
         {security.rows.map((row) => (
-          <tr key={`${row.source.file}:${String(row.source.row)}`}>
+          <tr
+            key={`${row.source.file}:${String(row.source.row)}`}
+            {...explain("sec.row", `${row.kind}@${row.date}`)}
+          >
             <th scope="row" className="num nowrap">
               {formatDate(row.date, locale)}
             </th>
@@ -76,7 +84,7 @@ function InventoryTable({ security }: { readonly security: SecurityResult }) {
                   </Chip>
                 </span>
                 {row.splitAdjusted === undefined ? null : (
-                  <span className="muted small">
+                  <span className="muted small" {...explain("sec.split")}>
                     {t.review.splitNote(
                       row.splitAdjusted.ratio,
                       formatDate(row.splitAdjusted.date, locale),
@@ -85,13 +93,13 @@ function InventoryTable({ security }: { readonly security: SecurityResult }) {
                 )}
               </span>
             </td>
-            <td className="end num">
+            <td className="end num" {...explain("sec.quantity")}>
               {formatNumber(row.quantity, locale, { maxFraction: 8 })}
             </td>
             <td className="end num nowrap">
               {formatMoney(row.price.amount, row.price.currency, locale)}
             </td>
-            <td>
+            <td {...explain("sec.rate")}>
               <RateText rate={row.rate} />
             </td>
             <td className="end num">
@@ -100,7 +108,7 @@ function InventoryTable({ security }: { readonly security: SecurityResult }) {
                 maxFraction: 8,
               })}
             </td>
-            <td>
+            <td {...explain("sec.source")}>
               <span className="stack-tight">
                 <span className="small">
                   <BrokerName broker={row.broker} />
@@ -118,7 +126,10 @@ function InventoryTable({ security }: { readonly security: SecurityResult }) {
 function LotsTable({ security }: { readonly security: SecurityResult }) {
   const { locale, t } = useI18n();
   return (
-    <DataTable caption={`${labelOf(security)}: ${t.review.lotsTitle}`}>
+    <DataTable
+      caption={`${labelOf(security)}: ${t.review.lotsTitle}`}
+      explain={explain("sec.lots")}
+    >
       <thead>
         <tr>
           <th scope="col">{t.review.colBought}</th>
@@ -142,11 +153,14 @@ function LotsTable({ security }: { readonly security: SecurityResult }) {
       </thead>
       <tbody>
         {security.lots.map((lot) => (
-          <tr key={`${lot.purchaseDate}:${lot.saleDate}`}>
-            <th scope="row" className="num nowrap">
+          <tr
+            key={`${lot.purchaseDate}:${lot.saleDate}`}
+            {...explain("lot.row", lot.purchaseDate)}
+          >
+            <th scope="row" className="num nowrap" {...explain("lot.bought")}>
               {formatDate(lot.purchaseDate, locale)}
             </th>
-            <td className="end num">
+            <td className="end num" {...explain("lot.quantity")}>
               {formatNumber(lot.quantity, locale, { maxFraction: 8 })}
             </td>
             <td className="end">
@@ -161,7 +175,7 @@ function LotsTable({ security }: { readonly security: SecurityResult }) {
             <td className="nowrap">
               {plural(lot.yearsHeld, locale, t.review.years)}
             </td>
-            <td className="end">
+            <td className="end" {...explain("lot.bucket")}>
               <Chip>{bucketLabel(lot.bucket, locale)}</Chip>
             </td>
           </tr>
@@ -171,11 +185,31 @@ function LotsTable({ security }: { readonly security: SecurityResult }) {
   );
 }
 
-function SecurityItem({ security }: { readonly security: SecurityResult }) {
+function SecurityItem({
+  security,
+  open,
+  onToggle,
+}: {
+  readonly security: SecurityResult;
+  readonly open: boolean;
+  readonly onToggle: (isin: string, open: boolean) => void;
+}) {
   const { locale, t } = useI18n();
   return (
-    <details className="security">
-      <summary aria-describedby={`hint-${security.isin}`}>
+    <details
+      className="security"
+      {...explain("sec.item", security.isin)}
+      open={open}
+      // The element's own state, read when the event runs: toggle events are
+      // queued, so one can arrive after the view it answered has changed.
+      onToggle={(event) => {
+        onToggle(security.isin, event.currentTarget.open);
+      }}
+    >
+      <summary
+        aria-describedby={`hint-${security.isin}`}
+        {...explain("sec.summary")}
+      >
         <span
           id={`hint-${security.isin}`}
           className="visually-hidden"
@@ -183,7 +217,7 @@ function SecurityItem({ security }: { readonly security: SecurityResult }) {
         >
           {t.review.showDetails(labelOf(security))}
         </span>
-        <span className="security-id">
+        <span className="security-id" {...explain("sec.symbol")}>
           <SecurityMark isin={security.isin} symbol={security.symbol} />
           <span className="security-names">
             <span className="security-symbol">{labelOf(security)}</span>
@@ -212,7 +246,7 @@ function SecurityItem({ security }: { readonly security: SecurityResult }) {
             <span className="fig-label">{t.review.colCost}</span>
             <Eur value={security.costEur} />
           </span>
-          <span className="fig">
+          <span className="fig" {...explain("sec.gain")}>
             <span className="fig-label">{t.review.colGain}</span>
             <DeltaPill value={security.gainEur} />
           </span>
@@ -289,9 +323,14 @@ function EstimateBreakdown({ estimate }: { readonly estimate: GainsEstimate }) {
 export function GainsPanel({
   securities,
   estimate,
+  open,
+  onToggle,
 }: {
   readonly securities: readonly SecurityResult[];
   readonly estimate: GainsEstimate;
+  /** The securities shown open, by ISIN. */
+  readonly open: ReadonlySet<string>;
+  readonly onToggle: (isin: string, open: boolean) => void;
 }) {
   const { t } = useI18n();
   if (securities.length === 0) {
@@ -301,7 +340,12 @@ export function GainsPanel({
     <div className="panel-stack">
       <div className="security-list">
         {securities.map((security) => (
-          <SecurityItem key={security.isin} security={security} />
+          <SecurityItem
+            key={security.isin}
+            security={security}
+            open={open.has(security.isin)}
+            onToggle={onToggle}
+          />
         ))}
       </div>
       <EstimateBreakdown estimate={estimate} />

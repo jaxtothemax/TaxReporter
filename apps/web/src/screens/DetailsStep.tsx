@@ -16,6 +16,7 @@ import { FURS_COUNTRIES } from "@taxreporter/furs";
 import { useMemo, useRef, type Ref } from "react";
 
 import type { PayerPrompt } from "../engine/protocol";
+import { explain, type ExplainProps } from "../explain/anchors";
 import { formatCountry, plural, type Locale } from "../i18n/format";
 import { useI18n } from "../i18n/i18n";
 import {
@@ -41,6 +42,7 @@ function Field({
   required = false,
   wide = false,
   inputRef,
+  explainAs,
 }: {
   readonly inputId: string;
   readonly label: string;
@@ -55,6 +57,8 @@ function Field({
   /** Spans both columns of the form grid. */
   readonly wide?: boolean;
   readonly inputRef?: Ref<HTMLInputElement>;
+  /** Marks the field for an explanation (explain/anchors.ts). */
+  readonly explainAs?: ExplainProps;
 }) {
   const helpId = `${inputId}-help`;
   const errorId = `${inputId}-error`;
@@ -65,7 +69,7 @@ function Field({
     .filter(Boolean)
     .join(" ");
   return (
-    <div className={cx("field", wide && "span-2")}>
+    <div className={cx("field", wide && "span-2")} {...explainAs}>
       <label htmlFor={inputId} className="field-label">
         {label}
       </label>
@@ -361,10 +365,11 @@ export function DetailsStep({
 
       <div className="details-layout">
         <div className="details-forms">
-          <div className="card form-card">
+          <div className="card form-card" {...explain("details.form")}>
             <div className="form-grid">
               <Field
                 inputId="details-taxNumber"
+                explainAs={explain("details.taxNumber")}
                 label={
                   taxNumberRequired
                     ? `${t.details.taxNumberLabel} ${t.details.requiredSuffix}`

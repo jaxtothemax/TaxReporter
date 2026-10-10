@@ -18,6 +18,7 @@ import {
   type ReactNode,
 } from "react";
 
+import type { ExplainProps } from "../explain/anchors";
 import { formatEur, formatEurParts, isNegative } from "../i18n/format";
 import { useI18n } from "../i18n/i18n";
 import { LOGOS } from "./logos";
@@ -81,15 +82,21 @@ export function Chip({
   tone = "neutral",
   size = "sm",
   className,
+  explain,
   children,
 }: {
   readonly tone?: "neutral" | "accent" | "warn";
   readonly size?: "sm" | "md";
   readonly className?: string;
+  /** Marks the chip for an explanation (explain/anchors.ts). */
+  readonly explain?: ExplainProps;
   readonly children: ReactNode;
 }) {
   return (
-    <span className={cx("chip", `chip-${tone}`, `chip-${size}`, className)}>
+    <span
+      className={cx("chip", `chip-${tone}`, `chip-${size}`, className)}
+      {...explain}
+    >
       {children}
     </span>
   );
@@ -99,7 +106,14 @@ export function Chip({
  * A gain or loss as a pill: green and rising for a gain, red and falling for a
  * loss, with the sign in the text so color is never the only signal.
  */
-export function DeltaPill({ value }: { readonly value: string }) {
+export function DeltaPill({
+  value,
+  explain,
+}: {
+  readonly value: string;
+  /** Marks the pill for an explanation (explain/anchors.ts). */
+  readonly explain?: ExplainProps;
+}) {
   const { locale } = useI18n();
   const flat = !/[1-9]/.test(value);
   const loss = isNegative(value);
@@ -110,6 +124,7 @@ export function DeltaPill({ value }: { readonly value: string }) {
         "delta",
         flat ? "delta-flat" : loss ? "delta-down" : "delta-up",
       )}
+      {...explain}
     >
       {flat ? null : <Icon size={14} weight="bold" aria-hidden />}
       {formatEur(value, locale, { signed: true })}
@@ -252,6 +267,7 @@ export function Note({
   id,
   action,
   role = "note",
+  explain,
   children,
 }: {
   readonly tone: keyof typeof NOTE_ICONS;
@@ -260,11 +276,13 @@ export function Note({
   readonly action?: ReactNode;
   /** "status" or "alert" for a note that appears in answer to the user. */
   readonly role?: "note" | "status" | "alert";
+  /** Marks the note for an explanation (explain/anchors.ts). */
+  readonly explain?: ExplainProps;
   readonly children: ReactNode;
 }) {
   const Icon = NOTE_ICONS[tone];
   return (
-    <div role={role} className={cx("note", `note-${tone}`)}>
+    <div role={role} className={cx("note", `note-${tone}`)} {...explain}>
       <span className="note-icon">
         <Icon size={18} weight="bold" aria-hidden />
       </span>
@@ -287,10 +305,13 @@ export function Note({
 export function DataTable({
   caption,
   className,
+  explain,
   children,
 }: {
   readonly caption: string;
   readonly className?: string;
+  /** Marks the table's scroll region for an explanation (explain/anchors.ts). */
+  readonly explain?: ExplainProps;
   readonly children: ReactNode;
 }) {
   return (
@@ -299,6 +320,7 @@ export function DataTable({
       role="region"
       aria-label={caption}
       tabIndex={0}
+      {...explain}
     >
       <table className={cx("table", className)}>
         <caption className="visually-hidden">{caption}</caption>
