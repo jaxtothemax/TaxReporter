@@ -65,7 +65,7 @@ export interface FifoOptions {
   /**
    * Per ISIN, the last day to read: that security's later trades and
    * splits are left out, as if the files ended there. For holdings shown
-   * as of a day (ADR-0017); the returns read every event.
+   * as of a day (ADR-0018); the returns read every event.
    */
   readonly through?: ReadonlyMap<string, IsoDate>;
 }

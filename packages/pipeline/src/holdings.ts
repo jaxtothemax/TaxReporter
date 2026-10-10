@@ -1,5 +1,5 @@
 /**
- * The shares still held, shown beside the returns (ADR-0017, #47), in two
+ * The shares still held, shown beside the returns (ADR-0018, #47), in two
  * views that answer different questions:
  *
  * - **Open lots, across accounts.** FIFO runs per ISIN over every account of

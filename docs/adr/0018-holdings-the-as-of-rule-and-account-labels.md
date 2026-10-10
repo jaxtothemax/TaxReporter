@@ -1,4 +1,4 @@
-# 17. Holdings, the as-of rule and account labels
+# 18. Holdings, the as-of rule and account labels
 
 **Date:** 2026-10-10
 **Status:** Proposed
@@ -123,6 +123,6 @@ engine, let alone reach a screen or an export.
 
 <!-- Complete when this ADR's Status moves to Accepted — not before. -->
 - [ ] Open issues naming this ADR re-read against the settled decision:
-      `python3 scripts/adr-accepted-issue-sweep.py --adr 0017`
+      `python3 scripts/adr-accepted-issue-sweep.py --adr 0018`
 - [ ] Any issue carrying pre-ADR scope rewritten — **title and body** — led by a
       dated correction note. Record the count here, **including zero**.

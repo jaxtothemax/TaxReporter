@@ -239,7 +239,7 @@ export function buildReturns(read: ReadExports, input: BuildInput): Prepared {
 }
 
 /**
- * The holdings, or null. They are a view beside the returns (ADR-0017): a
+ * The holdings, or null. They are a view beside the returns (ADR-0018): a
  * fault in working them out, from a file no test foresaw, leaves them out
  * and the returns as they are.
  */

@@ -5,7 +5,7 @@
  * files against, and not the FIFO lots, which are matched across every
  * account of the taxpayer (ZDoh-2 Art. 103(1); research 04 §4.4): a sale at
  * one broker can consume a lot bought at another, so the two views differ
- * whenever a security is held in two accounts (ADR-0017).
+ * whenever a security is held in two accounts (ADR-0018).
  *
  * Shares moved between accounts are not read yet (#48), so an account they
  * left or entered is off by them; the caller flags such an account.

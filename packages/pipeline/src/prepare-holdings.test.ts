@@ -1,5 +1,5 @@
 /**
- * Holdings are a view beside the returns (ADR-0017): a fault in working
+ * Holdings are a view beside the returns (ADR-0018): a fault in working
  * them out leaves them out, never the returns. The fault is made here.
  */
 import { readFileSync } from "node:fs";
