@@ -206,8 +206,9 @@ type MaybeWhere = Partial<Where>;
 
 /**
  * What a refused row does to a holding, where its adapter can tell (ADR
- * 0017): gives shares up (a sale at a price of 0), receives shares (the new
- * shares of a takeover paid in shares), or receives rights. With it, an ISIN
+ * 0017): gives shares up (a sale at a price of 0 paired with its new
+ * shares), receives shares (those new shares of a takeover paid in shares),
+ * or receives rights. With it, an ISIN
  * and a date, a refusal withholds only the returns it can change; without
  * any of the three, both returns of every year. Setting it is an adapter's
  * claim about what the row can reach, made only for a shape whose reach has

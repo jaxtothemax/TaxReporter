@@ -72,8 +72,8 @@ broker exports ─► read ─► one ledger ─► Banka Slovenije rates ─►
    you add it once per security (the web app starts Trading 212's dividends with Trading 212
    as the payer). A return is withheld, with the reason, while a finding blocks it. Some rows
    TaxReporter cannot read yet hold back only the returns they can change: a Trading 212
-   takeover paid in shares in 2025 holds back 2025, and 2026 only if either security is sold
-   in 2026 (ADR 0017). Other brokers' corporate actions still hold back every return until
+   takeover paid in shares in 2025, whose export books the new shares right after the sale,
+   holds back 2025, and 2026 only if either security is sold in 2026 (ADR 0017). Other brokers' corporate actions still hold back every return until
    they are handled (#52).
 6. **You check it, then import it into eDavki yourself.** TaxReporter shows an estimate of the
    tax and the source of every figure. It never files anything.

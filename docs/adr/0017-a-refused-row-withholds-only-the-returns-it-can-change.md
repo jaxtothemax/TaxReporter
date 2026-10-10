@@ -98,8 +98,10 @@ both") for scoped refusals only. ADR 0015's Trade Republic refusals stay unscope
 
 ## Consequences
 
-- A user whose history holds a takeover paid in shares or free rights gets the returns of every
-  year those rows cannot change; the year they belong to still waits for #28 and #29.
+- A user whose history holds a takeover paid in shares, booked with its new shares right after
+  the sale in the same file, or free rights under a `.RST` ticker, gets the returns of every
+  year those rows cannot change; the year they belong to still waits for #28 and #29. A sale at
+  0 without its new shares still withholds every return.
 - A refused row is shown as a note in the other years, so a 2025 problem stays visible from
   2026 without blocking it.
 - The rule is conservative: a gain within the 30-day window, or any sale near free rights,
