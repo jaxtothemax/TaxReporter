@@ -193,7 +193,6 @@ function PayerFields({
     onChange(field, value);
   };
   const title = prompt.symbol === "" ? prompt.isin : prompt.symbol;
-  const brokerPayer = BROKER_PAYERS[prompt.broker];
   return (
     <fieldset className="payer-fields">
       <legend className="payer-legend">
@@ -203,11 +202,6 @@ function PayerFields({
           {plural(prompt.payments, locale, t.details.payments)}
         </span>
       </legend>
-      {brokerPayer === undefined ? null : (
-        <p className="muted small">
-          {t.details.payerFromBroker(brokerPayer.name)}
-        </p>
-      )}
       <div className="form-grid">
         <Field
           inputId={id("name")}
@@ -332,6 +326,15 @@ export function DetailsStep({
     state.mode === "own" && state.reading.status === "read"
       ? state.reading.reply.payers
       : [];
+  // Each broker whose payer details were preset, named once.
+  const presetBrokers = [
+    ...new Set(
+      prompts.flatMap((p) => {
+        const preset = BROKER_PAYERS[p.broker];
+        return preset === undefined ? [] : [preset.name];
+      }),
+    ),
+  ];
   const missing = prompts.filter((p) =>
     isPayerIncomplete(state.payers[p.isin], p.isinCountry),
   ).length;
@@ -449,6 +452,11 @@ export function DetailsStep({
                 {t.details.payersTitle}
               </h2>
               <p className="muted small">{t.details.payersIntro}</p>
+              {presetBrokers.length === 0 ? null : (
+                <p className="muted small">
+                  {t.details.payerFromBroker(presetBrokers.join(", "))}
+                </p>
+              )}
               {missing === 0 ? null : (
                 <Note tone="warn">
                   {plural(missing, locale, t.details.payersMissing)}

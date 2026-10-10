@@ -260,7 +260,11 @@ describe("App", () => {
     );
     expect(html).toMatch(/id="payer-US1912161007-address"[^>]*value="LONDON"/);
     expect(html).toMatch(/<option value="GB" selected="">/);
+    // Said once, whatever the number of payers, not under each.
     expect(text(html)).toContain(en.details.payerFromBroker("TRADING 212"));
+    expect(
+      text(html).split(en.details.payerFromBroker("TRADING 212")),
+    ).toHaveLength(2);
     // A broker not in the table gets no such hint.
     expect(text(render(ownState(read, { type: "next" })))).not.toContain(
       en.details.payerFromBroker("TRADING 212"),

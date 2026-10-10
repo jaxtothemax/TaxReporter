@@ -596,7 +596,7 @@ export const en: Messages = {
     sourceCountry: "Country the income comes from",
     sourceCountryHelp: "The ISIN does not say.",
     payerFromBroker: (name) =>
-      `Filled in with ${name}, which pays these dividends out to you. Change it if your statement names another payer.`,
+      `Dividends paid out by ${name} start with it as the payer. Edit the details if your statement names another payer.`,
     countryChoose: "Choose a country",
     payersMissing: {
       one: "{n} payer still needs its details. Until then, Doh-Div is not written; Doh-KDVP is.",
@@ -1123,7 +1123,7 @@ export const sl: Messages = {
     sourceCountry: "Država, iz katere je dohodek",
     sourceCountryHelp: "Koda ISIN je ne navaja.",
     payerFromBroker: (name) =>
-      `Izpolnjeno s podatki posrednika ${name}, ki vam izplačuje te dividende. Spremenite, če izpisek navaja drugega izplačevalca.`,
+      `Dividende, ki jih izplača ${name}, se začnejo s tem izplačevalcem. Podatke popravite, če izpisek navaja drugega izplačevalca.`,
     countryChoose: "Izberite državo",
     payersMissing: {
       one: "Še {n} izplačevalec potrebuje podatke. Do takrat Doh-Div ni zapisan, Doh-KDVP pa je.",
