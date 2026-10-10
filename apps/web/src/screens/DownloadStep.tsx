@@ -21,7 +21,7 @@ import { saveFile } from "../engine/saveFile";
 import { explain } from "../explain/anchors";
 import { formatDate, formatNumber, plural } from "../i18n/format";
 import { useI18n } from "../i18n/i18n";
-import type { ReturnPreview } from "../model/preview";
+import { formFileName, type ReturnPreview } from "../model/preview";
 import { Button, Chip, Note } from "../ui/kit";
 
 /** Where writing the returns stands. */
@@ -44,11 +44,6 @@ export function filingDeadline(taxYear: number): string {
   if (day === 6) due.setUTCDate(due.getUTCDate() + 2);
   if (day === 0) due.setUTCDate(due.getUTCDate() + 1);
   return due.toISOString().slice(0, 10);
-}
-
-/** The name a return is saved under, the same for the demo's and the user's. */
-export function formFileName(form: "kdvp" | "div", taxYear: number): string {
-  return `${form === "kdvp" ? "Doh_KDVP" : "Doh_Div"}_${String(taxYear)}.xml`;
 }
 
 export function FormCard({

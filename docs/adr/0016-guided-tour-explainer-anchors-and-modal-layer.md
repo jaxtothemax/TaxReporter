@@ -56,10 +56,11 @@ at a time on a phone; and the demo data stays as it is (#26).
    heading waits (WebKit lets that focus land behind the modal, then drops it to the body).
    When the dialog opens, Next has focus (`autofocus`), so Enter goes on; Skip is first in
    the DOM and Tab order. Focus goes back to a named element, never to whatever had it: the
-   heading of the screen the demo opened on, or the banner button that replayed the tour
-   (WebKit does not focus a button on a click). That element is focused just before the
-   dialog opens, because WebKit gives focus back to it on close after the app's own
-   restore. The tab title keeps following the user's screen, not the stop shown.
+   heading of the screen the demo opened on, or the button that started the tour where the
+   page still shows it (the banner's replay, or "Use demo files" with the scroll the user
+   left), since WebKit does not focus a button on a click. That element is focused just
+   before the dialog opens, because WebKit gives focus back to it on close after the app's
+   own restore. The tab title keeps following the user's screen, not the stop shown.
 4. **Elements are named by explainer anchors.** A screen marks each element an
    explanation can point at with a `data-explain` attribute from one typed helper
    (`explain/anchors.ts`). The name is `explain`, not `tour`: the same anchors are meant
@@ -106,8 +107,10 @@ at a time on a phone; and the demo data stays as it is (#26).
   5.0.7 (GHSA-mh99-v99m-4gvg, GHSA-rgw5-rvv9-x895, GHSA-qhr7-859c-m2p7,
   GHSA-6j4f-fj2g-mc7p, GHSA-q2hr-2g5m-vwhr), @modelcontextprotocol/sdk 1.29.0
   (GHSA-6qxp-vccf-f47h), @hono/node-server 1.19.14 (GHSA-frvp-7c67-39w9) and fast-uri
-  3.1.7 (GHSA-hrr3-gc8f-f4qj). Each bump re-checks that bundle against OSV, and the
-  report a failed run uploads carries no git details (`captureGitInfo` off).
+  3.1.7 (GHSA-hrr3-gc8f-f4qj). No scanner reads that bundle, so a bump re-checks it
+  against OSV by hand, as the comment beside the `playwright` group in
+  `.github/dependabot.yml` says. The report a failed run uploads carries no git
+  details (`captureGitInfo` off).
 - **The tour fails safe.** It sits in its own error boundary, which ends the tour and
   gives the page back; leaving demo mode ends it too; a stop whose card never appears
   says so instead of waiting; and anchors are found by name with their keys compared

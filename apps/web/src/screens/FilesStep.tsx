@@ -206,6 +206,9 @@ function AccountQuestion({
   );
 }
 
+/** The "Use demo files" button: where focus goes back after the tour it starts. */
+export const DEMO_FILES_BUTTON_ID = "use-demo-files";
+
 export function FilesStep({
   state,
   taxYear,
@@ -355,6 +358,7 @@ export function FilesStep({
             {t.files.chooseButton}
           </Button>
           <Button
+            id={DEMO_FILES_BUTTON_ID}
             variant="ghost"
             onClick={() => {
               onUseDemoFiles();

@@ -22,9 +22,10 @@ import type { BuiltReturns } from "./engine/demoReturns";
 import { createRunner } from "./engine/runner";
 import type { Locale } from "./i18n/format";
 import { I18nProvider, useI18n } from "./i18n/i18n";
+import { formFileName } from "./model/preview";
 import { DetailsStep } from "./screens/DetailsStep";
-import { DownloadStep, formFileName } from "./screens/DownloadStep";
-import { FilesStep } from "./screens/FilesStep";
+import { DownloadStep } from "./screens/DownloadStep";
+import { DEMO_FILES_BUTTON_ID, FilesStep } from "./screens/FilesStep";
 import {
   EmptyReview,
   initialReviewView,
@@ -56,7 +57,7 @@ import {
   SkipLink,
   type Theme,
 } from "./ui/AppChrome";
-import { DemoBanner } from "./ui/bits";
+import { DemoBanner, TOUR_BUTTON_ID } from "./ui/bits";
 import { ErrorBoundary } from "./ui/ErrorBoundary";
 import { Button, cx, Note } from "./ui/kit";
 import { Stepper } from "./ui/Stepper";
@@ -64,7 +65,7 @@ import { Stepper } from "./ui/Stepper";
 /** The guided tour's reducer, over the script's stops (tour/script.ts). */
 const tourReducer = createTourReducer(NOTE_COUNTS);
 
-const noRestore = (focus: TourRestore["focus"] = "heading"): TourRestore => ({
+const noRestore = (focus: TourRestore["focus"] = null): TourRestore => ({
   focus,
   scrollY: null,
   scrollers: new Map(),
@@ -314,9 +315,14 @@ function Frame({
 
   // Entering the demo starts the tour, the first time in this page session.
   const enterDemo = (action: "startDemo" | "useDemoFiles") => {
-    // A new screen opens at its top; that is where the tour gives it back.
     if (!tour.seen) {
-      restore.current = { ...noRestore("heading"), scrollY: 0 };
+      // From the start screen a new screen opens at its top, and the tour
+      // gives it back there, on its heading. "Use demo files" keeps the files
+      // screen: the tour gives back the scroll and the button the user left.
+      restore.current =
+        action === "startDemo"
+          ? { ...noRestore(), scrollY: 0 }
+          : { ...noRestore(DEMO_FILES_BUTTON_ID), scrollY: window.scrollY };
     }
     dispatch({ type: action });
     tourDispatch({ type: "start" });
@@ -326,7 +332,7 @@ function Frame({
   };
   const replayTour = () => {
     // Taken before the tour shows a shorter screen, which clamps the scroll.
-    restore.current = { ...noRestore("tourButton"), scrollY: window.scrollY };
+    restore.current = { ...noRestore(TOUR_BUTTON_ID), scrollY: window.scrollY };
     tourDispatch({ type: "replay" });
   };
   const back = () => {

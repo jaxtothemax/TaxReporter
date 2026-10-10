@@ -2,8 +2,12 @@
  * The guided tour's stops over the demo (#27, ADR 0016): for each, the view
  * it shows, the element it lights, and up to three explanations, each tied to
  * an element by its anchor. Every figure an explanation names is a field of
- * the preview, formatted as the screen formats it; an explanation whose
- * figures the preview lacks is left out (null), never filled in by hand.
+ * the preview, formatted as the screen formats it, never filled in by hand.
+ * An explanation whose figures the preview lacks returns null rather than
+ * guess one. That is a guard on the script, not a state the tour shows: the
+ * tour runs only on the demo's preview, where tour.test.tsx requires every
+ * explanation to render, and the layer counts and measures explanations by
+ * position (NOTE_COUNTS), so a null one would leave an empty step.
  */
 import { demoPreview } from "../demo/demoPreview";
 import {
@@ -26,13 +30,13 @@ import {
 import type { Messages } from "../i18n/messages";
 import { findingText } from "../i18n/present";
 import {
+  formFileName,
   HOLDING_BUCKETS,
   type DividendRow,
   type KdvpRow,
   type ReturnPreview,
   type SecurityResult,
 } from "../model/preview";
-import { formFileName } from "../screens/DownloadStep";
 import type { ReviewView } from "../screens/ReviewStep";
 import type { FlowStep } from "../state/wizard";
 import { bucketLabel } from "../ui/bits";

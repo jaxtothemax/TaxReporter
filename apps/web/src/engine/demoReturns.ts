@@ -21,6 +21,7 @@ import {
   DEMO_TAXPAYER,
   demoLedgerEvents,
 } from "../demo/demoLedger";
+import { formFileName } from "../model/preview";
 import { loadRates } from "./rates";
 
 /** One return as the download step offers it. */
@@ -50,7 +51,6 @@ const isBlocking = (d: Diagnostic) => d.severity === "blocking";
 export function demoReturns(rates: RateTable): BuiltReturns {
   const ledger = validateLedger(demoLedgerEvents());
   const fromLedger = ledger.diagnostics.filter(isBlocking).length;
-  const year = String(DEMO_TAX_YEAR);
   const kdvp = buildDohKdvp({
     taxYear: DEMO_TAX_YEAR,
     taxpayer: DEMO_TAXPAYER,
@@ -69,13 +69,13 @@ export function demoReturns(rates: RateTable): BuiltReturns {
   const divBlocking = fromLedger + div.diagnostics.filter(isBlocking).length;
   return {
     kdvp: {
-      fileName: `Doh_KDVP_${year}.xml`,
+      fileName: formFileName("kdvp", DEMO_TAX_YEAR),
       xml: kdvp.form === null ? null : writeDohKdvp(kdvp.form),
       blocking: kdvpBlocking,
       needed: kdvp.lists.length > 0 || kdvpBlocking > 0,
     },
     div: {
-      fileName: `Doh_Div_${year}.xml`,
+      fileName: formFileName("div", DEMO_TAX_YEAR),
       xml: div.form === null ? null : writeDohDiv(div.form),
       blocking: divBlocking,
       needed: div.dividends.length > 0 || divBlocking > 0,

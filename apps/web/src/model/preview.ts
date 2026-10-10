@@ -9,6 +9,15 @@
  */
 import type { DiagnosticCode } from "@taxreporter/core";
 
+/**
+ * The name a return is saved under: the same for the demo's and the user's,
+ * and what the tour says the download is called. Here, not in a screen, so
+ * the engine chunk that writes the demo's files can use it too.
+ */
+export function formFileName(form: "kdvp" | "div", taxYear: number): string {
+  return `${form === "kdvp" ? "Doh_KDVP" : "Doh_Div"}_${String(taxYear)}.xml`;
+}
+
 /** Brokers the review can show, in display order. */
 export const BROKERS = ["trading212", "ibkr", "traderepublic"] as const;
 export type BrokerId = (typeof BROKERS)[number];

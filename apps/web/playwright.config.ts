@@ -12,8 +12,11 @@ import { defineConfig, devices } from "@playwright/test";
  * in Node, where a browser test cannot run.
  */
 
-// Not vite's default 4173, so a preview someone is using is left alone.
-const PORT = 4174;
+// Not vite's default 4173, so a preview someone is using is left alone. A
+// worktree made by scripts/wt has a port of its own (WT_E2E_PORT, in its
+// .envrc), so two branches' runs never test each other's build; unset (the
+// main checkout, CI), 4174.
+const PORT = Number(process.env["WT_E2E_PORT"] ?? 4174);
 const URL = `http://127.0.0.1:${String(PORT)}`;
 
 export default defineConfig({

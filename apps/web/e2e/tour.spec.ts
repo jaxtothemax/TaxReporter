@@ -290,6 +290,39 @@ for (const [width, height] of [
   });
 }
 
+test("Use demo files starts it, and gives back the scroll and that button", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 640 });
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: /Use my files|Uporabi svoje datoteke/ })
+    .click();
+  // The new screen has scrolled to its top, focused its heading and finished
+  // its entrance: a click on a moving button would make Playwright scroll the
+  // page to realign it, and the scroll to give back would be its, not ours.
+  await expect(page.locator("#main h1")).toBeFocused();
+  await page.waitForFunction(() =>
+    document.getAnimations().every((a) => a.playState !== "running"),
+  );
+  const button = page.locator("#use-demo-files");
+  await button.evaluate((element) => {
+    element.scrollIntoView({ block: "center", behavior: "instant" });
+  });
+  const scrollY = await page.evaluate(() => Math.round(window.scrollY));
+  expect(scrollY).toBeGreaterThan(0);
+  await button.click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await settled(dialog);
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(button).toBeFocused();
+  await expect
+    .poll(() => page.evaluate(() => Math.round(window.scrollY)))
+    .toBe(scrollY);
+});
+
 test("never runs over the user's own files", async ({ page }) => {
   await page.goto("/");
   await page

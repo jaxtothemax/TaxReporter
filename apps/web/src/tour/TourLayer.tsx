@@ -29,7 +29,6 @@ import { measureOf, resolve, type AnchorPath } from "../explain/anchors";
 import { formatNumber } from "../i18n/format";
 import { useI18n } from "../i18n/i18n";
 import type { ReturnPreview } from "../model/preview";
-import { TOUR_BUTTON_ID } from "../ui/bits";
 import { Button, cx } from "../ui/kit";
 import {
   BOX_WIDTH,
@@ -66,11 +65,13 @@ import { TOUR, type NoteText, type TourStop } from "./script";
 /** What the app gives back when the tour ends: recorded as the tour goes. */
 export interface TourRestore {
   /**
-   * Where focus goes back to: the heading of the screen the demo opened on,
-   * or the banner button that replayed the tour. Named, not taken from
-   * whatever had focus, since WebKit does not focus a button on a click.
+   * The id of the element focus goes back to: the button that started the
+   * tour where the page still shows it (the banner's replay, "Use demo
+   * files"), or null for the heading of the screen the demo opened on. Named,
+   * not taken from whatever had focus, since WebKit does not focus a button
+   * on a click.
    */
-  readonly focus: "heading" | "tourButton";
+  readonly focus: string | null;
   /** The window's scroll before the tour first scrolled it. */
   scrollY: number | null;
   /** Each sideways scroller the tour moved, and where it was. */
@@ -90,9 +91,8 @@ function narrowWindow(): boolean {
 }
 
 /** The element focus goes back to when the tour ends. */
-export function focusTarget(target: TourRestore["focus"]): HTMLElement | null {
-  const button =
-    target === "tourButton" ? document.getElementById(TOUR_BUTTON_ID) : null;
+export function focusTarget(id: TourRestore["focus"]): HTMLElement | null {
+  const button = id === null ? null : document.getElementById(id);
   return button ?? document.querySelector<HTMLElement>("#main h1");
 }
 
