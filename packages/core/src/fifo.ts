@@ -61,6 +61,15 @@ export interface SecurityHistory {
   readonly open: readonly OpenLot[];
 }
 
+export interface FifoOptions {
+  /**
+   * Per ISIN, the last day to read: that security's later trades and
+   * splits are left out, as if the files ended there. For holdings shown
+   * as of a day (ADR-0018); the returns read every event.
+   */
+  readonly through?: ReadonlyMap<string, IsoDate>;
+}
+
 export interface FifoResult {
   readonly securities: ReadonlyMap<string, SecurityHistory>;
   readonly diagnostics: readonly Diagnostic[];
@@ -115,6 +124,25 @@ function sameDay(a: KeyedEvent, b: KeyedEvent): number {
     compareText(a.account, b.account) ||
     compareText(a.key, b.key)
   );
+}
+
+/**
+ * Shares as of `to` per share as of `from`, for the splits in between. A
+ * trade on a split's own day is already in new shares (`SAME_DAY_ORDER`),
+ * so a split counts from the day after `from` through `to`.
+ */
+export function splitFactor(
+  splits: readonly SplitEvent[],
+  from: IsoDate,
+  to: IsoDate,
+): Decimal {
+  let factor = Decimal.ONE;
+  for (const split of splits) {
+    if (from < split.date && split.date <= to) {
+      factor = factor.times(split.to.dividedBy(split.from));
+    }
+  }
+  return factor;
 }
 
 /** Date order, and within a day the order the clocks give. */
@@ -221,15 +249,21 @@ function mergeSplitReports(
 }
 
 /**
- * Matches every sale of the ledger to the purchases before it. Dividends
+ * Matches every sale of the ledger to the purchases before it, reading
+ * each security through `options.through` where it names one. Dividends
  * and the tax on them are Doh-Div's, and pass through untouched.
  */
-export function matchFifo(ledger: ValidatedLedger): FifoResult {
+export function matchFifo(
+  ledger: ValidatedLedger,
+  options: FifoOptions = {},
+): FifoResult {
   const diagnostics: Diagnostic[] = [];
   const steps = new Map<string, Step[]>();
   for (const event of ledger.events) {
     if (event.kind !== "trade" && event.kind !== "split") continue;
     const isin = event.kind === "trade" ? event.security.isin : event.isin;
+    const last = options.through?.get(isin);
+    if (last !== undefined && event.date > last) continue;
     const list = steps.get(isin);
     if (list === undefined) steps.set(isin, [event]);
     else list.push(event);

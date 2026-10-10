@@ -7,9 +7,12 @@
  *   differs from the ECB's is noted once per list, since the BSI value is
  *   the one used (docs/research/03-bsi-exchange-rates.md).
  * - The writer's validation issues as diagnostics.
+ * - The per-unit EUR value Doh-KDVP writes, which the holdings shown beside
+ *   the returns use too, so an open lot is costed as its sale will be.
  */
 import {
   diagnostic,
+  type Decimal,
   type Diagnostic,
   type IsoDate,
   type SourceRef,
@@ -70,4 +73,25 @@ export function rateLookup(
     }
     return result.rate;
   };
+}
+
+/** Decimals of a per-unit EUR value on Doh-KDVP (F4, F9). */
+export const UNIT_SCALE = 8;
+
+/**
+ * A trade's EUR per share of a later share basis, as the form writes it: the
+ * contract price, without commission, divided by the splits since the trade
+ * (`factor`) and converted at the BSI rate of the trade's own date (ZDoh-2
+ * Art. 98(9); docs/research/04-si-tax-rules.md §4.2, §6), rounded half up to
+ * the form's 8 decimals.
+ */
+export function unitValueEur(
+  price: Decimal,
+  factor: Decimal,
+  rate: BsiRate,
+): Decimal {
+  return price
+    .dividedBy(factor)
+    .dividedBy(rate.rate)
+    .round(UNIT_SCALE, "halfUp");
 }

@@ -55,6 +55,7 @@ import {
   isIsoDate,
   lotBase,
   matchFifo,
+  splitFactor,
   washSaleVerdicts,
   WASH_SALE_DAYS,
   type Diagnostic,
@@ -67,12 +68,12 @@ import {
   type Money,
   type SecurityHistory,
   type SourceRef,
-  type SplitEvent,
   type TradeEvent,
   type ValidatedLedger,
 } from "@taxreporter/core";
 import type { BsiRate, RateTable } from "@taxreporter/fx";
 
+import { UNIT_SCALE, unitValueEur } from "./build-shared.js";
 import { isTaxYear, toPlainLine, type Taxpayer } from "./common.js";
 import {
   validateDohKdvp,
@@ -141,7 +142,6 @@ export interface KdvpBuild {
 }
 
 const QUANTITY_SCALE = 8;
-const UNIT_SCALE = 8;
 const NAME_LENGTH = 100;
 const TICKER_LENGTH = 10;
 
@@ -170,21 +170,6 @@ function bearsOnYear(
   if (date > addDays(yearEnd, WASH_SALE_DAYS)) return false;
   if (finding.code === "insufficientHistory" && date > yearEnd) return false;
   return (date >= yearStart && date <= yearEnd) || sold.has(isin);
-}
-
-/** Shares as of `to` per share as of `from`, for the splits in between. */
-function splitFactor(
-  splits: readonly SplitEvent[],
-  from: IsoDate,
-  to: IsoDate,
-): Decimal {
-  let factor = Decimal.ONE;
-  for (const split of splits) {
-    if (from < split.date && split.date <= to) {
-      factor = factor.times(split.to.dividedBy(split.from));
-    }
-  }
-  return factor;
 }
 
 interface DraftRow {
@@ -420,10 +405,11 @@ export function buildDohKdvp(input: KdvpBuildInput): KdvpBuild {
     const unitIn = (trade: TradeEvent, basisDate: IsoDate): Decimal | null => {
       const rate = rateOf(trade);
       if (rate === null) return null;
-      return trade.price.amount
-        .dividedBy(splitFactor(history.splits, trade.date, basisDate))
-        .dividedBy(rate.rate)
-        .round(UNIT_SCALE, "halfUp");
+      return unitValueEur(
+        trade.price.amount,
+        splitFactor(history.splits, trade.date, basisDate),
+        rate,
+      );
     };
 
     /**

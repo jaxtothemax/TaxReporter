@@ -65,7 +65,9 @@ export {
   MAX_SPLIT_TERM,
   MAX_SPLITS,
   SPLIT_REPORT_DAYS,
+  splitFactor,
   type Disposal,
+  type FifoOptions,
   type FifoResult,
   type LotMatch,
   type OpenLot,
@@ -78,8 +80,11 @@ export {
   completedYears,
   daysBetween,
   HOLDING_BUCKETS,
+  holdingOutlook,
   type HoldingBucket,
+  type HoldingOutlook,
 } from "./holding.js";
+export { accountPositions, type AccountPosition } from "./holdings.js";
 export type {
   AccountScope,
   BrokerTime,

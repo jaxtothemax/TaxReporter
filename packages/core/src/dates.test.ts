@@ -71,6 +71,14 @@ describe("ljubljanaDate", () => {
   it("gives no date for an instant it cannot read", () => {
     expect(ljubljanaDate("2025-12-31")).toBeNull();
   });
+
+  it("gives no date past year 9999, where the date would have five digits", () => {
+    expect(ljubljanaDate("9999-12-31T22:59:59Z")).toBe("9999-12-31");
+    expect(ljubljanaDate("9999-12-31T23:30:00Z")).toBeNull();
+    expect(
+      taxDate({ instant: "9999-12-31T23:30:00Z", brokerDate: null }),
+    ).toBeNull();
+  });
 });
 
 describe("taxDate", () => {

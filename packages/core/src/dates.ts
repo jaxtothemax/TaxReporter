@@ -77,7 +77,8 @@ export function instantMillis(instant: string): number | null {
  * EU summer-time rule Slovenia has applied since 1996: UTC+2 from 01:00 UTC
  * on the last Sunday of March to 01:00 UTC on the last Sunday of October,
  * UTC+1 otherwise. Computed rather than looked up, so the date does not
- * depend on the time-zone data a browser or Node happens to ship.
+ * depend on the time-zone data a browser or Node happens to ship. Null when
+ * the instant cannot be read, or its date is past year 9999.
  */
 export function ljubljanaDate(instant: string): IsoDate | null {
   const ms = instantMillis(instant);
@@ -85,7 +86,9 @@ export function ljubljanaDate(instant: string): IsoDate | null {
   const year = new Date(ms).getUTCFullYear();
   const summer = ms >= lastSundayAt1(year, 2) && ms < lastSundayAt1(year, 9);
   const local = new Date(ms + (summer ? 2 : 1) * HOUR);
-  return `${pad(local.getUTCFullYear(), 4)}-${pad(local.getUTCMonth() + 1, 2)}-${pad(local.getUTCDate(), 2)}`;
+  const date = `${pad(local.getUTCFullYear(), 4)}-${pad(local.getUTCMonth() + 1, 2)}-${pad(local.getUTCDate(), 2)}`;
+  // The last hours of 9999 fall in year 10000 in Ljubljana: no date then.
+  return isIsoDate(date) ? date : null;
 }
 
 /** An event's tax date, and whether the policy moved it off the broker's. */
