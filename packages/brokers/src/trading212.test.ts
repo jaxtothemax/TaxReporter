@@ -255,6 +255,61 @@ describe("a takeover paid in shares, under a real export's header", () => {
   });
 });
 
+describe("dividends a broker labels Bonus or Demerger", () => {
+  const bonus = `Dividend (Bonus),2026-04-01 12:10:44+00:00,US1912161007,KO,Coca-Cola,,,20,0.85,USD,,,,11.5,EUR,3,USD`;
+  const demerger = `Dividend (Demerger),2026-04-02 12:10:44+00:00,US1912161007,KO,Coca-Cola,,,2,1.5,USD,,,,2.5,EUR,0.00,USD`;
+
+  it("reads both as ordinary dividends, and warns on each row", () => {
+    const result = v4(bonus, demerger);
+    expect(kinds(result)).toEqual(["dividend", "withholding", "dividend"]);
+    // 20 x 0.85 net + 3 withheld; 2 x 1.5, nothing withheld (06 §4.3).
+    const gross = result.events.flatMap((e) =>
+      e.kind === "dividend" ? [e.gross.amount.toString()] : [],
+    );
+    expect(gross).toEqual(["20", "3"]);
+    expect(
+      result.diagnostics.map((d) => [
+        d.severity,
+        d.code,
+        d.params,
+        d.source?.row,
+      ]),
+    ).toEqual([
+      [
+        "warning",
+        "dividendLabelTreated",
+        { broker: "trading212", kind: "bonus" },
+        2,
+      ],
+      [
+        "warning",
+        "dividendLabelTreated",
+        { broker: "trading212", kind: "demerger" },
+        3,
+      ],
+    ]);
+    expect(blocking(result)).toEqual([]);
+  });
+
+  it("warns only on a row it reads, never on one it refuses", () => {
+    const refused =
+      "Dividend (Bonus),2026-04-01 12:10:44+00:00,US1912161007,KO,Coca-Cola,,,20,0.85,USD,,,,11.5,EUR,-3,USD";
+    const result = v4(refused);
+    expect(blocking(result)).toEqual([["unexpectedSign", 2]]);
+    expect(result.diagnostics.map((d) => d.code)).toEqual(["unexpectedSign"]);
+    expect(result.events).toEqual([]);
+  });
+
+  it("keeps them apart from an ordinary dividend of the same figures", () => {
+    const ordinary = bonus.replace("Dividend (Bonus)", "Dividend (Dividend)");
+    const keys = new Set(
+      v4(bonus, ordinary).events.map((e) => ("key" in e ? e.key : "")),
+    );
+    // Two dividends and two withholdings, none of them one event twice.
+    expect(keys.size).toBe(4);
+  });
+});
+
 describe("rows it refuses rather than guesses", () => {
   const BUY =
     "Market buy,2026-01-06 14:31:02+00:00,US1912161007,KO,Coca-Cola,,EOF1,2,69.5,USD,1.17,,,118.55,EUR,,";

@@ -390,6 +390,14 @@ export interface DiagnosticParams {
     readonly check: "sign" | "multiplier" | "amount" | "cusip";
   };
   fundFromName: Isin;
+  /**
+   * A dividend the broker labels otherwise ("Bonus", "Demerger"), counted as
+   * an ordinary dividend; `kind` comes from the adapter's own list.
+   */
+  dividendLabelTreated: {
+    readonly broker: string;
+    readonly kind: "bonus" | "demerger";
+  };
 }
 
 /**
