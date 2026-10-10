@@ -25,6 +25,7 @@ export {
   type DividendsEstimate,
   type PayerInfo,
 } from "./build-div.js";
+export { UNIT_SCALE, unitValueEur } from "./build-shared.js";
 export {
   buildDohKdvp,
   type BuiltList,

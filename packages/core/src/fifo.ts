@@ -117,6 +117,25 @@ function sameDay(a: KeyedEvent, b: KeyedEvent): number {
   );
 }
 
+/**
+ * Shares as of `to` per share as of `from`, for the splits in between. A
+ * trade on a split's own day is already in new shares (`SAME_DAY_ORDER`),
+ * so a split counts from the day after `from` through `to`.
+ */
+export function splitFactor(
+  splits: readonly SplitEvent[],
+  from: IsoDate,
+  to: IsoDate,
+): Decimal {
+  let factor = Decimal.ONE;
+  for (const split of splits) {
+    if (from < split.date && split.date <= to) {
+      factor = factor.times(split.to.dividedBy(split.from));
+    }
+  }
+  return factor;
+}
+
 /** Date order, and within a day the order the clocks give. */
 export function chronological(a: KeyedEvent, b: KeyedEvent): number {
   return compareText(a.date, b.date) || sameDay(a, b);

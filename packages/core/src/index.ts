@@ -65,6 +65,7 @@ export {
   MAX_SPLIT_TERM,
   MAX_SPLITS,
   SPLIT_REPORT_DAYS,
+  splitFactor,
   type Disposal,
   type FifoResult,
   type LotMatch,
