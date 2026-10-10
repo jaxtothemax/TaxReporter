@@ -24,6 +24,15 @@ describe("the findings catalog", () => {
     );
   });
 
+  it("words a dividend counted under another label by which label it is", () => {
+    const bonus = { broker: "Trading 212", label: "bonus" } as never;
+    const demerger = { broker: "Trading 212", label: "demerger" } as never;
+    expect(findingsEn.dividendLabelTreated(bonus)).toMatch(/Bonus.*art\. 90/);
+    expect(findingsEn.dividendLabelTreated(demerger)).toMatch(/not settled/);
+    expect(findingsSl.dividendLabelTreated(bonus)).toMatch(/Bonus.*90\. členu/);
+    expect(findingsSl.dividendLabelTreated(demerger)).toMatch(/ni urejena/);
+  });
+
   it("starts a sentence with a capital when it names no security or day", () => {
     expect(findingsEn.invalidTrade({})).toMatch(/^A trade could not/);
     expect(findingsSl.invalidTrade({})).toMatch(/^Posla ni bilo/);

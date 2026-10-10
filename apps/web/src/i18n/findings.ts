@@ -342,6 +342,10 @@ export const findingsEn: FindingMessages = {
     ),
   fundFromName: (p) =>
     `${p.isin}: marked as a fund because its name says ETF or UCITS. Exports carry no fund flag.`,
+  dividendLabelTreated: (p) =>
+    p.label === "bonus"
+      ? `${p.broker}: a “Dividend (Bonus)” row is read as an ordinary dividend. Cash paid per share you hold is a dividend under ZDoh-2 art. 90, whatever the broker calls it.`
+      : `${p.broker}: a “Dividend (Demerger)” row is read as an ordinary dividend. It is usually cash paid instead of a fraction of a spin-off share, whose tax treatment is not settled; counting it as a dividend is the simplest reading. Check it before you file.`,
 };
 
 export const wordsEn: FindingWords = {
@@ -737,6 +741,10 @@ export const findingsSl: FindingMessages = {
     ),
   fundFromName: (p) =>
     `${p.isin}: označen kot sklad, ker ime vsebuje ETF ali UCITS. Izvozi oznake sklada nimajo.`,
+  dividendLabelTreated: (p) =>
+    p.label === "bonus"
+      ? `${p.broker}: vrstica »Dividend (Bonus)« je prebrana kot navadna dividenda. Denar, izplačan na delnico v vašem imetništvu, je po 90. členu ZDoh-2 dividenda, ne glede na to, kako ga poimenuje posrednik.`
+      : `${p.broker}: vrstica »Dividend (Demerger)« je prebrana kot navadna dividenda. Običajno je to denar, izplačan namesto ulomka delnice iz odcepitve, katerega davčna obravnava ni urejena; štetje med dividende je najpreprostejša razlaga. Pred oddajo to preverite.`,
 };
 
 export const wordsSl: FindingWords = {

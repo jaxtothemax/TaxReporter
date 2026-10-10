@@ -83,6 +83,20 @@ const DIVIDENDS = new Set([
   "Dividend (Property income distribution)",
 ]);
 
+/**
+ * Cash paid per share under a label that is not "Dividend". Both are read as
+ * ordinary dividends, which ZDoh-2 art. 90 makes of any distribution on the
+ * basis of a holding that does not reduce it, with a warning on each row
+ * (04 §7.1, §9; 06 §4.3). A "Bonus" in a real export was a company's
+ * special cash dividend. A "Demerger" was cash paid instead of a fraction of
+ * a spin-off share, whose treatment is not settled: counting it as a
+ * dividend is the simplest reading, and the warning says so.
+ */
+const LABELLED_DIVIDENDS: ReadonlyMap<string, "bonus" | "demerger"> = new Map([
+  ["Dividend (Bonus)", "bonus"],
+  ["Dividend (Demerger)", "demerger"],
+]);
+
 /** Cash movements, which are part of neither return. */
 const CASH: ReadonlyMap<string, IgnoredReason> = new Map([
   ["Deposit", "deposit"],
@@ -108,7 +122,6 @@ const INTEREST = new Set([
 const UNSETTLED = new Set([
   "Dividend (Dividend manufactured payment)",
   "Dividend (Tax exempted)",
-  "Dividend (Bonus)",
   "Dividend (Property income)",
   "Dividend adjustment",
   "Result adjustment",
@@ -415,7 +428,12 @@ function read(table: CsvTable, context: ReadContext): ImportResult {
     }
     const side = BUYS.has(action) ? "buy" : SELLS.has(action) ? "sell" : null;
     const isSplit = action === SPLIT_CLOSE || action === SPLIT_OPEN;
-    if (side === null && !isSplit && !DIVIDENDS.has(action)) {
+    if (
+      side === null &&
+      !isSplit &&
+      !DIVIDENDS.has(action) &&
+      !LABELLED_DIVIDENDS.has(action)
+    ) {
       // The action is file text: it travels only wrapped, for the screen,
       // and every export of the finding drops it.
       block("unknownAction", { broker: TRADING212, action: untrusted(action) });
@@ -538,6 +556,17 @@ function read(table: CsvTable, context: ReadContext): ImportResult {
     ) {
       block("dividendTaxCurrency", {});
       continue;
+    }
+    const labelled = LABELLED_DIVIDENDS.get(action);
+    if (labelled !== undefined) {
+      diagnostics.push(
+        diagnostic(
+          "warning",
+          "dividendLabelTreated",
+          { broker: TRADING212, label: labelled },
+          source,
+        ),
+      );
     }
     const parts = [action, at.instant, isin, quantity, price, withheld];
     const key = keys.key("dividend", parts);

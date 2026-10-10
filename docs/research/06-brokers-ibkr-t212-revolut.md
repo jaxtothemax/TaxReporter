@@ -1,6 +1,6 @@
 # Broker export formats: Interactive Brokers, Trading 212, Revolut
 
-> Researched: 2026-10-07 · Verification: not independently verified · Updated: 2026-10-09 (one real Trading 212 export inspected: the `0E-10` zero, dividend prices to 6 decimals, the V4 header and a takeover's rows, §4.2–§4.4; the tax rule for takeovers and mergers paid in shares linked from §3.5 and §4.3)
+> Researched: 2026-10-07 · Verification: not independently verified · Updated: 2026-10-09 (one real Trading 212 export inspected: the `0E-10` zero, dividend prices to 6 decimals, the V4 header and a takeover's rows, §4.2–§4.4; the tax rule for takeovers and mergers paid in shares linked from §3.5 and §4.3; `Dividend (Bonus)` and `Dividend (Demerger)` rows from a second, full-history export, §4.3)
 >
 > Research for building TaxReporter. It is not tax advice, and FURS publications and the law win over anything written here. Where this page overlaps a verified doc (01–03), the verified doc wins; such places are cross-referenced inline. See the [README](README.md#confidence-and-verification-legend) for the legend.
 
@@ -263,11 +263,19 @@ Seen in one real export, generated in October 2026 for the year 2025 (not commit
 | Group | Values |
 |---|---|
 | Trades | `Market buy`, `Limit buy`, `Stop buy`, `Stop limit buy`, `Market sell`, `Limit sell`, `Stop sell`, `Stop limit sell` |
-| Dividends | `Dividend (Dividend)`, `Dividend (Ordinary)`, `Dividend (Dividends paid by us corporations)`, `Dividend (Dividends paid by foreign corporations)`, `Dividend (Dividend manufactured payment)`, `Dividend (Property income distribution)`, `Dividend (Tax exempted)`, `Dividend (Interest)` (fund interest distribution), `Dividend adjustment`; `Dividend (Bonus)`, `Dividend (Property income)` [L] |
+| Dividends | `Dividend (Dividend)`, `Dividend (Ordinary)`, `Dividend (Dividends paid by us corporations)`, `Dividend (Dividends paid by foreign corporations)`, `Dividend (Dividend manufactured payment)`, `Dividend (Property income distribution)`, `Dividend (Tax exempted)`, `Dividend (Interest)` (fund interest distribution), `Dividend adjustment`; `Dividend (Property income)` [L]; `Dividend (Bonus)` and `Dividend (Demerger)`, see below |
 | Corporate actions | `Stock split open` and `Stock split close` (each states the **full** position after or before the split), legacy `Stock Split`, `Spin off`, `Stock distribution`, `Custom stock distribution`, `Transfer in`, `Transfer out`; `Equity rights` [L] |
 | Cash | `Deposit`, `Withdrawal`, `Interest on cash`, `Lending interest`, `Currency conversion`, `Result adjustment`, `Spending cashback`, `Card debit`, `Card credit`, `Card refund` |
 
 **Gross dividend for Doh-Div** = `No. of shares × Price / share + Withholding tax`, when the WHT currency equals the price currency. This is cgt-calc's rule, verified on real exports from 2020 to 2026 (#1203).
+
+**`Dividend (Bonus)` and `Dividend (Demerger)`** [H, from a second real export: a full history of yearly files, which also showed the zero form above] are cash rows shaped like any dividend: shares, a price per share net of the tax withheld, and a `Withholding tax` column. In those files:
+
+- `Dividend (Bonus)` rows were per-share cash payments from US companies, never payments in shares. One was a special cash dividend whose row price, with the tax withheld, reconstructed a round-number gross, so the net-price rule of this section held.
+- `Dividend (Demerger)` rows were cash paid instead of a fraction of a spin-off share, to holders of a few shares. Neither had tax withheld.
+- The special dividend, checked against the company's notice, was booked a few days after its payment date, so the row's time is again when Trading 212 booked it (see the takeover notes below).
+
+The reader counts both as ordinary dividends, with a warning on each row ([04 §9](04-si-tax-rules.md#9-special-cases)).
 
 **Takeovers paid in shares** appear as a `Market sell` with a price of 0 and a `Total` of 0; the new shares arrive via `Stock distribution`, or not at all. Treat this as a hard error requiring manual input. The tax rule, a disposal valued at the market price, is in [04 §9.1](04-si-tax-rules.md#91-takeovers-and-mergers-paid-in-shares); which price and which date apply are still open questions there.
 
