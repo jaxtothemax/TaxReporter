@@ -34,6 +34,7 @@ const read = {
       symbol: "KO",
       name: "Coca-Cola",
       isinCountry: "US",
+      broker: "trading212",
       payments: 2,
     },
   ],

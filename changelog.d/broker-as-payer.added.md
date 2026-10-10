@@ -1,0 +1,1 @@
+- **Trading 212 as the payer of its dividends**: the dividend payer details in the web app now start filled in with Trading 212 (name, address and country) for dividends it paid out, where they used to start with the company's name only. They show where they came from and can be changed, and no tax number or ID is needed.

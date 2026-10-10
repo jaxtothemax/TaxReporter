@@ -414,6 +414,18 @@ function filesChanged(state: WizardState): WizardState {
   return { ...state, reading: IDLE, preparing: IDLE, lastRead: null };
 }
 
+/**
+ * Brokers whose dividends are filed with the broker as the payer: its name,
+ * address and country, with no tax number or ID. Seen in an eDavki record of
+ * Trading 212 dividends the owner filed; FURS's own text names the company
+ * that pays, so this is a default the user can change (research 02 §5).
+ */
+export const BROKER_PAYERS: Readonly<
+  Record<string, Pick<PayerDraft, "name" | "address" | "country">>
+> = {
+  trading212: { name: "TRADING 212", address: "LONDON", country: "GB" },
+};
+
 /** New payers get their details preset from the export; typed ones stay. */
 function presetPayers(
   payers: Readonly<Record<string, PayerDraft>>,
@@ -421,10 +433,11 @@ function presetPayers(
 ): Readonly<Record<string, PayerDraft>> {
   const next = { ...payers };
   for (const prompt of reply.payers) {
+    const broker = BROKER_PAYERS[prompt.broker];
     next[prompt.isin] ??= {
-      name: prompt.name,
-      address: "",
-      country: prompt.isinCountry,
+      name: broker?.name ?? prompt.name,
+      address: broker?.address ?? "",
+      country: broker?.country ?? prompt.isinCountry,
       id: "",
       sourceCountry: "",
     };

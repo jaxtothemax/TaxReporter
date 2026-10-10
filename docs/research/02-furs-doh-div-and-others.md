@@ -1,6 +1,6 @@
 # Doh-Div: eDavki XML import format (plus Doh-Obr and D-IFI)
 
-> Researched: 2026-10-06 · Verification: adversarially verified (22 claims: 22 confirmed, 0 refuted, 0 uncertain)
+> Researched: 2026-10-06 · Verification: adversarially verified (22 claims: 22 confirmed, 0 refuted, 0 uncertain) · Updated: 2026-10-09 (§5: a broker as the payer of its dividends, one eDavki record, low confidence)
 >
 > Research for building TaxReporter. It is not tax advice, and FURS publications and the law win over anything written here. Inline markers are explained in the [README](README.md#confidence-and-verification-legend).
 
@@ -170,6 +170,8 @@ These are 2-letter codes, taken from the 251-entry list in FURS's Excel template
 - **Which ID to use.** The XML guide says the ID is mandatory for foreign payers. The form instructions say "the number used for tax purposes in the payer's state of residence (tax or other ID)… not mandatory". The CSV guide requires it only for several same-day payments from one payer (§3.4).
   - Use the US EIN for US issuers, the VAT/tax ID for EU issuers, the company registration number for Irish funds, and the LEI as a fallback.
   - ib-edavki maintainers report that FURS accepts anything ([issue #163](https://github.com/ib-edavki/ib-edavki/issues/163)).
+- **Who the payer is, for a broker that pays the dividend out** [L]. FURS's fields name the company that pays (§3.4: payer name, address and country). One eDavki record seen on 2026-10-09, of a Trading 212 dividend that its owner had filed earlier, has the payer name `TRADING 212`, address `LONDON`, country `GB`, no tax number and no identification number, type 1, foreign tax 0.00, and source country `KY` for a US-listed share of a Cayman company. eDavki holds and displays such a record. That shows what the system accepts, not that the broker is the payer FURS means, and no FURS text found says so. The app presets those three values for Trading 212 dividends, shows where they come from, and lets the user change them.
+  - The source country in that record (`KY`) is the company's, where the app's default is the ISIN's first two letters (`US`). The app only asks for it when the ISIN names no country, so a user cannot set `KY` today.
 - **Length** (corrected after verification). In 2023 eDavki accepted IDs longer than 12 characters on import but silently dropped the whole value on submission ([issue #86](https://github.com/ib-edavki/ib-edavki/issues/86)). ib-edavki therefore strips non-alphanumerics and truncates to 12, but only when the ID is longer than 12 (`re.sub('[^a-zA-Z0-9]+','')[0:12]`). On 2025-02-25 the maintainer wrote that the field is no longer limited to 12 characters ([issue #163](https://github.com/ib-edavki/ib-edavki/issues/163), not #86).
   - The XSD has no limit; Doh-Obr's `IdentificationNumber` has `maxLength 30`.
   - Treat this as low confidence and keep a configurable 12-char fallback.

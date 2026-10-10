@@ -500,8 +500,8 @@ export function sessionFindings(
 
 /**
  * The securities that paid a dividend in the tax year, whose payers Doh-Div
- * needs (ADR 0013 §8): the name the export gives, and the country the ISIN
- * names where FURS lists it.
+ * needs (ADR 0013 §8): the name the export gives, the country the ISIN
+ * names where FURS lists it, and the broker that paid.
  */
 export function payerPrompts(
   events: readonly LedgerEvent[],
@@ -518,6 +518,9 @@ export function payerPrompts(
       symbol: filled(seen?.symbol, tickerOf(event.security.symbol)),
       name: filled(seen?.name, plainText(event.security.name ?? "")),
       isinCountry: fursCountryFromIso(isin.slice(0, 2)) ?? "",
+      // One broker for every payment, or none: a mix is named by no broker.
+      broker:
+        seen === undefined || seen.broker === event.broker ? event.broker : "",
       payments: (seen?.payments ?? 0) + 1,
     });
   }

@@ -247,6 +247,26 @@ describe("App", () => {
     );
   });
 
+  it("presets Trading 212 as the payer of its dividends, and says so", () => {
+    const prompt = read.payers[0];
+    if (prompt === undefined) throw new Error("no payer in the fixture");
+    const fromT212: ReadReply = {
+      ...read,
+      payers: [{ ...prompt, broker: "trading212" }],
+    };
+    const html = render(ownState(fromT212, { type: "next" }));
+    expect(html).toMatch(
+      /id="payer-US1912161007-name"[^>]*value="TRADING 212"/,
+    );
+    expect(html).toMatch(/id="payer-US1912161007-address"[^>]*value="LONDON"/);
+    expect(html).toMatch(/<option value="GB" selected="">/);
+    expect(text(html)).toContain(en.details.payerFromBroker("TRADING 212"));
+    // A broker not in the table gets no such hint.
+    expect(text(render(ownState(read, { type: "next" })))).not.toContain(
+      en.details.payerFromBroker("TRADING 212"),
+    );
+  });
+
   it("shows the review of own files as the engine prepared it", () => {
     const html = text(render(preparedState(read, prepared)));
     expect(html).toContain("Review tax year 2026");

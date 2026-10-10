@@ -20,6 +20,7 @@ import { explain, type ExplainProps } from "../explain/anchors";
 import { formatCountry, plural, type Locale } from "../i18n/format";
 import { useI18n } from "../i18n/i18n";
 import {
+  BROKER_PAYERS,
   isPayerIncomplete,
   isValidTaxNumber,
   normalizeTaxNumber,
@@ -192,6 +193,7 @@ function PayerFields({
     onChange(field, value);
   };
   const title = prompt.symbol === "" ? prompt.isin : prompt.symbol;
+  const brokerPayer = BROKER_PAYERS[prompt.broker];
   return (
     <fieldset className="payer-fields">
       <legend className="payer-legend">
@@ -201,6 +203,11 @@ function PayerFields({
           {plural(prompt.payments, locale, t.details.payments)}
         </span>
       </legend>
+      {brokerPayer === undefined ? null : (
+        <p className="muted small">
+          {t.details.payerFromBroker(brokerPayer.name)}
+        </p>
+      )}
       <div className="form-grid">
         <Field
           inputId={id("name")}

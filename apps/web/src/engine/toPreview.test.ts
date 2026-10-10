@@ -84,4 +84,17 @@ describe("symbolsOf and payerPrompts", () => {
       ["US0378331005", "", "Apple"],
     ]);
   });
+
+  it("name the broker that paid, or none when several did", () => {
+    const paid = (broker: string) => ({
+      ...dividend("US1912161007", "KO", "Coca-Cola"),
+      broker,
+    });
+    const brokers = (...names: string[]) =>
+      payerPrompts(names.map(paid), 2026).map((p) => p.broker);
+    expect(brokers("trading212", "trading212")).toEqual(["trading212"]);
+    // A mix is named by no broker, whichever order it comes in.
+    expect(brokers("trading212", "ibkr")).toEqual([""]);
+    expect(brokers("ibkr", "trading212", "trading212")).toEqual([""]);
+  });
 });

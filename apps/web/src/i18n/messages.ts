@@ -147,6 +147,7 @@ export interface Messages {
     readonly payerTaxNumberHelp: string;
     readonly sourceCountry: string;
     readonly sourceCountryHelp: string;
+    readonly payerFromBroker: (name: string) => string;
     readonly countryChoose: string;
     readonly payersMissing: PluralForms;
   };
@@ -594,6 +595,8 @@ export const en: Messages = {
       "Left empty, the ISIN is written in its place, which eDavki accepts.",
     sourceCountry: "Country the income comes from",
     sourceCountryHelp: "The ISIN does not say.",
+    payerFromBroker: (name) =>
+      `Filled in with ${name}, which pays these dividends out to you. Change it if your statement names another payer.`,
     countryChoose: "Choose a country",
     payersMissing: {
       one: "{n} payer still needs its details. Until then, Doh-Div is not written; Doh-KDVP is.",
@@ -1119,6 +1122,8 @@ export const sl: Messages = {
       "Če polje pustite prazno, je namesto nje vpisana koda ISIN, kar eDavki sprejmejo.",
     sourceCountry: "Država, iz katere je dohodek",
     sourceCountryHelp: "Koda ISIN je ne navaja.",
+    payerFromBroker: (name) =>
+      `Izpolnjeno s podatki posrednika ${name}, ki vam izplačuje te dividende. Spremenite, če izpisek navaja drugega izplačevalca.`,
     countryChoose: "Izberite državo",
     payersMissing: {
       one: "Še {n} izplačevalec potrebuje podatke. Do takrat Doh-Div ni zapisan, Doh-KDVP pa je.",
