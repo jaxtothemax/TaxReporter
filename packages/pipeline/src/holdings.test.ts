@@ -499,6 +499,39 @@ describe("buildHoldings", () => {
     ).toEqual([["AAPL", "2026-09-30", "10", true, ["2026-01-06"]]]);
   });
 
+  it("does not let an old account that only traded it hold such a security back", () => {
+    // As above, beside an old Trading 212 account that bought and sold the
+    // same security long ago and whose files end before or between.
+    for (const oldEnd of ["2023-12-31", "2025-06-30"]) {
+      const old = file("trading212", "old.csv", accountGroup("trading212", 2));
+      const ibkr = file("ibkr", "ibkr.xml", accountScope("ibkr", "U3333333"));
+      const holdings = holdingsOf(
+        [
+          trade(old, AAPL, "buy", "2020-01-06", "10", "74.95"),
+          trade(old, AAPL, "sell", "2023-06-01", "10", "180.09"),
+          trade(ibkr, AAPL, "sell", "2025-03-03", "10", "235.33"),
+          trade(ibkr, AAPL, "buy", "2026-01-06", "10", "243.36"),
+        ],
+        [
+          { account: old.account, lastDate: oldEnd, fileId: old.fileId },
+          {
+            account: ibkr.account,
+            lastDate: "2026-09-30",
+            fileId: ibkr.fileId,
+          },
+        ],
+      );
+      expect(
+        holdings.securities.map((s) => [
+          s.asOf,
+          s.quantity.toString(),
+          s.incomplete,
+          s.lots.map((l) => [l.account.key, l.purchaseDate]),
+        ]),
+      ).toEqual([["2026-09-30", "10", true, [["ibkr-1", "2026-01-06"]]]]);
+    }
+  });
+
   it("holds a lot bought in the last years an ISO date can name", () => {
     // Any year to 9999 passes import; a hostile file must not crash a run.
     const t212 = file("trading212", "t212.csv", accountGroup("trading212", 1));

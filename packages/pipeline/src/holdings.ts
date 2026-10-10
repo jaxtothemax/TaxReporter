@@ -19,7 +19,8 @@
  * traded it unseen; an old, closed account does not hold them back. Where
  * FIFO leaves a lot open or a sale unmatched while every account's own
  * position nets to zero (a sale whose purchase is in a missing export,
- * then a purchase), the accounts that traded it stand in for its holders.
+ * then a purchase), the accounts those lots and sales belong to stand in
+ * for its holders; an old account that only traded it does not.
  * Never today's date: the files are all there is. An account's day may be
  * past the rates snapshot only as far as its own trades and splits reach.
  * The coverage end (prepare.ts) clamps to the snapshot outright for the
@@ -209,23 +210,22 @@ export function buildHoldings(input: HoldingsInput): Holdings {
 
   // A security's lots are as of the earliest day among its holders, or,
   // where FIFO has something left that no account's position shows, among
-  // the accounts that traded it.
+  // the accounts the open lots and unmatched sales belong to.
   const holders = new Map<string, Set<AccountScope>>();
   for (const { account, isin } of positions) {
     addTo(holders, isin, account);
   }
-  const traders = new Map<string, Set<AccountScope>>();
-  for (const event of ledger.events) {
-    if (event.kind === "trade")
-      addTo(traders, event.security.isin, event.account);
-  }
   const through = new Map<string, IsoDate>();
   for (const [isin, history] of whole) {
-    const left =
-      history.open.length > 0 ||
-      history.disposals.some((d) => d.unmatched.isPositive());
-    const by = holders.get(isin) ?? (left ? traders.get(isin) : undefined);
-    for (const account of by ?? []) {
+    const by =
+      holders.get(isin) ??
+      new Set([
+        ...history.open.map((lot) => lot.purchase.account),
+        ...history.disposals
+          .filter((d) => d.unmatched.isPositive())
+          .map((d) => d.sale.account),
+      ]);
+    for (const account of by) {
       const end = asOf.get(account);
       if (end === undefined) continue;
       const seen = through.get(isin);

@@ -57,8 +57,8 @@ engine, let alone reach a screen or an export.
    security does not hold its lots back, which the session-wide coverage end used by the
    30-day rule would. Where FIFO leaves a lot open, or a sale unmatched, while every
    account's own position nets to zero (a sale whose purchase is in a missing export, then
-   a purchase), the accounts that traded the security stand in for its holders, so the
-   security is still listed, and flagged. Never today's date: the files are all there is.
+   a purchase), the accounts those lots and sales belong to stand in for its holders, and
+   an old account that only traded it does not; the security is still listed, and flagged. Never today's date: the files are all there is.
    But an account's day may be past the rates snapshot only as far as its own trades and
    splits reach: a deposit dated 2099 says how far a file reaches, not a day its shares
    were held to, and as of 2099 every lot would look exempt. The coverage end clamps to
