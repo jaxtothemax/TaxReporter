@@ -596,13 +596,16 @@ describe("rows it refuses rather than guesses", () => {
         row(got, "2026-09-08 22:00:05", "US00000NOVA8"),
       ]),
     ).toEqual(["out", "none"]);
-    // A sale with no price gives its shares up, but is no takeover's mark.
-    expect(
-      shares([
-        row(sold, "2026-09-08 14:05:12", "US00000ORBT1", ""),
-        row(got, "2026-09-08 14:05:27", "US00000NOVA8"),
-      ]),
-    ).toEqual(["out", "none"]);
+    // A sale with no price, or a negative one, is not the shape research
+    // has seen: neither leg is scoped.
+    for (const price of ["", "-1.5"]) {
+      expect(
+        shares([
+          row(sold, "2026-09-08 14:05:12", "US00000ORBT1", price),
+          row(got, "2026-09-08 14:05:27", "US00000NOVA8"),
+        ]),
+      ).toEqual(["none", "none"]);
+    }
   });
 
   it("dividend tax in another currency, or with a sign", () => {

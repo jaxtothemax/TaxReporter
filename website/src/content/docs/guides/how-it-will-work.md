@@ -88,9 +88,10 @@ each figure:
 - **Problems:** anything TaxReporter could not handle, with an explanation. Every row of your
   export will either be used, listed as ignored with a reason, or reported; nothing is dropped
   silently. A blocking problem, such as a corporate action TaxReporter does not support yet,
-  stops the export of the returns it can change until you resolve it. A takeover in an
-  earlier year does not stop this year's returns when nothing it touched was sold this year;
-  it is listed as a note instead.
+  stops the export of the returns it can change until you resolve it. A Trading 212 takeover
+  paid in shares in an earlier year does not stop this year's returns when nothing it touched
+  was sold this year; it is listed as a note instead. Other corporate actions, and those from
+  other brokers, still stop every return for now.
 - **An estimate of the tax:** clearly labeled as an estimate. FURS calculates the actual tax
   after you submit.
 

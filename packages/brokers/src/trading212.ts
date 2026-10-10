@@ -573,16 +573,14 @@ function read(table: CsvTable, context: ReadContext): ImportResult {
     }
     // Zero is no price: a sale at 0 is a takeover paid in shares, which
     // needs the user's input (06 §4.3). It gives the shares up, which is
-    // what scopes the refusal (ADR 0017).
+    // what scopes the refusal (ADR 0017). Only a price of exactly 0 is the
+    // shape research has seen; a missing or negative one could be anything,
+    // such as cash for a fraction of a spin-off share, and stays unscoped.
     if (price === null || !price.isPositive()) {
-      if (side === "sell") {
+      if (side === "sell" && price?.isZero() === true) {
         block("invalidPrice", { isin, date, shares: "out" });
-        // Only a price of exactly 0 is the takeover's mark; a missing or
-        // negative one still gives the shares up, but pairs with nothing.
         const ms = at.instant === null ? null : instantMillis(at.instant);
-        if (price?.isZero() === true && ms !== null) {
-          soldAtZero.push({ ms, isin, date });
-        }
+        if (ms !== null) soldAtZero.push({ ms, isin, date });
       } else {
         block("invalidPrice", {});
       }

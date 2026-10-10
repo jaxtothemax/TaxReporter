@@ -32,7 +32,9 @@ takeover in a user's history blocks every later Doh-KDVP. The user could downloa
    without all three, or with any of them malformed, withholds both returns of every year, as
    before. So does every other code.
 2. **Trading 212 states them only in the shapes research has seen** (06 §4.3):
-   - a sale at a price of 0 gives its shares up (`invalidPrice`, `"out"`);
+   - a sale at a price of exactly 0 gives its shares up (`invalidPrice`, `"out"`); one with no
+     price or a negative one could be anything, such as cash for a fraction of a spin-off
+     share, and stays unscoped;
    - a `Custom stock distribution` under a ticker ending in `.RST` receives rights;
    - a `Stock distribution` receives shares only as a takeover's other leg: booked within a
      minute after exactly one sale at a price of exactly 0 in the same file, of another
@@ -101,8 +103,10 @@ both") for scoped refusals only. ADR 0015's Trade Republic refusals stay unscope
   still withholds. Narrowing it would take rates and FIFO inside the check.
 - Interactive Brokers and Trade Republic refusals, and Trading 212's `Spin off`, `Transfer
   in`/`Transfer out`, `Equity rights` and dividend-type refusals, still withhold everything;
-  each needs its own analysis of what it can reach before it is scoped.
-- The margin rests on one export's booking lag; research on more exports may widen it.
+  each needs its own analysis of what it can reach before it is scoped (#52).
+- The margin rests on one export's booking lag; research on more exports may widen it (#52).
+- `scopeLedger` refuses a tax year outside 2013 to 9999, as the builders do: a malformed year
+  would compare as text and scope every refusal away.
 
 ## On Acceptance
 

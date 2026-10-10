@@ -112,6 +112,11 @@ export function scopeLedger(
   ledger: ValidatedLedger,
   taxYear: number,
 ): LedgerScope {
+  // A malformed year would compare as text and scope every refusal away,
+  // so it is refused here as the builders refuse it.
+  if (!Number.isInteger(taxYear) || taxYear < 2013 || taxYear > 9999) {
+    throw new RangeError("taxYear must be a whole year from 2013");
+  }
   const yearStart = `${String(taxYear)}-01-01`;
   const yearEnd = `${String(taxYear)}-12-31`;
   const overlaps = (from: IsoDate, to: IsoDate) =>

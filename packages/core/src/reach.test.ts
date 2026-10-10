@@ -151,6 +151,23 @@ describe("a takeover paid in shares", () => {
     expect(withheld(late, [], 2025).div).toEqual(["unsupportedAction@12"]);
     expect(withheld(late, [], 2026).div).toEqual(["unsupportedAction@12"]);
     expect(withheld(late, [], 2027).div).toEqual([]);
+    // A loss sale of the new shares on 1 December is within 30 days before
+    // an event of up to 20 December: Doh-KDVP of that year waits too.
+    const sold = [trade("sell", "2025-12-01", "5", "20", of(NEW))];
+    expect(withheld([received("2026-01-20", "in")], sold, 2025).kdvp).toEqual([
+      "unsupportedAction@12",
+    ]);
+  });
+
+  it("reaches back 31 days of booking lag and 30 of the 30-day rule, and no further", () => {
+    // Booked on 20 January 2026: the event from 20 December, so a sale of
+    // the same security from 20 November on is within reach.
+    const late = [received("2026-01-20", "in")];
+    const saleOn = (date: string) => [trade("sell", date, "5", "20", of(NEW))];
+    expect(withheld(late, saleOn("2025-11-20"), 2025).kdvp).toEqual([
+      "unsupportedAction@12",
+    ]);
+    expect(withheld(late, saleOn("2025-11-19"), 2025).kdvp).toEqual([]);
   });
 });
 
@@ -177,6 +194,25 @@ describe("rights handed out free", () => {
     expect(withheld(rights, near, 2025).kdvp).toEqual(["unsupportedAction@12"]);
     const far = [trade("sell", "2025-09-30", "5", "20", of(OTHER))];
     expect(withheld(rights, far, 2025).kdvp).toEqual([]);
+  });
+
+  it("reach any sale up to 30 days after their booking, and no further", () => {
+    const saleOn = (date: string) => [
+      trade("sell", date, "5", "20", of(OTHER)),
+    ];
+    expect(withheld(rights, saleOn("2025-07-24"), 2025).kdvp).toEqual([
+      "unsupportedAction@12",
+    ]);
+    expect(withheld(rights, saleOn("2025-07-25"), 2025).kdvp).toEqual([]);
+  });
+});
+
+describe("a year that is not a tax year", () => {
+  it("is refused, as the builders refuse it, rather than compared as text", () => {
+    const ledger = validateLedger([], [soldAtZero("2025-09-03")]);
+    for (const year of [0, 2012, 2025.5, 10000]) {
+      expect(() => scopeLedger(ledger, year)).toThrow(RangeError);
+    }
   });
 });
 
