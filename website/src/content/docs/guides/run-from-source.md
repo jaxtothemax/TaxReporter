@@ -76,6 +76,22 @@ It prints what it read, the estimated tax and every finding, and writes `Doh_KDV
 written. The exit code is 0 when nothing blocks, 1 when something does, and 2 for a mistake in
 the command. Add `--json` for a report other tools can read.
 
+The JSON report also lists the shares you still hold, under `holdings`, in two views:
+
+- **`accounts`**: each account's own position per security, which you can compare with what
+  the broker shows. An account is named by its broker and a number (`ibkr-1`), never by its
+  account number.
+- **`securities`**: the lots still open across all your accounts, matched first in, first out.
+  These are the lots your next sale will be taxed against. Each lot shows its purchase date,
+  its cost in euro at the Banka Slovenije rate of that day, and `nextBucket`, the date it
+  moves to a lower tax rate. That date is the day after the anniversary, because FURS has not
+  said whether the anniversary itself counts.
+
+Holdings are as of the last day your files cover. Market prices are never fetched, so they
+show what you paid, not what the shares are worth. If earlier exports are missing, holdings
+come out too low. `transferred` marks an account whose files moved shares in or out, which
+are not read yet, and `incomplete` marks a security your files sell more of than they buy.
+
 Brokers do not export a dividend payer's address, which Doh-Div needs, so give it in a small
 JSON file, one entry per security (by ISIN):
 

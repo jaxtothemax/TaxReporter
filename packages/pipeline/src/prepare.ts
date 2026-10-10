@@ -1,6 +1,7 @@
 /**
  * From exports to returns: every file through `importFile`, every event
- * through `validateLedger`, then both builders over the one ledger. The CLI
+ * through `validateLedger`, then both builders over the one ledger, and the
+ * holdings beside them. The CLI
  * and the web app run exactly these steps, so the same files give the same
  * XML in both (ADR 0013 §1). Free of I/O, Node.js and the DOM.
  *
@@ -31,6 +32,8 @@ import {
   type Taxpayer,
 } from "@taxreporter/furs";
 import type { RateTable } from "@taxreporter/fx";
+
+import { buildHoldings, type Holdings } from "./holdings.js";
 
 export interface ExportFile {
   /** A label for the screen: see `uniqueLabels`. Never part of the result. */
@@ -97,6 +100,8 @@ export interface Prepared extends ReadExports {
   readonly coverageEnd: IsoDate;
   readonly kdvp: KdvpBuild;
   readonly div: DivBuild;
+  /** The shares still held, beside the returns: never part of them. */
+  readonly holdings: Holdings;
 }
 
 /**
@@ -226,7 +231,18 @@ export function buildReturns(read: ReadExports, input: BuildInput): Prepared {
     rates: input.rates,
     payers: input.payers,
   });
-  return { ...read, coverageEnd, kdvp, div };
+  const holdings = buildHoldings({
+    ledger,
+    rates: input.rates,
+    reach: read.imports.flatMap(({ fileId, result }) =>
+      result.reach.map(({ account, lastDate }) => ({
+        account,
+        lastDate,
+        fileId,
+      })),
+    ),
+  });
+  return { ...read, coverageEnd, kdvp, div, holdings };
 }
 
 /** Reads the files and builds both returns: `readExports`, then `buildReturns`. */

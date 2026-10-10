@@ -61,6 +61,15 @@ export interface SecurityHistory {
   readonly open: readonly OpenLot[];
 }
 
+export interface FifoOptions {
+  /**
+   * Per ISIN, the last day to read: that security's later trades and
+   * splits are left out, as if the files ended there. For holdings shown
+   * as of a day (ADR-0017); the returns read every event.
+   */
+  readonly through?: ReadonlyMap<string, IsoDate>;
+}
+
 export interface FifoResult {
   readonly securities: ReadonlyMap<string, SecurityHistory>;
   readonly diagnostics: readonly Diagnostic[];
@@ -240,15 +249,21 @@ function mergeSplitReports(
 }
 
 /**
- * Matches every sale of the ledger to the purchases before it. Dividends
+ * Matches every sale of the ledger to the purchases before it, reading
+ * each security through `options.through` where it names one. Dividends
  * and the tax on them are Doh-Div's, and pass through untouched.
  */
-export function matchFifo(ledger: ValidatedLedger): FifoResult {
+export function matchFifo(
+  ledger: ValidatedLedger,
+  options: FifoOptions = {},
+): FifoResult {
   const diagnostics: Diagnostic[] = [];
   const steps = new Map<string, Step[]>();
   for (const event of ledger.events) {
     if (event.kind !== "trade" && event.kind !== "split") continue;
     const isin = event.kind === "trade" ? event.security.isin : event.isin;
+    const last = options.through?.get(isin);
+    if (last !== undefined && event.date > last) continue;
     const list = steps.get(isin);
     if (list === undefined) steps.set(isin, [event]);
     else list.push(event);

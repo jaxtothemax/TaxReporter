@@ -4,6 +4,7 @@
  * completed years, 20% after five, 15% after ten, and exempt after fifteen,
  * when the lot is not listed on the return at all.
  */
+import { isIsoDate } from "./dates.js";
 import { Decimal } from "./decimal.js";
 import type { IsoDate } from "./ledger.js";
 
@@ -55,4 +56,54 @@ export function addDays(date: IsoDate, days: number): IsoDate {
   const day = new Date(`${date}T00:00:00Z`);
   day.setUTCDate(day.getUTCDate() + days);
   return day.toISOString().slice(0, 10);
+}
+
+/** The completed years at which the rate falls: to 20%, to 15%, to 0%. */
+const BUCKET_YEARS = Object.freeze([5, 10, 15] as const);
+
+/** Where a lot still held stands, for planning its sale. */
+export interface HoldingOutlook {
+  /** The bucket a sale on the as-of day falls in, read cautiously. */
+  readonly bucket: HoldingBucket;
+  /** The next, lower bucket and the first day it is certain; null once exempt. */
+  readonly next: {
+    readonly bucket: HoldingBucket;
+    readonly from: IsoDate;
+  } | null;
+}
+
+/**
+ * Where a lot held on `asOf` stands. A day counts as in a bucket only when
+ * it is there under either reading of the anniversary: `completedYears` lets
+ * the anniversary itself complete the year, and FURS has published no
+ * example of that day (research 04 §4.5 and its open questions). So the
+ * date given is the day after the anniversary, and on the anniversary the
+ * lot still shows the higher rate: a sale planned from it is never one day
+ * early, at five points more tax. The returns use `completedYears` as is.
+ */
+export function holdingOutlook(
+  acquired: IsoDate,
+  asOf: IsoDate,
+): HoldingOutlook {
+  const years = completedYears(acquired, addDays(asOf, -1));
+  const bucket = bucketFor(years);
+  const target = BUCKET_YEARS.find((y) => y > years);
+  if (target === undefined) return { bucket, next: null };
+  return {
+    bucket,
+    next: {
+      bucket: bucketFor(target),
+      from: addDays(anniversary(acquired, target), 1),
+    },
+  };
+}
+
+/**
+ * The first day `completedYears` counts `years` complete: the anniversary,
+ * or 1 March for a 29 February outside a leap year.
+ */
+function anniversary(acquired: IsoDate, years: number): IsoDate {
+  const year = String(Number(acquired.slice(0, 4)) + years).padStart(4, "0");
+  const date = `${year}${acquired.slice(4)}`;
+  return isIsoDate(date) ? date : `${year}-03-01`;
 }

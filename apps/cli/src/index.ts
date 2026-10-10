@@ -39,8 +39,12 @@ import {
   writeDohKdvp,
   type PayerInfo,
 } from "@taxreporter/furs";
-import { RateTable } from "@taxreporter/fx";
-import { prepareReturns, type AccountChoice } from "@taxreporter/pipeline";
+import { RateTable, type BsiRate } from "@taxreporter/fx";
+import {
+  prepareReturns,
+  type AccountChoice,
+  type Holdings,
+} from "@taxreporter/pipeline";
 
 import { readExport, uniqueLabels, type IntakeRefusal } from "./intake.js";
 
@@ -216,6 +220,72 @@ function filesNamed(
     isFileRef(value) ? [[key, labels.get(value.file) ?? "?"] as const] : [],
   );
   return files.length === 0 ? {} : { files: Object.fromEntries(files) };
+}
+
+/**
+ * The shares still held, for other tools (ADR-0017): accounts by broker and
+ * number, never by anything of the account itself; files by the names they
+ * were given; every amount a plain decimal string. Quantities and prices to
+ * the form's 8 decimals, since a reverse split can leave a fraction with no
+ * finite expansion. Never part of the returns, and never a reason to block.
+ */
+function holdingsReport(
+  holdings: Holdings,
+  labels: ReadonlyMap<FileId, string>,
+) {
+  const rate = (r: BsiRate) => ({
+    currency: r.listCurrency,
+    rate: r.published,
+    listDate: r.listDate,
+    source: r.source,
+  });
+  return {
+    accounts: holdings.accounts.map((a) => ({
+      account: a.label.key,
+      broker: a.label.broker,
+      asOf: a.asOf,
+      files: a.files.map((id) => labels.get(id) ?? id),
+      transferred: a.transferred,
+      refusedRows: a.refusedRows,
+      positions: a.positions.map((p) => ({
+        isin: p.isin,
+        ...(p.security.symbol === undefined
+          ? {}
+          : { symbol: p.security.symbol }),
+        quantity: p.quantity.toPlain(8, "halfUp"),
+      })),
+    })),
+    securities: holdings.securities.map((s) => ({
+      isin: s.isin,
+      ...(s.security.symbol === undefined ? {} : { symbol: s.security.symbol }),
+      ...(s.security.name === undefined ? {} : { name: s.security.name }),
+      asOf: s.asOf,
+      quantity: s.quantity.toPlain(8, "halfUp"),
+      costEur: s.costEur?.toFixed(2, "halfUp") ?? null,
+      incomplete: s.incomplete,
+      lots: s.lots.map((l) => ({
+        account: l.account.key,
+        purchaseDate: l.purchaseDate,
+        quantity: l.quantity.toPlain(8, "halfUp"),
+        price: {
+          amount: l.price.amount.toPlain(8, "halfUp"),
+          currency: l.price.currency,
+        },
+        splitFactor: l.factor.toPlain(8, "halfUp"),
+        rate: l.rate === null ? null : rate(l.rate),
+        ...(l.missingRate === undefined ? {} : { missingRate: l.missingRate }),
+        unitCostEur: l.unitCostEur?.toFixed(8, "halfUp") ?? null,
+        costEur: l.costEur?.toFixed(2, "halfUp") ?? null,
+        bucket: l.outlook.bucket,
+        nextBucket: l.outlook.next,
+        source: {
+          file: labels.get(l.source.fileId) ?? l.source.fileId,
+          row: l.source.row,
+          ...(l.source.part === undefined ? {} : { part: l.source.part }),
+        },
+      })),
+    })),
+  };
 }
 
 const ACCOUNT_CHOICES: readonly string[] = ["same", "separate"];
@@ -454,6 +524,7 @@ export function main(
           stale,
           ...(failed === null ? {} : { failed }),
           estimates: { gainsTaxEur: kdvpTax, dividendTaxDueEur: divDue },
+          holdings: holdingsReport(prepared.holdings, labels),
           diagnostics: diagnostics.map((d) => ({
             ...forExport(d),
             ...filesNamed(d, labels),

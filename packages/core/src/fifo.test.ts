@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { account, ISIN, split, trade, validated } from "../test/events.js";
 import { Decimal } from "./decimal.js";
-import { matchFifo } from "./fifo.js";
+import { matchFifo, splitFactor } from "./fifo.js";
 import type { LedgerEvent } from "./ledger.js";
 
 const history = (events: LedgerEvent[]) => {
@@ -335,5 +335,58 @@ describe("matchFifo", () => {
     const { apple } = history(events);
     expect(apple.open).toEqual([]);
     expect(Date.now() - started).toBeLessThan(3000);
+  });
+
+  it("reads a security only through its cut, as if the files ended there", () => {
+    const events = [
+      trade("buy", "2024-01-02", "10"),
+      trade("buy", "2025-03-03", "5"),
+      split("2026-06-01", "1", "2"),
+      trade("sell", "2026-09-01", "12"),
+    ];
+    const ledger = validated(events);
+    const cut = matchFifo(ledger, {
+      through: new Map([[ISIN, "2026-05-31"]]),
+    }).securities.get(ISIN);
+    expect(cut?.disposals).toEqual([]);
+    expect(cut?.splits).toEqual([]);
+    expect(shares(cut?.open ?? [])).toEqual(["10", "5"]);
+    // The cut day itself is read.
+    const onSplit = matchFifo(ledger, {
+      through: new Map([[ISIN, "2026-06-01"]]),
+    }).securities.get(ISIN);
+    expect(shares(onSplit?.open ?? [])).toEqual(["20", "10"]);
+  });
+
+  it("is unchanged by a cut on another security, or by none", () => {
+    const ledger = validated([
+      trade("buy", "2024-01-02", "10"),
+      trade("sell", "2026-09-01", "4"),
+    ]);
+    const plain = matchFifo(ledger);
+    expect(matchFifo(ledger, {})).toEqual(plain);
+    expect(
+      matchFifo(ledger, { through: new Map([["IE00B4L5Y983", "2025-01-01"]]) }),
+    ).toEqual(plain);
+  });
+});
+
+describe("splitFactor", () => {
+  it("counts the splits after the first day through the last", () => {
+    const splits = [
+      split("2020-08-31", "1", "4"),
+      split("2024-06-10", "1", "10"),
+    ];
+    expect(splitFactor(splits, "2019-01-02", "2026-01-01").toString()).toBe(
+      "40",
+    );
+    // A trade on a split's own day is already in new shares.
+    expect(splitFactor(splits, "2020-08-31", "2026-01-01").toString()).toBe(
+      "10",
+    );
+    expect(splitFactor(splits, "2019-01-02", "2024-06-09").toString()).toBe(
+      "4",
+    );
+    expect(splitFactor([], "2019-01-02", "2026-01-01").toString()).toBe("1");
   });
 });
