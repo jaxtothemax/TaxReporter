@@ -457,7 +457,10 @@ const samePayer = (a: PayerDraft, b: PayerDraft) =>
  * typed in stays; one still equal to the preset it started as is set again
  * from the new reading, so that adding a file of another broker does not
  * leave the first broker's preset on its payments (the same files must give
- * the same payer whatever order they were added in).
+ * the same payer whatever order they were added in). A draft the user has
+ * edited in any field stays as it is: what was typed is never overwritten, so
+ * a draft edited in one field keeps the broker's other fields when the files
+ * later change (the Details step shows it, and #44 asks for the source).
  */
 function presetPayers(
   payers: Readonly<Record<string, PayerDraft>>,

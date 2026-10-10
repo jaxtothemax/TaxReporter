@@ -89,7 +89,9 @@ The project's tests use synthetic exports that follow each format as far as the 
 reconstructs it from public samples, not real accounts' data. Each reader still has to be
 checked against real, anonymized exports before v0.1 ships ([#22](https://github.com/jaxtothemax/broker-to-edavki/issues/22),
 [#12](https://github.com/jaxtothemax/broker-to-edavki/issues/12)). Both the browser app
-and the command-line tool write the same XML for the same files. Next, in
+and the command-line tool write the same XML for the same files and payer details (the browser app
+starts Trading 212's dividend payers as Trading 212; the command line takes them from its payers
+file, [#43](https://github.com/jaxtothemax/broker-to-edavki/issues/43)). Next, in
 order of how many Slovenian investors use them: eToro, XTB, DEGIRO, Revolut, Lightyear, Saxo and
 Robinhood. The spreadsheet (XLSX) reader that eToro, XTB and Saxo need is built; their adapters
 wait on real, anonymized exports.

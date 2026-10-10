@@ -579,7 +579,7 @@ export const en: Messages = {
       "The header of each return, as you type. Empty fields are left out.",
     payersTitle: "Who paid your dividends",
     payersIntro:
-      "Doh-Div needs each payer's name, address and country. TaxReporter does not look them up online, as that would tell a server what you own: the company's annual report or website gives its address.",
+      "Doh-Div needs each payer's name, address and country. TaxReporter does not look them up online, as that would tell a server what you own: the company's annual report or website gives its address, where it is the company that paid.",
     payments: {
       one: "{n} payment this year",
       other: "{n} payments this year",
@@ -1104,7 +1104,7 @@ export const sl: Messages = {
       "Glava vsake napovedi, sproti med vnosom. Prazna polja so izpuščena.",
     payersTitle: "Kdo vam je izplačal dividende",
     payersIntro:
-      "Za Doh-Div so potrebni ime, naslov in država vsakega izplačevalca. TaxReporter jih ne išče na spletu, saj bi s tem strežniku razkril, kaj imate: naslov družbe najdete v njenem letnem poročilu ali na njeni spletni strani.",
+      "Za Doh-Div so potrebni ime, naslov in država vsakega izplačevalca. TaxReporter jih ne išče na spletu, saj bi s tem strežniku razkril, kaj imate: naslov družbe najdete v njenem letnem poročilu ali na njeni spletni strani, kjer je dividendo izplačala družba.",
     payments: {
       one: "{n} izplačilo letos",
       two: "{n} izplačili letos",
@@ -1123,7 +1123,7 @@ export const sl: Messages = {
     sourceCountry: "Država, iz katere je dohodek",
     sourceCountryHelp: "Koda ISIN je ne navaja.",
     payerFromBroker: (name) =>
-      `Dividende, ki jih izplača ${name}, se začnejo s tem izplačevalcem. Podatke popravite, če izpisek navaja drugega izplačevalca.`,
+      `Pri dividendah, ki jih je izplačal ${name}, je kot izplačevalec že vpisan ${name}. Podatke popravite, če izpisek navaja drugega izplačevalca.`,
     countryChoose: "Izberite državo",
     payersMissing: {
       one: "Še {n} izplačevalec potrebuje podatke. Do takrat Doh-Div ni zapisan, Doh-KDVP pa je.",

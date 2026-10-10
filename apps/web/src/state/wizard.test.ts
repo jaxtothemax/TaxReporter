@@ -361,6 +361,24 @@ describe("own files", () => {
     expect(reread(mixed, "trading212", 3).payers["US1912161007"]?.name).toBe(
       "TRADING 212",
     );
+    // Each field the user types stays through a change of the mix.
+    for (const [field, value] of [
+      ["name", "The Coca-Cola Company"],
+      ["address", "1 Some Street, London"],
+      ["country", "DE"],
+      ["id", "123456"],
+      ["sourceCountry", "KY"],
+    ] as const) {
+      const edited = wizardReducer(first, {
+        type: "setPayer",
+        isin: "US1912161007",
+        field,
+        value,
+      });
+      expect(reread(edited, "", 5).payers["US1912161007"]?.[field], field).toBe(
+        value,
+      );
+    }
     // What the user typed stays through every change of the mix.
     const typed = wizardReducer(first, {
       type: "setPayer",
