@@ -55,8 +55,12 @@ engine, let alone reach a screen or an export.
    reads that security only through that day (`through`): after it, one of those accounts
    may have traded the security unseen. An old, closed account no longer holding the
    security does not hold its lots back, which the session-wide coverage end used by the
-   30-day rule would. Never today's date, and never capped at the rates snapshot: the files
-   are all there is, and a day they claim is shown as they claim it.
+   30-day rule would. Never today's date: the files are all there is. But a day past the
+   rates snapshot counts only as far as the account's own trades and splits reach, as the
+   coverage end already does for the 30-day rule: a deposit dated 2099 says how far a file
+   reaches, not a day its shares were held to, and as of 2099 every lot would look exempt.
+   A trade the files date that far is their own claim, shown as they claim it, without a
+   cost, since no rate exists for it.
 
 3. **The next bucket's date is the day after the anniversary.** `completedYears` lets the
    anniversary itself complete a year; FURS has published no example of that day (04 §4.5,
@@ -65,7 +69,8 @@ engine, let alone reach a screen or an export.
    shows the higher rate. The returns keep using `completedYears` unchanged.
 
 4. **Holdings never block.** `buildHoldings` raises no diagnostic; its FIFO runs' findings
-   are the returns' to raise. A lot whose rate the snapshot lacks (bought after it ends) has
+   are the returns' to raise. `buildReturns` runs it apart from the returns: a fault in it
+   (from a file no test foresaw) gives `holdings: null` and leaves the returns as they are. A lot whose rate the snapshot lacks (bought after it ends) has
    no cost and says why, rather than withholding a return. What may make a view wrong is a
    flag on it instead: an account whose files move shares in or out (`securitiesTransfer`,
    not read yet: #48) is `transferred`; one a blocking finding points into has
@@ -88,6 +93,8 @@ engine, let alone reach a screen or an export.
 
 - The CLI and the web app show the same holdings, from the same function; the CLI's
   `--json` report carries them.
+- A purchase so late that its next bucket's day would be past year 9999 has no next date:
+  any year to 9999 passes import, and the date arithmetic must not throw on one.
 - Every prepare runs FIFO twice more (once over every event, for each security's merged
   splits and name, and once cut). Both are linear in the events (`fifo.test.ts`).
 - Positions are wrong for an account that moved shares, until #48 reads transfers; the flag

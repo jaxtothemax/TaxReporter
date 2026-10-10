@@ -17,7 +17,10 @@
  * security's lots are as of the earliest last covered day among the
  * accounts that still hold it, since after that day one of them may have
  * traded it unseen; an old, closed account does not hold them back. Never
- * today's date: the files are all there is.
+ * today's date: the files are all there is. A day past the rates snapshot
+ * counts only as far as the account's own trades reach, as for the
+ * coverage end (prepare.ts): a deposit dated 2099 must not make every lot
+ * look fifteen years old.
  *
  * Holdings never block. They raise no diagnostic (the FIFO runs' own are the
  * returns' to raise), and a lot whose rate the snapshot does not have, one
@@ -79,6 +82,11 @@ export interface AccountHoldings {
   readonly positions: readonly AccountPositionRow[];
 }
 
+/**
+ * One open lot. A reverse split can leave its quantity, price and factor
+ * with no finite decimal expansion, on which `Decimal.toString` throws:
+ * round them (`toPlain`, `toFixed`) to show them.
+ */
 export interface HeldLot {
   readonly account: AccountLabel;
   readonly purchaseDate: IsoDate;
@@ -151,13 +159,16 @@ interface Account {
   transferred: boolean;
 }
 
+/** A broker's name, as `validateLedger` checks it on every event. */
+const BROKER = /^[a-z0-9]{1,32}$/;
+
 const later = (a: IsoDate | null, b: IsoDate): IsoDate =>
   a === null || compareText(b, a) > 0 ? b : a;
 
 /** The holdings over a session's ledger. */
 export function buildHoldings(input: HoldingsInput): Holdings {
   const { ledger, rates } = input;
-  const accounts = collectAccounts(input);
+  const accounts = collectAccounts(input, rates.completeThrough);
   const labels = labelAccounts(accounts);
 
   // Every split once, however many accounts told of it, and each security's
@@ -174,6 +185,17 @@ export function buildHoldings(input: HoldingsInput): Holdings {
     if (account.asOf !== null) asOf.set(account.scope, account.asOf);
   }
   const positions = accountPositions(ledger, splits, asOf);
+  const positionsOf = new Map<AccountScope, AccountPositionRow[]>();
+  for (const p of positions) {
+    const row = {
+      isin: p.isin,
+      security: securityOf(p.isin),
+      quantity: p.quantity,
+    };
+    const list = positionsOf.get(p.account);
+    if (list === undefined) positionsOf.set(p.account, [row]);
+    else list.push(row);
+  }
 
   // A security's lots are as of the earliest day among its holders.
   const through = new Map<string, IsoDate>();
@@ -198,13 +220,7 @@ export function buildHoldings(input: HoldingsInput): Holdings {
         files: account.files,
         transferred: account.transferred,
         refusedRows: account.files.some((file) => refused.has(file)),
-        positions: positions
-          .filter((p) => p.account === account.scope)
-          .map((p) => ({
-            isin: p.isin,
-            security: securityOf(p.isin),
-            quantity: p.quantity,
-          })),
+        positions: positionsOf.get(account.scope) ?? [],
       };
     })
     .sort(
@@ -272,8 +288,14 @@ export function buildHoldings(input: HoldingsInput): Holdings {
   return { accounts: accountRows, securities };
 }
 
-/** Every account the files name: by their reach, and by every row's account. */
-function collectAccounts(input: HoldingsInput): Map<AccountScope, Account> {
+/**
+ * Every account the files name, by their reach and by every row's account,
+ * with the day it is as of: see the module comment.
+ */
+function collectAccounts(
+  input: HoldingsInput,
+  completeThrough: IsoDate,
+): Map<AccountScope, Account> {
   const accounts = new Map<AccountScope, Account>();
   const get = (scope: AccountScope): Account => {
     let account = accounts.get(scope);
@@ -318,17 +340,23 @@ function collectAccounts(input: HoldingsInput): Map<AccountScope, Account> {
       account.firstEvent = event.date;
     }
   }
-  // Without a reach (a hand-built ledger), an account covers its events.
   const lastEvent = new Map<AccountScope, IsoDate>();
+  const lastMove = new Map<AccountScope, IsoDate>();
   for (const event of input.ledger.events) {
     if (event.kind === "ignored") continue;
-    lastEvent.set(
-      event.account,
-      later(lastEvent.get(event.account) ?? null, event.date),
-    );
+    const scope = event.account;
+    lastEvent.set(scope, later(lastEvent.get(scope) ?? null, event.date));
+    if (event.kind === "trade" || event.kind === "split") {
+      lastMove.set(scope, later(lastMove.get(scope) ?? null, event.date));
+    }
   }
   for (const account of accounts.values()) {
+    // Without a reach (a hand-built ledger), an account covers its events.
     account.asOf ??= lastEvent.get(account.scope) ?? null;
+    const cap = later(lastMove.get(account.scope) ?? null, completeThrough);
+    if (account.asOf !== null && compareText(account.asOf, cap) > 0) {
+      account.asOf = cap;
+    }
   }
   return accounts;
 }
@@ -343,9 +371,12 @@ function labelAccounts(
 ): Map<AccountScope, AccountLabel> {
   const byBroker = new Map<string, Account[]>();
   for (const account of accounts.values()) {
-    // A scope is "broker:label" (core `accountScope`, `accountGroup`).
-    const broker =
-      account.broker ?? account.scope.slice(0, account.scope.indexOf(":"));
+    // A scope is "broker:label" (core `accountScope`, `accountGroup`); an
+    // account known only by a reach takes the prefix if it is a broker's
+    // name as validateLedger checks one, so no part of a hash can pass.
+    const colon = account.scope.indexOf(":");
+    const prefix = colon > 0 ? account.scope.slice(0, colon) : "";
+    const broker = account.broker ?? (BROKER.test(prefix) ? prefix : "unknown");
     const list = byBroker.get(broker);
     if (list === undefined) byBroker.set(broker, [account]);
     else list.push(account);

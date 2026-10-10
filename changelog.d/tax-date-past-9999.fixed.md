@@ -1,0 +1,1 @@
+- **A row timed in the last hours of year 9999** (UTC) is now refused as an unreadable date. Before, it was read with a five-digit year in Ljubljana time. No real export has such a row; a hostile one could have stopped a run.

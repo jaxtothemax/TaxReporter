@@ -28,6 +28,7 @@ import {
   isFileRef,
   isIsoDate,
   LIMITS,
+  untrusted,
   type Diagnostic,
   type FileId,
   type FileRefusal,
@@ -227,12 +228,15 @@ function filesNamed(
  * number, never by anything of the account itself; files by the names they
  * were given; every amount a plain decimal string. Quantities and prices to
  * the form's 8 decimals, since a reverse split can leave a fraction with no
- * finite expansion. Never part of the returns, and never a reason to block.
+ * finite expansion. A security's ticker and name are the file's own text,
+ * cut as every finding cuts it (`untrusted`). Never part of the returns,
+ * and never a reason to block.
  */
 function holdingsReport(
   holdings: Holdings,
   labels: ReadonlyMap<FileId, string>,
 ) {
+  const cut = (text: string) => untrusted(text).untrusted;
   const rate = (r: BsiRate) => ({
     currency: r.listCurrency,
     rate: r.published,
@@ -251,14 +255,16 @@ function holdingsReport(
         isin: p.isin,
         ...(p.security.symbol === undefined
           ? {}
-          : { symbol: p.security.symbol }),
+          : { symbol: cut(p.security.symbol) }),
         quantity: p.quantity.toPlain(8, "halfUp"),
       })),
     })),
     securities: holdings.securities.map((s) => ({
       isin: s.isin,
-      ...(s.security.symbol === undefined ? {} : { symbol: s.security.symbol }),
-      ...(s.security.name === undefined ? {} : { name: s.security.name }),
+      ...(s.security.symbol === undefined
+        ? {}
+        : { symbol: cut(s.security.symbol) }),
+      ...(s.security.name === undefined ? {} : { name: cut(s.security.name) }),
       asOf: s.asOf,
       quantity: s.quantity.toPlain(8, "halfUp"),
       costEur: s.costEur?.toFixed(2, "halfUp") ?? null,
@@ -524,7 +530,10 @@ export function main(
           stale,
           ...(failed === null ? {} : { failed }),
           estimates: { gainsTaxEur: kdvpTax, dividendTaxDueEur: divDue },
-          holdings: holdingsReport(prepared.holdings, labels),
+          holdings:
+            prepared.holdings === null
+              ? null
+              : holdingsReport(prepared.holdings, labels),
           diagnostics: diagnostics.map((d) => ({
             ...forExport(d),
             ...filesNamed(d, labels),

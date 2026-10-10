@@ -100,8 +100,12 @@ export interface Prepared extends ReadExports {
   readonly coverageEnd: IsoDate;
   readonly kdvp: KdvpBuild;
   readonly div: DivBuild;
-  /** The shares still held, beside the returns: never part of them. */
-  readonly holdings: Holdings;
+  /**
+   * The shares still held, beside the returns: never part of them. Null
+   * when they could not be worked out, a fault of TaxReporter's that must
+   * not cost the user the returns.
+   */
+  readonly holdings: Holdings | null;
 }
 
 /**
@@ -231,18 +235,30 @@ export function buildReturns(read: ReadExports, input: BuildInput): Prepared {
     rates: input.rates,
     payers: input.payers,
   });
-  const holdings = buildHoldings({
-    ledger,
-    rates: input.rates,
-    reach: read.imports.flatMap(({ fileId, result }) =>
-      result.reach.map(({ account, lastDate }) => ({
-        account,
-        lastDate,
-        fileId,
-      })),
-    ),
-  });
-  return { ...read, coverageEnd, kdvp, div, holdings };
+  return { ...read, coverageEnd, kdvp, div, holdings: holdingsOf(read, input) };
+}
+
+/**
+ * The holdings, or null. They are a view beside the returns (ADR-0017): a
+ * fault in working them out, from a file no test foresaw, leaves them out
+ * and the returns as they are.
+ */
+function holdingsOf(read: ReadExports, input: BuildInput): Holdings | null {
+  try {
+    return buildHoldings({
+      ledger: read.ledger,
+      rates: input.rates,
+      reach: read.imports.flatMap(({ fileId, result }) =>
+        result.reach.map(({ account, lastDate }) => ({
+          account,
+          lastDate,
+          fileId,
+        })),
+      ),
+    });
+  } catch {
+    return null;
+  }
 }
 
 /** Reads the files and builds both returns: `readExports`, then `buildReturns`. */

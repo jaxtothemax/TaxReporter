@@ -108,4 +108,31 @@ describe("holdingOutlook", () => {
       }
     }
   });
+
+  it("gives no next bucket where its day would be past year 9999", () => {
+    // Any year to 9999 passes import: a hostile file must not crash a run.
+    expect(holdingOutlook("9995-06-01", "9996-01-01")).toEqual({
+      bucket: "25",
+      next: null,
+    });
+    expect(holdingOutlook("9990-01-01", "9999-12-31")).toEqual({
+      bucket: "20",
+      next: null,
+    });
+    expect(holdingOutlook("9994-12-31", "9995-01-01").next).toBeNull();
+    expect(holdingOutlook("9994-12-30", "9995-01-01").next).toEqual({
+      bucket: "20",
+      from: "9999-12-31",
+    });
+    expect(holdingOutlook("1000-01-01", "1000-01-01").bucket).toBe("25");
+  });
+
+  it("refuses a date that is not one", () => {
+    expect(() => holdingOutlook("10000-01-01", "2026-01-01")).toThrow(
+      RangeError,
+    );
+    expect(() => holdingOutlook("2026-01-01", "2026-02-30")).toThrow(
+      RangeError,
+    );
+  });
 });

@@ -362,6 +362,32 @@ describe("taxreporter", () => {
     }
   });
 
+  it("cuts a security's name in its JSON as it cuts any file text", () => {
+    const dir = scratch();
+    const csv = join(dir, "long-name.csv");
+    const header = readFileSync(fixture("t212-invest-v4-2026.csv"), "utf8")
+      .split("\n", 1)
+      .join("");
+    writeFileSync(
+      csv,
+      `${header}\nMarket buy,2026-01-06 14:31:02+00:00,US1912161007,KO,"${"N".repeat(500)}",,EOF0000003001,2.0000000000,69.5000000000,USD,1.17250000,,,118.73,"EUR",,,,,,\n`,
+    );
+    const result = run([
+      csv,
+      "--year",
+      "2026",
+      "--tax-number",
+      "12345678",
+      "--out",
+      join(dir, "out"),
+      "--json",
+    ]);
+    const report = JSON.parse(result.stdout) as {
+      holdings: { securities: { name: string }[] };
+    };
+    expect(report.holdings.securities[0]?.name).toBe("N".repeat(80));
+  });
+
   it("reads a file given twice once, and says so", () => {
     const dir = scratch();
     const result = run([

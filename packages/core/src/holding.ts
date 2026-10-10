@@ -65,7 +65,10 @@ const BUCKET_YEARS = Object.freeze([5, 10, 15] as const);
 export interface HoldingOutlook {
   /** The bucket a sale on the as-of day falls in, read cautiously. */
   readonly bucket: HoldingBucket;
-  /** The next, lower bucket and the first day it is certain; null once exempt. */
+  /**
+   * The next, lower bucket and the first day it is certain; null once
+   * exempt, or when that day would be past year 9999.
+   */
   readonly next: {
     readonly bucket: HoldingBucket;
     readonly from: IsoDate;
@@ -85,25 +88,31 @@ export function holdingOutlook(
   acquired: IsoDate,
   asOf: IsoDate,
 ): HoldingOutlook {
+  // Dates from a file may be any year to 9999; the arithmetic below takes
+  // only real ones, and a day it cannot name is no next bucket.
+  if (!isIsoDate(acquired) || !isIsoDate(asOf)) {
+    throw new RangeError("holdingOutlook takes ISO dates (YYYY-MM-DD)");
+  }
   const years = completedYears(acquired, addDays(asOf, -1));
   const bucket = bucketFor(years);
   const target = BUCKET_YEARS.find((y) => y > years);
-  if (target === undefined) return { bucket, next: null };
-  return {
-    bucket,
-    next: {
-      bucket: bucketFor(target),
-      from: addDays(anniversary(acquired, target), 1),
-    },
-  };
+  const day = target === undefined ? null : anniversary(acquired, target);
+  const from = day === null || day === LAST_DAY ? null : addDays(day, 1);
+  return target === undefined || from === null
+    ? { bucket, next: null }
+    : { bucket, next: { bucket: bucketFor(target), from } };
 }
+
+/** The last day an ISO date can name: the day after it has five digits. */
+const LAST_DAY = "9999-12-31";
 
 /**
  * The first day `completedYears` counts `years` complete: the anniversary,
- * or 1 March for a 29 February outside a leap year.
+ * or 1 March for a 29 February outside a leap year; null past year 9999.
  */
-function anniversary(acquired: IsoDate, years: number): IsoDate {
-  const year = String(Number(acquired.slice(0, 4)) + years).padStart(4, "0");
-  const date = `${year}${acquired.slice(4)}`;
-  return isIsoDate(date) ? date : `${year}-03-01`;
+function anniversary(acquired: IsoDate, years: number): IsoDate | null {
+  const year = Number(acquired.slice(0, 4)) + years;
+  if (year > 9999) return null;
+  const date = `${String(year)}${acquired.slice(4)}`;
+  return isIsoDate(date) ? date : `${String(year)}-03-01`;
 }

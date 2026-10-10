@@ -436,8 +436,8 @@ describe("buildHoldings", () => {
     ]);
   });
 
-  it("takes an account's as-of day from its files, however far it reaches", () => {
-    // A row dated far ahead is the files' own claim: shown, never clamped
+  it("takes an account's as-of day as far as its own trades reach past the snapshot", () => {
+    // A trade dated far ahead is the files' own claim: shown, never clamped
     // to a clock, and the lot has no rate rather than a guessed one.
     const far = file("ibkr", "far.xml", accountScope("ibkr", "U2222222"));
     const holdings = holdingsOf(
@@ -449,6 +449,61 @@ describe("buildHoldings", () => {
     expect(aapl?.asOf).toBe("2099-01-02");
     expect(aapl?.lots[0]?.missingRate).toBe("afterSnapshot");
     expect(aapl?.costEur).toBeNull();
+  });
+
+  it("does not let a cash row past the snapshot age every lot", () => {
+    // A deposit dated 2099 is how far the file reaches, not a day its
+    // shares were held to: as of 2099, every lot would look exempt.
+    const t212 = file("trading212", "t212.csv", accountGroup("trading212", 1));
+    const holdings = holdingsOf(
+      [
+        trade(t212, AAPL, "buy", "2026-01-06", "2", "243.36"),
+        {
+          kind: "ignored",
+          reason: "deposit",
+          broker: "trading212",
+          account: t212.account,
+          source: { fileId: t212.fileId, row: 9 },
+        },
+      ],
+      [{ account: t212.account, lastDate: "2099-01-05", fileId: t212.fileId }],
+    );
+    expect(holdings.accounts[0]?.asOf).toBe("2026-10-07");
+    expect(holdings.securities[0]?.lots[0]?.outlook).toEqual({
+      bucket: "25",
+      next: { bucket: "20", from: "2031-01-07" },
+    });
+  });
+
+  it("holds a lot bought in the last years an ISO date can name", () => {
+    // Any year to 9999 passes import; a hostile file must not crash a run.
+    const t212 = file("trading212", "t212.csv", accountGroup("trading212", 1));
+    const holdings = holdingsOf(
+      [trade(t212, AAPL, "buy", "9996-01-01", "1", "100")],
+      [{ account: t212.account, lastDate: "9996-01-01", fileId: t212.fileId }],
+    );
+    expect(holdings.securities[0]?.lots[0]?.outlook).toEqual({
+      bucket: "25",
+      next: null,
+    });
+  });
+
+  it("names an account known only by a reach by its broker, never by its scope", () => {
+    const holdings = holdingsOf(
+      [],
+      [
+        {
+          // Every adapter's scope has a broker before a colon; one without
+          // must not give any part of itself away as the broker.
+          account: "0123456789abcdef" as AccountScope,
+          lastDate: "2026-09-30",
+          fileId: fileIdOf(new TextEncoder().encode("odd.csv")),
+        },
+      ],
+    );
+    expect(holdings.accounts.map((a) => a.label)).toEqual([
+      { key: "unknown-1", broker: "unknown", ordinal: 1 },
+    ]);
   });
 
   it("never lets an account's scope out", () => {
