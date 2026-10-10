@@ -18,6 +18,7 @@ import type {
   FailedReply,
   FileSummary,
   PayerDetails,
+  PayerPrompt,
   PrepareReply,
   ReadReply,
 } from "../engine/protocol";
@@ -108,6 +109,8 @@ export interface WizardState {
   /** Whether Trading 212 files, which do not name their account, are one. */
   readonly accounts: AccountChoice;
   readonly payers: Readonly<Record<string, PayerDraft>>;
+  /** What each payer draft started as, to tell a typed one from a preset. */
+  readonly payerPresets: Readonly<Record<string, PayerDraft>>;
   readonly reading: Reading;
   readonly preparing: Preparing;
   /**
@@ -194,6 +197,7 @@ export const initialWizardState: WizardState = {
   details: EMPTY_DETAILS,
   accounts: "same",
   payers: {},
+  payerPresets: {},
   reading: IDLE,
   preparing: IDLE,
   lastRead: null,
@@ -414,22 +418,79 @@ function filesChanged(state: WizardState): WizardState {
   return { ...state, reading: IDLE, preparing: IDLE, lastRead: null };
 }
 
-/** New payers get their details preset from the export; typed ones stay. */
+/**
+ * Brokers whose dividends are filed with the broker as the payer: its name,
+ * address and country, with no tax number or ID. Seen in an eDavki record of
+ * Trading 212 dividends the owner filed; FURS's own text names the company
+ * that pays, so this is a default the user can change (research 02 §5).
+ */
+export const BROKER_PAYERS: Readonly<
+  Record<string, Pick<PayerDraft, "name" | "address" | "country">>
+> = {
+  trading212: { name: "TRADING 212", address: "LONDON", country: "GB" },
+};
+
+/**
+ * The broker's own details, for a prompt whose dividends one broker paid out.
+ * Never for a Slovenian security: a Slovenian payer is named by its tax
+ * number and withholds Slovenian tax itself, which a preset country of GB
+ * would hide (research 04 §7.1, 02 §3.4).
+ */
+export function brokerPayerOf(
+  prompt: Pick<PayerPrompt, "broker" | "isinCountry">,
+): Pick<PayerDraft, "name" | "address" | "country"> | undefined {
+  if (prompt.isinCountry === "SI") return undefined;
+  return Object.hasOwn(BROKER_PAYERS, prompt.broker)
+    ? BROKER_PAYERS[prompt.broker]
+    : undefined;
+}
+
+const samePayer = (a: PayerDraft, b: PayerDraft) =>
+  a.name === b.name &&
+  a.address === b.address &&
+  a.country === b.country &&
+  a.id === b.id &&
+  a.sourceCountry === b.sourceCountry;
+
+/**
+ * Payers get their details preset from the export. A draft the user has
+ * typed in stays; one still equal to the preset it started as is set again
+ * from the new reading, so that adding a file of another broker does not
+ * leave the first broker's preset on its payments (the same files must give
+ * the same payer whatever order they were added in). A draft the user has
+ * edited in any field stays as it is: what was typed is never overwritten, so
+ * a draft edited in one field keeps the broker's other fields when the files
+ * later change (the Details step shows it, and #44 asks for the source).
+ */
 function presetPayers(
   payers: Readonly<Record<string, PayerDraft>>,
+  presets: Readonly<Record<string, PayerDraft>>,
   reply: ReadReply,
-): Readonly<Record<string, PayerDraft>> {
-  const next = { ...payers };
+): {
+  readonly payers: Readonly<Record<string, PayerDraft>>;
+  readonly presets: Readonly<Record<string, PayerDraft>>;
+} {
+  const nextPayers = { ...payers };
+  const nextPresets = { ...presets };
   for (const prompt of reply.payers) {
-    next[prompt.isin] ??= {
-      name: prompt.name,
-      address: "",
-      country: prompt.isinCountry,
+    const broker = brokerPayerOf(prompt);
+    const preset: PayerDraft = {
+      name: broker?.name ?? prompt.name,
+      address: broker?.address ?? "",
+      country: broker?.country ?? prompt.isinCountry,
       id: "",
       sourceCountry: "",
     };
+    const draft = payers[prompt.isin];
+    const before = presets[prompt.isin];
+    const untouched =
+      draft === undefined || (before !== undefined && samePayer(draft, before));
+    if (untouched) {
+      nextPayers[prompt.isin] = preset;
+      nextPresets[prompt.isin] = preset;
+    }
   }
-  return next;
+  return { payers: nextPayers, presets: nextPresets };
 }
 
 export function wizardReducer(
@@ -532,11 +593,17 @@ export function wizardReducer(
       if (action.reply.kind === "failed") {
         return { ...state, reading: { status: "failed", request, fileIds } };
       }
+      const preset = presetPayers(
+        state.payers,
+        state.payerPresets,
+        action.reply,
+      );
       return {
         ...state,
         reading: { status: "read", request, fileIds, reply: action.reply },
         lastRead: null,
-        payers: presetPayers(state.payers, action.reply),
+        payers: preset.payers,
+        payerPresets: preset.presets,
       };
     }
     case "prepareStarted":

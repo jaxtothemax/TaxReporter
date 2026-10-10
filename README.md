@@ -69,7 +69,8 @@ broker exports ─► read ─► one ledger ─► Banka Slovenije rates ─►
    schemas, which the project's tests check every kind of return against. Before a file is
    written, it is checked against the rules the schemas leave out. Foreign tax withheld stays
    with its dividend. Brokers do not export a dividend payer's address, which Doh-Div needs, so
-   you add it once per security. A return is withheld, with the reason, while any finding blocks
+   you add it once per security (the web app starts Trading 212's dividends with Trading 212
+   as the payer). A return is withheld, with the reason, while any finding blocks
    it.
 6. **You check it, then import it into eDavki yourself.** TaxReporter shows an estimate of the
    tax and the source of every figure. It never files anything.
@@ -88,7 +89,9 @@ The project's tests use synthetic exports that follow each format as far as the 
 reconstructs it from public samples, not real accounts' data. Each reader still has to be
 checked against real, anonymized exports before v0.1 ships ([#22](https://github.com/jaxtothemax/broker-to-edavki/issues/22),
 [#12](https://github.com/jaxtothemax/broker-to-edavki/issues/12)). Both the browser app
-and the command-line tool write the same XML for the same files. Next, in
+and the command-line tool write the same XML for the same files and payer details (the browser app
+starts Trading 212's dividend payers as Trading 212; the command line takes them from its payers
+file, [#43](https://github.com/jaxtothemax/broker-to-edavki/issues/43)). Next, in
 order of how many Slovenian investors use them: eToro, XTB, DEGIRO, Revolut, Lightyear, Saxo and
 Robinhood. The spreadsheet (XLSX) reader that eToro, XTB and Saxo need is built; their adapters
 wait on real, anonymized exports.

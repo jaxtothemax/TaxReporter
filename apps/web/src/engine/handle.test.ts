@@ -115,7 +115,25 @@ describe("handleRequest: read", () => {
     ]);
     const coke = reply.payers.find((p) => p.isin === "US1912161007");
     expect(coke?.payments).toBeGreaterThan(1);
+    // Trading 212 and Interactive Brokers both paid it: no one broker did.
+    expect(coke?.broker).toBe("");
     expect(reply.symbols["US1912161007"]).toBe("KO");
+  });
+
+  it("names the adapter's own broker id when one broker paid a security", async () => {
+    // The id the web app's payer table is keyed by.
+    const reply = await handleRequest(
+      {
+        ...base,
+        id: 8,
+        kind: "read",
+        files: [file("t212-2026.csv", t212v4)],
+      },
+      () => Promise.reject(new Error("not needed")),
+    );
+    if (reply.kind !== "read") throw new Error(reply.kind);
+    const coke = reply.payers.find((p) => p.isin === "US1912161007");
+    expect(coke?.broker).toBe("trading212");
   });
 
   it("marks a repeat and a file no adapter reads, by position", async () => {
@@ -264,6 +282,14 @@ describe("handleRequest: prepare", () => {
     expect(coke[0]?.country).toBe("US");
     expect(preview.dividendsByMonth).toHaveLength(12);
     expect(preview.dividendsEstimate.taxRate).toBe("0.25");
+  });
+
+  it("shows the country the income comes from, not the payer's", async () => {
+    // A broker's own country (GB) as the payer of a US share's dividends.
+    const { preview } = await prepare([{ ...coca, country: "GB" }]);
+    const coke = preview.dividends.filter((d) => d.isin === "US1912161007");
+    expect(coke.length).toBeGreaterThan(0);
+    for (const row of coke) expect(row.country).toBe("US");
   });
 
   it("withholds only Doh-Div while a payer is missing", async () => {

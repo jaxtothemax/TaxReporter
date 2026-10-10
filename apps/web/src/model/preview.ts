@@ -116,7 +116,7 @@ export interface DividendRow {
   readonly symbol: string;
   readonly payer: string;
   readonly isin: string;
-  /** ISO 3166-1 alpha-2 country of the payer and of the income. */
+  /** ISO 3166-1 alpha-2 country the income comes from, not the payer's. */
   readonly country: string;
   readonly gross: Money;
   readonly foreignTax: Money;

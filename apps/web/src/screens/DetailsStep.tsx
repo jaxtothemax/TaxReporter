@@ -20,6 +20,7 @@ import { explain, type ExplainProps } from "../explain/anchors";
 import { formatCountry, plural, type Locale } from "../i18n/format";
 import { useI18n } from "../i18n/i18n";
 import {
+  brokerPayerOf,
   isPayerIncomplete,
   isValidTaxNumber,
   normalizeTaxNumber,
@@ -325,6 +326,15 @@ export function DetailsStep({
     state.mode === "own" && state.reading.status === "read"
       ? state.reading.reply.payers
       : [];
+  // Each broker whose payer details were preset, named once.
+  const presetBrokers = [
+    ...new Set(
+      prompts.flatMap((p) => {
+        const preset = brokerPayerOf(p);
+        return preset === undefined ? [] : [preset.name];
+      }),
+    ),
+  ];
   const missing = prompts.filter((p) =>
     isPayerIncomplete(state.payers[p.isin], p.isinCountry),
   ).length;
@@ -442,6 +452,11 @@ export function DetailsStep({
                 {t.details.payersTitle}
               </h2>
               <p className="muted small">{t.details.payersIntro}</p>
+              {presetBrokers.length === 0 ? null : (
+                <p className="muted small">
+                  {t.details.payerFromBroker(presetBrokers.join(", "))}
+                </p>
+              )}
               {missing === 0 ? null : (
                 <Note tone="warn">
                   {plural(missing, locale, t.details.payersMissing)}

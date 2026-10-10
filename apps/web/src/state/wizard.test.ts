@@ -64,6 +64,7 @@ const readReply = (
       symbol: "KO",
       name: "Coca-Cola",
       isinCountry: "US",
+      broker: "ibkr",
       payments: 2,
     },
   ],
@@ -260,6 +261,136 @@ describe("own files", () => {
     expect(
       wizardReducer(separate, { type: "setAccounts", accounts: "separate" }),
     ).toBe(separate);
+  });
+
+  it("presets a broker that pays out dividends as the payer, and keeps what was typed", () => {
+    const prompt = {
+      isin: "US1912161007",
+      symbol: "KO",
+      name: "Coca-Cola",
+      isinCountry: "US",
+      broker: "trading212",
+      payments: 2,
+    };
+    const read = readOwn([summary()], { payers: [prompt] });
+    // The broker, not the company: no address of the company, no ID.
+    expect(read.payers["US1912161007"]).toEqual({
+      name: "TRADING 212",
+      address: "LONDON",
+      country: "GB",
+      id: "",
+      sourceCountry: "",
+    });
+    // Dividends paid through several brokers name none of them.
+    const mixed = readOwn([summary()], {
+      payers: [{ ...prompt, broker: "" }],
+    });
+    expect(mixed.payers["US1912161007"]).toMatchObject({
+      name: "Coca-Cola",
+      address: "",
+      country: "US",
+    });
+    // A typed name stays when the files are read again.
+    const typed = wizardReducer(read, {
+      type: "setPayer",
+      isin: "US1912161007",
+      field: "name",
+      value: "The Coca-Cola Company",
+    });
+    const again = wizardReducer(typed, {
+      type: "readDone",
+      request: 1,
+      reply: readReply([summary()], { payers: [prompt] }),
+    });
+    expect(again.payers["US1912161007"]?.name).toBe("The Coca-Cola Company");
+  });
+
+  it("never presets the broker for a Slovenian security", () => {
+    const read = readOwn([summary()], {
+      payers: [
+        {
+          isin: "SI0031102120",
+          symbol: "KRKG",
+          name: "Krka",
+          isinCountry: "SI",
+          broker: "trading212",
+          payments: 1,
+        },
+      ],
+    });
+    // A Slovenian payer is named by its tax number, so it stays the company.
+    expect(read.payers["SI0031102120"]).toMatchObject({
+      name: "Krka",
+      country: "SI",
+    });
+  });
+
+  it("gives the same payer whatever order the files were added in", () => {
+    const prompt = {
+      isin: "US1912161007",
+      symbol: "KO",
+      name: "Coca-Cola",
+      isinCountry: "US",
+      broker: "trading212",
+      payments: 2,
+    };
+    const reread = (state: WizardState, broker: string, request: number) =>
+      wizardReducer(
+        wizardReducer(state, {
+          type: "readStarted",
+          request,
+          fileIds: ["file-1"],
+        }),
+        {
+          type: "readDone",
+          request,
+          reply: readReply([summary()], { payers: [{ ...prompt, broker }] }),
+        },
+      );
+    // Trading 212 first, then a file of another broker that paid it too: the
+    // preset goes, as it would had both been added at once.
+    const first = readOwn([summary()], { payers: [prompt] });
+    expect(first.payers["US1912161007"]?.name).toBe("TRADING 212");
+    const mixed = reread(first, "", 2);
+    expect(mixed.payers["US1912161007"]).toMatchObject({
+      name: "Coca-Cola",
+      address: "",
+      country: "US",
+    });
+    // And back again, when the other broker's file is removed.
+    expect(reread(mixed, "trading212", 3).payers["US1912161007"]?.name).toBe(
+      "TRADING 212",
+    );
+    // Each field the user types stays through a change of the mix.
+    for (const [field, value] of [
+      ["name", "The Coca-Cola Company"],
+      ["address", "1 Some Street, London"],
+      ["country", "DE"],
+      ["id", "123456"],
+      ["sourceCountry", "KY"],
+    ] as const) {
+      const edited = wizardReducer(first, {
+        type: "setPayer",
+        isin: "US1912161007",
+        field,
+        value,
+      });
+      expect(reread(edited, "", 5).payers["US1912161007"]?.[field], field).toBe(
+        value,
+      );
+    }
+    // What the user typed stays through every change of the mix.
+    const typed = wizardReducer(first, {
+      type: "setPayer",
+      isin: "US1912161007",
+      field: "address",
+      value: "1 Some Street, London",
+    });
+    const kept = reread(typed, "", 4);
+    expect(kept.payers["US1912161007"]).toMatchObject({
+      name: "TRADING 212",
+      address: "1 Some Street, London",
+    });
   });
 
   it("presets each payer from the export, and keeps what the user typed", () => {

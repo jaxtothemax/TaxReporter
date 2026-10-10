@@ -105,6 +105,8 @@ export interface PayerPrompt {
   readonly name: string;
   /** The FURS country the ISIN names; "" when it names none. */
   readonly isinCountry: string;
+  /** The broker that paid every dividend of the security; "" when several did. */
+  readonly broker: string;
   readonly payments: number;
 }
 
@@ -236,6 +238,7 @@ function isPayerPrompt(v: unknown): v is PayerPrompt {
     isString(v["symbol"]) &&
     isString(v["name"]) &&
     isString(v["isinCountry"]) &&
+    isString(v["broker"]) &&
     isCount(v["payments"])
   );
 }

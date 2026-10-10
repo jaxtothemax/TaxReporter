@@ -147,6 +147,7 @@ export interface Messages {
     readonly payerTaxNumberHelp: string;
     readonly sourceCountry: string;
     readonly sourceCountryHelp: string;
+    readonly payerFromBroker: (name: string) => string;
     readonly countryChoose: string;
     readonly payersMissing: PluralForms;
   };
@@ -578,7 +579,7 @@ export const en: Messages = {
       "The header of each return, as you type. Empty fields are left out.",
     payersTitle: "Who paid your dividends",
     payersIntro:
-      "Doh-Div needs each payer's name, address and country. TaxReporter does not look them up online, as that would tell a server what you own: the company's annual report or website gives its address.",
+      "Doh-Div needs each payer's name, address and country. TaxReporter does not look them up online, as that would tell a server what you own: the company's annual report or website gives its address, where it is the company that paid.",
     payments: {
       one: "{n} payment this year",
       other: "{n} payments this year",
@@ -594,6 +595,8 @@ export const en: Messages = {
       "Left empty, the ISIN is written in its place, which eDavki accepts.",
     sourceCountry: "Country the income comes from",
     sourceCountryHelp: "The ISIN does not say.",
+    payerFromBroker: (name) =>
+      `Dividends paid out by ${name} start with it as the payer. Edit the details if your statement names another payer.`,
     countryChoose: "Choose a country",
     payersMissing: {
       one: "{n} payer still needs its details. Until then, Doh-Div is not written; Doh-KDVP is.",
@@ -1101,7 +1104,7 @@ export const sl: Messages = {
       "Glava vsake napovedi, sproti med vnosom. Prazna polja so izpuščena.",
     payersTitle: "Kdo vam je izplačal dividende",
     payersIntro:
-      "Za Doh-Div so potrebni ime, naslov in država vsakega izplačevalca. TaxReporter jih ne išče na spletu, saj bi s tem strežniku razkril, kaj imate: naslov družbe najdete v njenem letnem poročilu ali na njeni spletni strani.",
+      "Za Doh-Div so potrebni ime, naslov in država vsakega izplačevalca. TaxReporter jih ne išče na spletu, saj bi s tem strežniku razkril, kaj imate: naslov družbe najdete v njenem letnem poročilu ali na njeni spletni strani, kjer je dividendo izplačala družba.",
     payments: {
       one: "{n} izplačilo letos",
       two: "{n} izplačili letos",
@@ -1119,6 +1122,8 @@ export const sl: Messages = {
       "Če polje pustite prazno, je namesto nje vpisana koda ISIN, kar eDavki sprejmejo.",
     sourceCountry: "Država, iz katere je dohodek",
     sourceCountryHelp: "Koda ISIN je ne navaja.",
+    payerFromBroker: (name) =>
+      `Pri dividendah, ki jih je izplačal ${name}, je kot izplačevalec že vpisan ${name}. Podatke popravite, če izpisek navaja drugega izplačevalca.`,
     countryChoose: "Izberite državo",
     payersMissing: {
       one: "Še {n} izplačevalec potrebuje podatke. Do takrat Doh-Div ni zapisan, Doh-KDVP pa je.",
