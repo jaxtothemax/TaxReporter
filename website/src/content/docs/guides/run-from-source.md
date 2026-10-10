@@ -79,20 +79,28 @@ the command. Add `--json` for a report other tools can read.
 The JSON report also lists the shares you still hold, under `holdings`, in two views:
 
 - **`accounts`**: each account's own position per security, which you can compare with what
-  the broker shows. An account is named by its broker and a number (`ibkr-1`), never by its
-  account number.
+  the broker shows, and the day it is as of: the last day that account's files cover. An
+  account is named by its broker and a number (`ibkr-1`), never by its account number.
 - **`securities`**: the lots still open across all your accounts, matched first in, first out.
   These are the lots your next sale will be taxed against. Each lot shows its purchase date,
-  its cost in euro at the Banka Slovenije rate of that day, and `nextBucket`, the date it
-  moves to a lower tax rate. That date is the day after the anniversary, because FURS has not
-  said whether the anniversary itself counts.
+  its cost in euro at the Banka Slovenije rate of that day, and `nextBucket`: the lower tax
+  rate it moves to next and the date it applies `from`, or `null` once a lot is exempt. That
+  date is the day after the anniversary, because FURS has not said whether the anniversary
+  itself counts. A security's `asOf` is the earliest last day among the accounts that hold
+  it, since after that day one of them may have traded it in a file you did not add.
 
-Holdings are as of the last day your files cover, but no later than the last trade in an
-account once that day is past the exchange rates the app ships with. Market prices are never fetched, so they
-show what you paid, not what the shares are worth. If earlier exports are missing, holdings
-come out too low. `transferred` marks an account whose files moved shares in or out, which
-are not read yet, and `incomplete` marks a security your files sell more of than they buy. If the
-holdings cannot be worked out, `holdings` is `null` and the returns are written as usual.
+Market prices are never fetched, so holdings show what you paid, not what the shares are
+worth. If earlier exports are missing, holdings come out too low. An account's day can be
+past the end of the exchange rates the app ships with only as far as its own trades reach,
+so a cash row dated years ahead does not make every lot look old. Three flags say where a
+figure may be wrong:
+
+- `transferred`: the account's files move shares in or out, which are not read yet.
+- `refusedRows`: a row of the account's files was refused, so its position may be missing it.
+- `incomplete`: your files sell more of the security than they buy.
+
+If the holdings cannot be worked out, `holdings` is `null` and the returns are written as
+usual.
 
 Brokers do not export a dividend payer's address, which Doh-Div needs, so give it in a small
 JSON file, one entry per security (by ISIN):

@@ -16,11 +16,15 @@
  * As-of days: an account's positions are as of its own last covered day. A
  * security's lots are as of the earliest last covered day among the
  * accounts that still hold it, since after that day one of them may have
- * traded it unseen; an old, closed account does not hold them back. Never
- * today's date: the files are all there is. A day past the rates snapshot
- * counts only as far as the account's own trades reach, as for the
- * coverage end (prepare.ts): a deposit dated 2099 must not make every lot
- * look fifteen years old.
+ * traded it unseen; an old, closed account does not hold them back. Where
+ * FIFO leaves a lot open or a sale unmatched while every account's own
+ * position nets to zero (a sale whose purchase is in a missing export,
+ * then a purchase), the accounts that traded it stand in for its holders.
+ * Never today's date: the files are all there is. An account's day may be
+ * past the rates snapshot only as far as its own trades and splits reach.
+ * The coverage end (prepare.ts) clamps to the snapshot outright for the
+ * same reason, a deposit dated 2099; holdings let a trade past it stand,
+ * since its lot is real, if without a cost.
  *
  * Holdings never block. They raise no diagnostic (the FIFO runs' own are the
  * returns' to raise), and a lot whose rate the snapshot does not have, one
@@ -159,6 +163,12 @@ interface Account {
   transferred: boolean;
 }
 
+function addTo<K, V>(map: Map<K, Set<V>>, key: K, value: V): void {
+  const set = map.get(key);
+  if (set === undefined) map.set(key, new Set([value]));
+  else set.add(value);
+}
+
 /** A broker's name, as `validateLedger` checks it on every event. */
 const BROKER = /^[a-z0-9]{1,32}$/;
 
@@ -197,14 +207,31 @@ export function buildHoldings(input: HoldingsInput): Holdings {
     else list.push(row);
   }
 
-  // A security's lots are as of the earliest day among its holders.
-  const through = new Map<string, IsoDate>();
+  // A security's lots are as of the earliest day among its holders, or,
+  // where FIFO has something left that no account's position shows, among
+  // the accounts that traded it.
+  const holders = new Map<string, Set<AccountScope>>();
   for (const { account, isin } of positions) {
-    const end = asOf.get(account);
-    if (end === undefined) continue;
-    const seen = through.get(isin);
-    if (seen === undefined || compareText(end, seen) < 0) {
-      through.set(isin, end);
+    addTo(holders, isin, account);
+  }
+  const traders = new Map<string, Set<AccountScope>>();
+  for (const event of ledger.events) {
+    if (event.kind === "trade")
+      addTo(traders, event.security.isin, event.account);
+  }
+  const through = new Map<string, IsoDate>();
+  for (const [isin, history] of whole) {
+    const left =
+      history.open.length > 0 ||
+      history.disposals.some((d) => d.unmatched.isPositive());
+    const by = holders.get(isin) ?? (left ? traders.get(isin) : undefined);
+    for (const account of by ?? []) {
+      const end = asOf.get(account);
+      if (end === undefined) continue;
+      const seen = through.get(isin);
+      if (seen === undefined || compareText(end, seen) < 0) {
+        through.set(isin, end);
+      }
     }
   }
   const cut = matchFifo(ledger, { through }).securities;

@@ -55,12 +55,15 @@ engine, let alone reach a screen or an export.
    reads that security only through that day (`through`): after it, one of those accounts
    may have traded the security unseen. An old, closed account no longer holding the
    security does not hold its lots back, which the session-wide coverage end used by the
-   30-day rule would. Never today's date: the files are all there is. But a day past the
-   rates snapshot counts only as far as the account's own trades and splits reach, as the
-   coverage end already does for the 30-day rule: a deposit dated 2099 says how far a file
-   reaches, not a day its shares were held to, and as of 2099 every lot would look exempt.
-   A trade the files date that far is their own claim, shown as they claim it, without a
-   cost, since no rate exists for it.
+   30-day rule would. Where FIFO leaves a lot open, or a sale unmatched, while every
+   account's own position nets to zero (a sale whose purchase is in a missing export, then
+   a purchase), the accounts that traded the security stand in for its holders, so the
+   security is still listed, and flagged. Never today's date: the files are all there is.
+   But an account's day may be past the rates snapshot only as far as its own trades and
+   splits reach: a deposit dated 2099 says how far a file reaches, not a day its shares
+   were held to, and as of 2099 every lot would look exempt. The coverage end clamps to
+   the snapshot outright for the same reason; holdings let a trade past it stand, since
+   its lot is real, shown as the files claim it and without a cost.
 
 3. **The next bucket's date is the day after the anniversary.** `completedYears` lets the
    anniversary itself complete a year; FURS has published no example of that day (04 §4.5,

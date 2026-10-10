@@ -475,6 +475,30 @@ describe("buildHoldings", () => {
     });
   });
 
+  it("lists a security FIFO still holds where every position nets to zero", () => {
+    // A sale whose purchase is in an export not added, then a purchase: the
+    // account's own count is zero, but FIFO holds the new lot, and the sale
+    // it could not match says the history is short.
+    const t212 = file("trading212", "t212.csv", accountGroup("trading212", 1));
+    const holdings = holdingsOf(
+      [
+        trade(t212, AAPL, "sell", "2025-03-03", "10", "235.33"),
+        trade(t212, AAPL, "buy", "2026-01-06", "10", "243.36"),
+      ],
+      [{ account: t212.account, lastDate: "2026-09-30", fileId: t212.fileId }],
+    );
+    expect(holdings.accounts[0]?.positions).toEqual([]);
+    expect(
+      holdings.securities.map((s) => [
+        s.security.symbol,
+        s.asOf,
+        s.quantity.toString(),
+        s.incomplete,
+        s.lots.map((l) => l.purchaseDate),
+      ]),
+    ).toEqual([["AAPL", "2026-09-30", "10", true, ["2026-01-06"]]]);
+  });
+
   it("holds a lot bought in the last years an ISO date can name", () => {
     // Any year to 9999 passes import; a hostile file must not crash a run.
     const t212 = file("trading212", "t212.csv", accountGroup("trading212", 1));
