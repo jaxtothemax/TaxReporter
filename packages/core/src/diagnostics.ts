@@ -396,7 +396,7 @@ export interface DiagnosticParams {
    */
   dividendLabelTreated: {
     readonly broker: string;
-    readonly kind: "bonus" | "demerger";
+    readonly label: "bonus" | "demerger";
   };
 }
 

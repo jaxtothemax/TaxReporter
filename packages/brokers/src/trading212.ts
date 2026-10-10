@@ -563,7 +563,7 @@ function read(table: CsvTable, context: ReadContext): ImportResult {
         diagnostic(
           "warning",
           "dividendLabelTreated",
-          { broker: TRADING212, kind: labelled },
+          { broker: TRADING212, label: labelled },
           source,
         ),
       );

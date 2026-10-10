@@ -278,13 +278,13 @@ describe("dividends a broker labels Bonus or Demerger", () => {
       [
         "warning",
         "dividendLabelTreated",
-        { broker: "trading212", kind: "bonus" },
+        { broker: "trading212", label: "bonus" },
         2,
       ],
       [
         "warning",
         "dividendLabelTreated",
-        { broker: "trading212", kind: "demerger" },
+        { broker: "trading212", label: "demerger" },
         3,
       ],
     ]);
