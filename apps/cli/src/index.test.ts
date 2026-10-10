@@ -488,6 +488,58 @@ describe("taxreporter", () => {
     expect(existsSync(out)).toBe(false);
   });
 
+  it("writes a year's returns that another year's refused rows cannot change (ADR 0017)", () => {
+    const dir = scratch();
+    const takeover = fixture("t212-invest-v4-history-takeover.csv");
+    const out = join(dir, "out");
+    const written = run([
+      takeover,
+      ...args2026(out, "--payers", payersFile(dir)),
+    ]);
+    expect(written.code).toBe(0);
+    expect(existsSync(join(out, "Doh_KDVP_2026.xml"))).toBe(true);
+    expect(existsSync(join(out, "Doh_Div_2026.xml"))).toBe(true);
+    expect(written.stdout).toContain("refusedElsewhere");
+    const json = run([
+      takeover,
+      ...args2026(join(dir, "json"), "--payers", payersFile(dir), "--json"),
+    ]);
+    const report = JSON.parse(json.stdout) as {
+      diagnostics: { severity: string; code: string; params: unknown }[];
+    };
+    const note = (isin: string, date: string, shares: string) => [
+      "info",
+      { isin, date, year: "2026", shares },
+    ];
+    expect(
+      report.diagnostics
+        .filter((d) => d.code === "refusedElsewhere")
+        .map((d) => [d.severity, d.params]),
+    ).toEqual([
+      note("US00000VEGA3", "2025-06-24", "rights"),
+      note("US00000ORBT1", "2025-09-03", "out"),
+      note("US00000NOVA8", "2025-09-03", "in"),
+    ]);
+    expect(report.diagnostics.some((d) => d.severity === "blocking")).toBe(
+      false,
+    );
+    // In their own year they still hold both returns back.
+    const held = join(dir, "held");
+    const result = run([
+      takeover,
+      "--year",
+      "2025",
+      "--tax-number",
+      "12345678",
+      "--out",
+      held,
+      "--payers",
+      payersFile(dir),
+    ]);
+    expect(result.code).toBe(1);
+    expect(existsSync(held)).toBe(false);
+  });
+
   it("names both files of an overlap that disagrees, and says what --accounts does", () => {
     const dir = scratch();
     const a = purchases(dir, "a.csv", [

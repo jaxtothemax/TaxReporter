@@ -284,6 +284,7 @@ In the real 2025 export of §4.2, the takeover matched that description, with th
 - The two rows came 15 seconds apart, both priced `0E-10`, with a `Total` of `0.00` and no exchange rate.
 - The `Stock distribution` quantity was the sale's times the published exchange ratio.
 - Both rows were dated several days after the merger completed, so a row's time is when T212 booked it, not the date of the exchange. Any input the user gives for a takeover has to carry its own date and value.
+- The two rows were booked 15 seconds apart, the sale first. ADR 0017 pairs a `Stock distribution` with a sale at 0 only one to one, booked within a minute after it, and takes an event to fall up to 31 days before its booking.
 - `Result` on the sale was minus the position's whole cost. That is T212's write-off, not a tax figure.
 - A `Custom stock distribution` row booked subscription rights at a price of `0E-10`, under a name ending in `- CorpAct` and a ticker ending in `.RST`. Its tax treatment is an open question ([04](04-si-tax-rules.md#open-questions)).
 

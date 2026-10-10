@@ -4,7 +4,7 @@
  * but for the rate snapshot, which it is handed, so the tests run it in Node
  * over the broker fixtures; the worker file is a thin shell around it.
  */
-import { hasBlocking, type Diagnostic } from "@taxreporter/core";
+import { hasBlocking, scopeLedger, type Diagnostic } from "@taxreporter/core";
 import {
   isFursCountry,
   isTaxNumber,
@@ -116,11 +116,12 @@ export async function handleRequest(
       accounts: request.accounts,
     });
     const index = fileIndex(read, names);
-    const files = summarize(read, index);
+    // The year's view of what reading found: a refusal of another year is a
+    // note, on the files step as in the review (ADR 0017).
+    const scope = scopeLedger(read.ledger, request.taxYear);
+    const files = summarize(read, index, scope.view);
     if (request.kind === "read") {
-      const session = bounded(
-        sessionFindings(read.ledger.diagnostics, files, index),
-      );
+      const session = bounded(sessionFindings(scope.findings, files, index));
       return {
         ...base,
         kind: "read",
@@ -138,12 +139,12 @@ export async function handleRequest(
       rates: await rates(),
       payers,
     });
-    const { kdvp, div, ledger } = prepared;
-    // A finding from reading the files can bear on either return, so it
-    // withholds both; a builder's own withholds only its form (ADR 0013 §9).
-    const fromLedger = blocking(ledger.diagnostics);
-    const kdvpBlocking = fromLedger + blocking(kdvp.diagnostics);
-    const divBlocking = fromLedger + blocking(div.diagnostics);
+    const { kdvp, div } = prepared;
+    // A finding from reading the files withholds each form it can change
+    // this year; a builder's own withholds only its form (ADRs 0013 §9, 0017).
+    const kdvpBlocking =
+      prepared.scope.kdvp.length + blocking(kdvp.diagnostics);
+    const divBlocking = prepared.scope.div.length + blocking(div.diagnostics);
     const kdvpOut: FormOutput = {
       xml:
         kdvp.form === null || hasBlocking(kdvp.diagnostics)

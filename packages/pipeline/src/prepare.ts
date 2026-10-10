@@ -17,10 +17,12 @@ import {
   fileRef,
   isIsoDate,
   LIMITS,
+  scopeLedger,
   validateLedger,
   type Diagnostic,
   type FileId,
   type IsoDate,
+  type LedgerScope,
   type ValidatedLedger,
 } from "@taxreporter/core";
 import {
@@ -98,6 +100,12 @@ export interface ReadExports {
 export interface Prepared extends ReadExports {
   /** The coverage end the 30-day rule used. */
   readonly coverageEnd: IsoDate;
+  /**
+   * The ledger's findings for this year: which withhold each form, and the
+   * list the review shows (ADR 0017). Read these, not `ledger.diagnostics`,
+   * whose refusals may belong to another year.
+   */
+  readonly scope: LedgerScope;
   readonly kdvp: KdvpBuild;
   readonly div: DivBuild;
   /**
@@ -221,12 +229,15 @@ export function buildReturns(read: ReadExports, input: BuildInput): Prepared {
     (compareText(reached, input.rates.completeThrough) > 0
       ? input.rates.completeThrough
       : reached);
+  // Worked out once, for both builders and for what the review shows.
+  const scope = scopeLedger(ledger, input.taxYear);
   const kdvp = buildDohKdvp({
     taxYear: input.taxYear,
     taxpayer: input.taxpayer,
     ledger,
     rates: input.rates,
     coverageEnd,
+    scope,
   });
   const div = buildDohDiv({
     taxYear: input.taxYear,
@@ -234,8 +245,16 @@ export function buildReturns(read: ReadExports, input: BuildInput): Prepared {
     ledger,
     rates: input.rates,
     payers: input.payers,
+    scope,
   });
-  return { ...read, coverageEnd, kdvp, div, holdings: holdingsOf(read, input) };
+  return {
+    ...read,
+    coverageEnd,
+    scope,
+    kdvp,
+    div,
+    holdings: holdingsOf(read, input),
+  };
 }
 
 /**

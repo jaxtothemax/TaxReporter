@@ -10,6 +10,11 @@
 > JSON output (`apps/cli/src/index.test.ts`). The XML family adapter (Interactive Brokers, ADR
 > 0012) and the web worker (items 1 and 11 in the browser, ADR 0013) are on `main` too. Not every limit has a test at its value
 > as well as one past it yet.
+>
+> **Superseded in part by [ADR 0017](0017-a-refused-row-withholds-only-the-returns-it-can-change.md)
+> (Proposed, 2026-10-10).** Decision 9's "an adapter's refused row included, withholds both
+> forms" no longer holds for a refusal whose adapter states its ISIN, date and effect on a
+> holding: it withholds only the returns of the prepared year that it can change.
 
 ## Context
 

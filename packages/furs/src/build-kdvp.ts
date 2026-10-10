@@ -55,6 +55,7 @@ import {
   isIsoDate,
   lotBase,
   matchFifo,
+  scopeLedger,
   splitFactor,
   washSaleVerdicts,
   WASH_SALE_DAYS,
@@ -63,6 +64,7 @@ import {
   type GainsEstimate,
   type HoldingBucket,
   type IsoDate,
+  type LedgerScope,
   type LossSale,
   type LotMatch,
   type Money,
@@ -94,6 +96,11 @@ export interface KdvpBuildInput {
    * could hide a replacement.
    */
   readonly coverageEnd: IsoDate;
+  /**
+   * The ledger's findings for this year (`scopeLedger` over the same ledger
+   * and year), when the caller already has it; worked out here otherwise.
+   */
+  readonly scope?: LedgerScope;
 }
 
 /** A row of a built list, with what the review shows about it. */
@@ -374,7 +381,10 @@ export function buildDohKdvp(input: KdvpBuildInput): KdvpBuild {
   // The writer's own rules, run here so that a form handed out is one the
   // writer takes. Only when nothing else blocks: a missing rate or purchase
   // leaves lists that break them too, and the review should show the cause.
-  const ledgerBlocks = hasBlocking(input.ledger.diagnostics);
+  // A refusal from reading the files withholds the form only if it can
+  // change this year's figures (ADR 0017).
+  const ledgerBlocks =
+    (input.scope ?? scopeLedger(input.ledger, input.taxYear)).kdvp.length > 0;
   if (lists.length > 0 && !ledgerBlocks && !hasBlocking(diagnostics)) {
     for (const issue of validateDohKdvp(draft)) {
       diagnostics.push(

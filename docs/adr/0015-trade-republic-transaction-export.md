@@ -6,6 +6,10 @@
 > **Implementation status (2026-10-09):** on `main`, not yet in a release, in
 > `packages/brokers/src/trade-republic.ts`. It is tested only against the synthetic export in
 > `packages/brokers/test/fixtures/trade-republic/`; no real export has been read yet (#12).
+>
+> **Superseded in part by [ADR 0017](0017-a-refused-row-withholds-only-the-returns-it-can-change.md)
+> (Proposed, 2026-10-10)** for refusals whose adapter states their reach. Trade Republic's
+> refusals state none, so a Trade Republic dividend still blocks both returns, as below.
 
 ## Context
 

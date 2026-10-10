@@ -38,6 +38,7 @@ import {
   accountGroup,
   Decimal,
   diagnostic,
+  instantMillis,
   isIsin,
   keyBuilder,
   LIMITS,
@@ -117,6 +118,49 @@ const INTEREST = new Set([
   "Lending interest",
   "Dividend (Interest)",
 ]);
+
+/** Rights handed out free to holders, under a `.RST` ticker (06 §4.3). */
+const FREE_RIGHTS = "Custom stock distribution";
+/** The new shares of a takeover paid in shares, among other uses (06 §4.3). */
+const SHARES_RECEIVED = "Stock distribution";
+/**
+ * How long after a takeover's sale at 0 its new shares may be booked to be
+ * paired with it: 15 seconds in the real export seen (06 §4.3).
+ */
+const TAKEOVER_PAIR_MS = 60 * 1000;
+
+/** A row of one leg of a takeover, for pairing after the last row. */
+interface Leg {
+  readonly ms: number;
+  readonly isin: string;
+  readonly date: IsoDate;
+}
+
+/**
+ * The legs booked from `from` to `to`, in milliseconds, at most two: one
+ * is a candidate, two are ambiguous. `legs` is sorted by time, so this is a
+ * binary search and a step, whatever the file holds.
+ */
+function legsBetween<L extends Leg>(
+  legs: readonly L[],
+  from: number,
+  to: number,
+): L[] {
+  let low = 0;
+  let high = legs.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if ((legs[middle]?.ms ?? Infinity) < from) low = middle + 1;
+    else high = middle;
+  }
+  const found: L[] = [];
+  for (let at = low; at < legs.length && found.length < 2; at += 1) {
+    const leg = legs[at];
+    if (leg === undefined || leg.ms > to) break;
+    found.push(leg);
+  }
+  return found;
+}
 
 /** Known actions whose tax treatment is not settled (06 §4.3, §4.6). */
 const UNSETTLED = new Set([
@@ -379,6 +423,11 @@ function read(table: CsvTable, context: ReadContext): ImportResult {
 
   const fundsNoted = new Set<string>();
   const halves = new Map<string, { close: SplitHalf[]; open: SplitHalf[] }>();
+  // A takeover's legs, to pair after the last row (ADR 0017): each
+  // `Stock distribution` refusal and each sale at a price of exactly 0, with
+  // where its refusal sits among the findings.
+  const received: (Leg & { readonly index: number })[] = [];
+  const soldAtZero: (Leg & { readonly index: number })[] = [];
   let interestRows = 0;
   let lastDate: string | null = null;
 
@@ -423,7 +472,31 @@ function read(table: CsvTable, context: ReadContext): ImportResult {
       continue;
     }
     if (UNSETTLED.has(action)) {
-      block("unsupportedAction", { broker: TRADING212, action });
+      // Refused either way. What the refusal can reach is stated only where
+      // the row's shape shows it (ADR 0017): rights booked under a `.RST`
+      // ticker, and new shares paired with a sale at 0 after the last row.
+      // Every other refusal withholds both returns of every year.
+      const isin = text(row, "ISIN");
+      if (
+        (action === FREE_RIGHTS || action === SHARES_RECEIVED) &&
+        isIsin(isin)
+      ) {
+        const rights =
+          action === FREE_RIGHTS && text(row, "Ticker").endsWith(".RST");
+        block("unsupportedAction", {
+          broker: TRADING212,
+          action,
+          isin,
+          date,
+          ...(rights ? { shares: "rights" as const } : {}),
+        });
+        const ms = at.instant === null ? null : instantMillis(at.instant);
+        if (action === SHARES_RECEIVED && ms !== null) {
+          received.push({ index: diagnostics.length - 1, ms, isin, date });
+        }
+      } else {
+        block("unsupportedAction", { broker: TRADING212, action });
+      }
       continue;
     }
     const side = BUYS.has(action) ? "buy" : SELLS.has(action) ? "sell" : null;
@@ -499,9 +572,15 @@ function read(table: CsvTable, context: ReadContext): ImportResult {
       continue;
     }
     // Zero is no price: a sale at 0 is a takeover paid in shares, which
-    // needs the user's input (06 §4.3).
+    // needs the user's input (06 §4.3). Refused unscoped here; one at a
+    // price of exactly 0 that pairs with its new shares after the last row
+    // is scoped there (ADR 0017).
     if (price === null || !price.isPositive()) {
       block("invalidPrice", {});
+      const ms = at.instant === null ? null : instantMillis(at.instant);
+      if (side === "sell" && price?.isZero() === true && ms !== null) {
+        soldAtZero.push({ index: diagnostics.length - 1, ms, isin, date });
+      }
       continue;
     }
 
@@ -595,6 +674,55 @@ function read(table: CsvTable, context: ReadContext): ImportResult {
         amount: { amount: withheld, currency },
       });
     }
+  }
+
+  // A sale at 0 and the new shares booked just after it are a takeover's
+  // two legs: what one gives up the other receives, so both refusals are
+  // scoped. Only one to one, within a minute, the sale first, the same day
+  // and another security: a spin-off or bonus issue booked in a batch
+  // beside it reaches further, and a sale at 0 whose new shares never came,
+  // or came in another file, leaves them out of the ledger, so a later sale
+  // of the new security could take the wrong lots unnoticed (ADR 0017).
+  // Anything unpaired or ambiguous stays unscoped.
+  const sales = [...soldAtZero].sort((a, b) => a.ms - b.ms);
+  const receipts = [...received].sort((a, b) => a.ms - b.ms);
+  for (const receipt of received) {
+    const before = legsBetween(
+      sales,
+      receipt.ms - TAKEOVER_PAIR_MS,
+      receipt.ms,
+    );
+    const [sale] = before;
+    if (before.length !== 1 || sale === undefined) continue;
+    const after = legsBetween(receipts, sale.ms, sale.ms + TAKEOVER_PAIR_MS);
+    if (
+      after.length !== 1 ||
+      after[0] !== receipt ||
+      sale.isin === receipt.isin ||
+      sale.date !== receipt.date
+    ) {
+      continue;
+    }
+    const refusal = diagnostics[receipt.index];
+    const gave = diagnostics[sale.index];
+    if (
+      refusal?.code !== "unsupportedAction" ||
+      gave?.code !== "invalidPrice"
+    ) {
+      continue;
+    }
+    diagnostics[receipt.index] = diagnostic(
+      "blocking",
+      "unsupportedAction",
+      { ...refusal.params, shares: "in" },
+      refusal.source,
+    );
+    diagnostics[sale.index] = diagnostic(
+      "blocking",
+      "invalidPrice",
+      { isin: sale.isin, date: sale.date, shares: "out" },
+      gave.source,
+    );
   }
 
   // More split pairs on one security than the engine takes are refused

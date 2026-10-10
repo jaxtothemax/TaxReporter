@@ -9,6 +9,11 @@
 > `i18n/present.ts`, `state/wizard.ts` and the four step screens. Tested in Node over the
 > synthetic broker fixtures and in a headless browser against the dev server and the
 > production build; no real export has been read in the browser yet.
+>
+> **Superseded in part by [ADR 0017](0017-a-refused-row-withholds-only-the-returns-it-can-change.md)
+> (Proposed, 2026-10-10).** In decision 9, a refusal whose adapter states its ISIN, date and
+> effect on a holding withholds only the forms of the prepared year that it can change; in
+> other years it is shown as a note.
 
 ## Context
 

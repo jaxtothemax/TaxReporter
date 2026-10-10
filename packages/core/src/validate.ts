@@ -36,7 +36,11 @@ declare const validated: unique symbol;
 export interface ValidatedLedger {
   /** One report of each event, in file and row order. */
   readonly events: readonly LedgerEvent[];
-  /** A blocking finding here withholds every form built from the ledger. */
+  /**
+   * A blocking finding here withholds every form built from the ledger,
+   * except a refusal scoped to the returns it can change (ADR 0017,
+   * `scopeLedger`).
+   */
   readonly diagnostics: readonly Diagnostic[];
   readonly [validated]: true;
 }
@@ -538,8 +542,9 @@ function sharedAcrossAccounts(kept: readonly KeyedEvent[]): Diagnostic[] {
  * disagreeing reports is right is the user's call.
  *
  * `carried` is what reading the files found. It stays with the ledger, so
- * that a row an adapter refused withholds every form as surely as an event
- * refused here: a return built without that row would be wrong.
+ * that a row an adapter refused withholds every form it can change as
+ * surely as an event refused here: a return built without that row would be
+ * wrong. Which forms, of which year, is `scopeLedger`'s (ADR 0017).
  */
 export function validateLedger(
   input: readonly LedgerEvent[],
